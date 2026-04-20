@@ -3,6 +3,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt
 
+from cash_and_securities_management.custody_management.utils import get_settings
+
 
 class CustodyRequest(Document):
 
@@ -18,12 +20,12 @@ class CustodyRequest(Document):
 		self.db_set("status", "Cancelled")
 
 	def set_defaults_from_settings(self):
-		settings = frappe.get_cached_doc("Cash and Securities Settings")
-		if not self.advance_account and settings.custody_advance_account:
+		settings = get_settings()
+		if not self.advance_account and settings.get("custody_advance_account"):
 			self.advance_account = settings.custody_advance_account
-		if not self.mode_of_payment and settings.default_mode_of_payment:
+		if not self.mode_of_payment and settings.get("default_mode_of_payment"):
 			self.mode_of_payment = settings.default_mode_of_payment
-		if not self.cost_center and settings.default_cost_center:
+		if not self.cost_center and settings.get("default_cost_center"):
 			self.cost_center = settings.default_cost_center
 
 	def calculate_remaining_balance(self):

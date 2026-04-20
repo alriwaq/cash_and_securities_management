@@ -3,6 +3,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, nowdate
 
+from cash_and_securities_management.custody_management.utils import get_settings
+
 
 class AccountantCustody(Document):
 
@@ -26,17 +28,16 @@ class AccountantCustody(Document):
 	# ─── Defaults & Setup ─────────────────────────────────────────────────────
 
 	def set_defaults_from_settings(self):
-		settings = frappe.get_cached_doc("Cash and Securities Settings")
-		if not self.payable_account:
+		settings = get_settings()
+		if not self.payable_account and settings.get("default_cash_purchases_supplier"):
 			supplier = settings.default_cash_purchases_supplier
-			if supplier:
-				payable = frappe.db.get_value(
-					"Supplier",
-					supplier,
-					"default_payable_account",
-				)
-				if payable:
-					self.payable_account = payable
+			payable = frappe.db.get_value(
+				"Supplier",
+				supplier,
+				"default_payable_account",
+			)
+			if payable:
+				self.payable_account = payable
 
 	def auto_link_custody_request(self):
 		"""Auto-link to the first unpaid Custody Request for this employee if not set."""
@@ -128,12 +129,12 @@ class AccountantCustody(Document):
 
 	def create_purchase_receipt(self):
 		"""Auto-create a draft Purchase Receipt for all stock/fixed asset items."""
-		settings = frappe.get_cached_doc("Cash and Securities Settings")
+		settings = get_settings()
 		stock_items = [
 			item for item in self.custody_items if item.is_stock_item or item.is_fixed_asset
 		]
 		if not stock_items:
-			# No stock/asset items — skip PR creation, go straight to Invoiced state
+			# No stock/asset items — skip PR creation, go straight to Fully Received state
 			self.db_set("status", "Fully Received")
 			return
 
@@ -152,14 +153,14 @@ class AccountantCustody(Document):
 			return
 
 		pr = frappe.new_doc("Purchase Receipt")
-		pr.supplier = settings.default_cash_purchases_supplier
+		pr.supplier = settings.get("default_cash_purchases_supplier") or ""
 		pr.posting_date = self.posting_date
 		pr.company = self.company
 		pr.cost_center = self.cost_center
 		pr.project = self.project
 		pr.custom_accountant_custody = self.name
 		pr.custom_source_document_type = "Custody"
-		if settings.pr_series:
+		if settings.get("pr_series"):
 			pr.naming_series = settings.pr_series
 
 		for item in stock_items:
@@ -169,7 +170,7 @@ class AccountantCustody(Document):
 					"item_code": item.item_code,
 					"qty": item.qty,
 					"rate": item.rate,
-					"warehouse": item.warehouse or self.accepted_warehouse if hasattr(self, "accepted_warehouse") else item.warehouse,
+					"warehouse": item.warehouse,
 					"is_fixed_asset": item.is_fixed_asset,
 					"asset_location": item.asset_location,
 					"cost_center": self.cost_center,
@@ -203,17 +204,17 @@ class AccountantCustody(Document):
 				)
 			)
 
-		settings = frappe.get_cached_doc("Cash and Securities Settings")
+		settings = get_settings()
 
 		pi = frappe.new_doc("Purchase Invoice")
-		pi.supplier = settings.default_cash_purchases_supplier
+		pi.supplier = settings.get("default_cash_purchases_supplier") or ""
 		pi.posting_date = nowdate()
 		pi.company = self.company
 		pi.cost_center = self.cost_center
 		pi.project = self.project
 		pi.custom_accountant_custody = self.name
 		pi.custom_source_document_type = "Custody"
-		if settings.pi_series:
+		if settings.get("pi_series"):
 			pi.naming_series = settings.pi_series
 
 		for item in self.custody_items:
@@ -255,7 +256,7 @@ class AccountantCustody(Document):
 		if self.status != "Invoiced":
 			frappe.throw(_("Settlement can only be done when status is 'Invoiced'."))
 
-		settings = frappe.get_cached_doc("Cash and Securities Settings")
+		settings = get_settings()
 		advance_amount_allocated = flt(advance_amount_allocated)
 		direct_payment_amount = flt(direct_payment_amount)
 		total_settlement = advance_amount_allocated + direct_payment_amount
@@ -281,7 +282,7 @@ class AccountantCustody(Document):
 				"account": self.payable_account,
 				"debit_in_account_currency": total_settlement,
 				"party_type": "Supplier",
-				"party": settings.default_cash_purchases_supplier,
+				"party": settings.get("default_cash_purchases_supplier") or "",
 				"reference_type": "Purchase Invoice",
 				"reference_name": self.purchase_invoice,
 				"cost_center": self.cost_center,
@@ -290,12 +291,20 @@ class AccountantCustody(Document):
 
 		# Credit Custody Advance (for advance portion)
 		if advance_amount_allocated > 0:
-			custody_request_doc = frappe.get_doc("Custody Request", self.custody_request) if self.custody_request else None
+			custody_request_doc = (
+				frappe.get_doc("Custody Request", self.custody_request)
+				if self.custody_request
+				else None
+			)
 			advance_account = (
 				custody_request_doc.advance_account
 				if custody_request_doc
-				else settings.custody_advance_account
+				else settings.get("custody_advance_account") or ""
 			)
+			if not advance_account:
+				frappe.throw(
+					_("Please set the Custody Advance Account in Cash and Securities Settings.")
+				)
 			je.append(
 				"accounts",
 				{
@@ -309,7 +318,7 @@ class AccountantCustody(Document):
 
 		# Credit Cash/Bank (for direct payment portion)
 		if direct_payment_amount > 0:
-			direct_account = settings.settlement_expense_account
+			direct_account = settings.get("settlement_expense_account") or ""
 			if not direct_account:
 				frappe.throw(
 					_("Please set the Settlement Expense Account in Cash and Securities Settings.")
@@ -355,7 +364,7 @@ class AccountantCustody(Document):
 		)
 		return je.name
 
-	# ─── PR Callback ──────────────────────────────────────────────────────────
+	# ─── PR/PI Callbacks ──────────────────────────────────────────────────────
 
 	def update_received_quantities(self):
 		"""Called after a linked PR is submitted. Updates accepted_qty on items."""
@@ -405,4 +414,3 @@ class AccountantCustody(Document):
 					break
 		self.calculate_totals()
 		self.save(ignore_permissions=True)
-
