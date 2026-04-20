@@ -1,6 +1,7 @@
 [
   {
     "doctype": "Custom Field",
+    "name": "Purchase Receipt-custom_accountant_custody",
     "dt": "Purchase Receipt",
     "fieldname": "custom_accountant_custody",
     "fieldtype": "Link",
@@ -15,6 +16,7 @@
   },
   {
     "doctype": "Custom Field",
+    "name": "Purchase Receipt-custom_source_document_type",
     "dt": "Purchase Receipt",
     "fieldname": "custom_source_document_type",
     "fieldtype": "Data",
@@ -27,6 +29,7 @@
   },
   {
     "doctype": "Custom Field",
+    "name": "Purchase Invoice-custom_accountant_custody",
     "dt": "Purchase Invoice",
     "fieldname": "custom_accountant_custody",
     "fieldtype": "Link",
@@ -41,6 +44,7 @@
   },
   {
     "doctype": "Custom Field",
+    "name": "Purchase Invoice-custom_source_document_type",
     "dt": "Purchase Invoice",
     "fieldname": "custom_source_document_type",
     "fieldtype": "Data",
