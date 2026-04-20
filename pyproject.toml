@@ -1,0 +1,18 @@
+[project]
+name = "cash_and_securities_management"
+authors = [
+    { name = "Your Company", email = "admin@yourcompany.com" }
+]
+description = "Custom ERPNext module for managing employee custody requests, accountant custody records, and the full procurement cycle integration."
+requires-python = ">=3.10"
+readme = "README.md"
+dynamic = ["version"]
+dependencies = []
+
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.bench.frappe-dependencies]
+frappe = ">=15.0.0,<16.0.0"
+erpnext = ">=15.0.0,<16.0.0"
