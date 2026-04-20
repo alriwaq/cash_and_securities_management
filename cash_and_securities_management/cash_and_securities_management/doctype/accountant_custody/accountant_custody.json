@@ -1,0 +1,369 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "autoname": "naming_series:",
+ "creation": "2024-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "main_tab",
+  "naming_series",
+  "employee",
+  "employee_name",
+  "department",
+  "company",
+  "column_break_5",
+  "posting_date",
+  "status",
+  "custody_request",
+  "custody_request_balance",
+  "items_section",
+  "custody_items",
+  "totals_section",
+  "total_amount",
+  "column_break_totals",
+  "total_accepted_amount",
+  "total_billed_amount",
+  "accounting_tab",
+  "accounting_details",
+  "cost_center",
+  "project",
+  "column_break_24",
+  "payable_account",
+  "remark",
+  "linked_documents_section",
+  "purchase_invoice",
+  "column_break_linked",
+  "settlement_tab",
+  "settlements",
+  "more_info_tab",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "main_tab",
+   "fieldtype": "Tab Break",
+   "label": "Custody Details"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "no_copy": 1,
+   "options": "AC-.YYYY.-.#####",
+   "print_hide": 1,
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "in_global_search": 1,
+   "in_standard_filter": 1,
+   "label": "Employee",
+   "options": "Employee",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fetch_from": "employee.employee_name",
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "in_global_search": 1,
+   "label": "Employee Name",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "employee.department",
+   "fetch_if_empty": 1,
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "Department"
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Today",
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "in_standard_filter": 1,
+   "label": "Posting Date",
+   "reqd": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "no_copy": 1,
+   "options": "Draft\nSubmitted\nReceiving\nFully Received\nInvoiced\nSettled\nCancelled",
+   "print_hide": 1,
+   "read_only": 1
+  },
+  {
+   "description": "Link to the Custody Request (advance). Auto-links to the first unpaid request for this employee.",
+   "fieldname": "custody_request",
+   "fieldtype": "Link",
+   "label": "Custody Request",
+   "options": "Custody Request"
+  },
+  {
+   "description": "Remaining balance on the linked Custody Request",
+   "fieldname": "custody_request_balance",
+   "fieldtype": "Currency",
+   "label": "Custody Request Balance",
+   "no_copy": 1,
+   "options": "Company:company:default_currency",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "employee.company",
+   "fetch_if_empty": 1,
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "items_section",
+   "fieldtype": "Section Break",
+   "label": "Custody Items"
+  },
+  {
+   "fieldname": "custody_items",
+   "fieldtype": "Table",
+   "label": "Custody Items",
+   "options": "Accountant Custody Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "totals_section",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Amount",
+   "no_copy": 1,
+   "options": "Company:company:default_currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_totals",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Total amount of items received via Purchase Receipt",
+   "fieldname": "total_accepted_amount",
+   "fieldtype": "Currency",
+   "label": "Total Accepted Amount",
+   "no_copy": 1,
+   "options": "Company:company:default_currency",
+   "read_only": 1
+  },
+  {
+   "description": "Total amount billed via Purchase Invoice",
+   "fieldname": "total_billed_amount",
+   "fieldtype": "Currency",
+   "label": "Total Billed Amount",
+   "no_copy": 1,
+   "options": "Company:company:default_currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "accounting_tab",
+   "fieldtype": "Tab Break",
+   "label": "Accounting"
+  },
+  {
+   "fieldname": "accounting_details",
+   "fieldtype": "Section Break",
+   "label": "Accounting Details"
+  },
+  {
+   "allow_on_submit": 1,
+   "fetch_from": "company.cost_center",
+   "fetch_if_empty": 1,
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Project"
+  },
+  {
+   "fieldname": "column_break_24",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Supplier Payable account. Defaults to the Cash Purchases supplier payable account.",
+   "fetch_if_empty": 1,
+   "fieldname": "payable_account",
+   "fieldtype": "Link",
+   "label": "Payable Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "remark",
+   "fieldtype": "Small Text",
+   "label": "Remark",
+   "no_copy": 1
+  },
+  {
+   "fieldname": "linked_documents_section",
+   "fieldtype": "Section Break",
+   "label": "Linked Documents"
+  },
+  {
+   "description": "Purchase Invoice generated from this custody record",
+   "fieldname": "purchase_invoice",
+   "fieldtype": "Link",
+   "label": "Purchase Invoice",
+   "no_copy": 1,
+   "options": "Purchase Invoice",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_linked",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "settlement_tab",
+   "fieldtype": "Tab Break",
+   "label": "Settlement"
+  },
+  {
+   "fieldname": "settlements",
+   "fieldtype": "Table",
+   "label": "Settlement Entries",
+   "options": "Custody Settlement Entry"
+  },
+  {
+   "fieldname": "more_info_tab",
+   "fieldtype": "Tab Break",
+   "label": "More Info"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "ignore_user_permissions": 1,
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Accountant Custody",
+   "print_hide": 1,
+   "read_only": 1,
+   "report_hide": 1
+  }
+ ],
+ "is_submittable": 1,
+ "links": [
+  {
+   "group": "Purchase",
+   "link_doctype": "Purchase Receipt",
+   "link_fieldname": "custom_accountant_custody"
+  },
+  {
+   "group": "Purchase",
+   "link_doctype": "Purchase Invoice",
+   "link_fieldname": "custom_accountant_custody"
+  }
+ ],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Cash and Securities Management",
+ "name": "Accountant Custody",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Employee",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Expense Approver",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "search_fields": "employee,employee_name,status",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [
+  {
+   "color": "Red",
+   "title": "Draft"
+  },
+  {
+   "color": "Orange",
+   "title": "Submitted"
+  },
+  {
+   "color": "Yellow",
+   "title": "Receiving"
+  },
+  {
+   "color": "Blue",
+   "title": "Fully Received"
+  },
+  {
+   "color": "Purple",
+   "title": "Invoiced"
+  },
+  {
+   "color": "Green",
+   "title": "Settled"
+  },
+  {
+   "color": "Red",
+   "title": "Cancelled"
+  }
+ ],
+ "title_field": "employee_name",
+ "track_changes": 1
+}

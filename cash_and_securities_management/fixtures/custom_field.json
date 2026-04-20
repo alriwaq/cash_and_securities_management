@@ -1,0 +1,54 @@
+[
+  {
+    "doctype": "Custom Field",
+    "dt": "Purchase Receipt",
+    "fieldname": "custom_accountant_custody",
+    "fieldtype": "Link",
+    "label": "Accountant Custody",
+    "options": "Accountant Custody",
+    "insert_after": "supplier",
+    "read_only": 1,
+    "no_copy": 1,
+    "in_list_view": 0,
+    "print_hide": 0,
+    "description": "Linked Accountant Custody record that generated this Purchase Receipt"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "Purchase Receipt",
+    "fieldname": "custom_source_document_type",
+    "fieldtype": "Data",
+    "label": "Source Document Type",
+    "insert_after": "custom_accountant_custody",
+    "read_only": 1,
+    "no_copy": 1,
+    "print_hide": 1,
+    "description": "Internal field to identify the source document type (e.g., Custody)"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "Purchase Invoice",
+    "fieldname": "custom_accountant_custody",
+    "fieldtype": "Link",
+    "label": "Accountant Custody",
+    "options": "Accountant Custody",
+    "insert_after": "supplier",
+    "read_only": 1,
+    "no_copy": 1,
+    "in_list_view": 0,
+    "print_hide": 0,
+    "description": "Linked Accountant Custody record that generated this Purchase Invoice"
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "Purchase Invoice",
+    "fieldname": "custom_source_document_type",
+    "fieldtype": "Data",
+    "label": "Source Document Type",
+    "insert_after": "custom_accountant_custody",
+    "read_only": 1,
+    "no_copy": 1,
+    "print_hide": 1,
+    "description": "Internal field to identify the source document type (e.g., Custody)"
+  }
+]

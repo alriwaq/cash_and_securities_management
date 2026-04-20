@@ -1,0 +1,104 @@
+{
+ "actions": [],
+ "creation": "2024-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "settlement_type",
+  "settlement_date",
+  "column_break_1",
+  "total_settlement_amount",
+  "settlement_je",
+  "amounts_section",
+  "advance_amount_allocated",
+  "column_break_2",
+  "direct_payment_amount",
+  "notes_section",
+  "settlement_notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "settlement_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Settlement Type",
+   "options": "\nFull Advance Settlement\nFull Direct Payment\nMixed Settlement",
+   "reqd": 1
+  },
+  {
+   "default": "Today",
+   "fieldname": "settlement_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Settlement Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_settlement_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Settlement Amount",
+   "options": "Company:company:default_currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "settlement_je",
+   "fieldtype": "Link",
+   "label": "Settlement Journal Entry",
+   "options": "Journal Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amounts_section",
+   "fieldtype": "Section Break",
+   "label": "Settlement Amounts"
+  },
+  {
+   "depends_on": "eval:['Full Advance Settlement','Mixed Settlement'].includes(doc.settlement_type)",
+   "description": "Amount allocated from the linked Custody Request advance",
+   "fieldname": "advance_amount_allocated",
+   "fieldtype": "Currency",
+   "label": "Advance Amount Allocated",
+   "options": "Company:company:default_currency"
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:['Full Direct Payment','Mixed Settlement'].includes(doc.settlement_type)",
+   "description": "Amount paid directly (not from advance)",
+   "fieldname": "direct_payment_amount",
+   "fieldtype": "Currency",
+   "label": "Direct Payment Amount",
+   "options": "Company:company:default_currency"
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "settlement_notes",
+   "fieldtype": "Small Text",
+   "label": "Settlement Notes"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Cash and Securities Management",
+ "name": "Custody Settlement Entry",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 0
+}

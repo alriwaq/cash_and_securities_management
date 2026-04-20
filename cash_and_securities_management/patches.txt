@@ -1,0 +1,3 @@
+# Patches for Cash and Securities Management
+# Format: app_name.module.patch_file
+# Example: cash_and_securities_management.patches.v1_0.initial_setup
