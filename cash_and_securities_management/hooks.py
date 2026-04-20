@@ -10,33 +10,28 @@ app_version = "1.0.0"
 required_apps = ["frappe/erpnext"]
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
-# Export these doctypes as fixtures for deployment
+# Export custom fields on standard DocTypes for deployment
 fixtures = [
     {
         "doctype": "Custom Field",
         "filters": [
             ["dt", "in", ["Purchase Receipt", "Purchase Invoice"]]
         ]
-    },
-    {
-        "doctype": "Module Def",
-        "filters": [["module_name", "=", "Cash and Securities Management"]]
     }
 ]
 
 # ─── Document Events ──────────────────────────────────────────────────────────
 # Hook into Purchase Receipt and Purchase Invoice to keep Accountant Custody in sync
-
 doc_events = {
     "Purchase Receipt": {
-        "validate": "cash_and_securities_management.cash_and_securities_management.doctype.accountant_custody.pr_hooks.on_pr_validate",
-        "on_submit": "cash_and_securities_management.cash_and_securities_management.doctype.accountant_custody.pr_hooks.on_pr_submit",
-        "on_cancel": "cash_and_securities_management.cash_and_securities_management.doctype.accountant_custody.pr_hooks.on_pr_cancel",
+        "validate": "cash_and_securities_management.custody_management.doctype.accountant_custody.pr_hooks.on_pr_validate",
+        "on_submit": "cash_and_securities_management.custody_management.doctype.accountant_custody.pr_hooks.on_pr_submit",
+        "on_cancel": "cash_and_securities_management.custody_management.doctype.accountant_custody.pr_hooks.on_pr_cancel",
     },
     "Purchase Invoice": {
-        "validate": "cash_and_securities_management.cash_and_securities_management.doctype.accountant_custody.pr_hooks.on_pi_validate",
-        "on_submit": "cash_and_securities_management.cash_and_securities_management.doctype.accountant_custody.pr_hooks.on_pi_submit",
-        "on_cancel": "cash_and_securities_management.cash_and_securities_management.doctype.accountant_custody.pr_hooks.on_pi_cancel",
+        "validate": "cash_and_securities_management.custody_management.doctype.accountant_custody.pr_hooks.on_pi_validate",
+        "on_submit": "cash_and_securities_management.custody_management.doctype.accountant_custody.pr_hooks.on_pi_submit",
+        "on_cancel": "cash_and_securities_management.custody_management.doctype.accountant_custody.pr_hooks.on_pi_cancel",
     },
 }
 
