@@ -1,0 +1,34 @@
+[
+ {
+  "name": "Custody by Status",
+  "doctype": "Dashboard Chart",
+  "chart_name": "Custody by Status",
+  "chart_type": "Group By",
+  "document_type": "Accountant Custody",
+  "group_by_based_on": "status",
+  "group_by_type": "Count",
+  "filters_json": "[[\"Accountant Custody\",\"docstatus\",\"=\",1]]",
+  "type": "Donut",
+  "timespan": "Last Year",
+  "time_interval": "Monthly",
+  "is_public": 1,
+  "is_custom": 0,
+  "module": "Custody Management"
+ },
+ {
+  "name": "Monthly Custody Amount",
+  "doctype": "Dashboard Chart",
+  "chart_name": "Monthly Custody Amount",
+  "chart_type": "Sum",
+  "document_type": "Accountant Custody",
+  "based_on": "posting_date",
+  "value_based_on": "total_amount",
+  "filters_json": "[[\"Accountant Custody\",\"docstatus\",\"=\",1]]",
+  "type": "Bar",
+  "timespan": "Last Year",
+  "time_interval": "Monthly",
+  "is_public": 1,
+  "is_custom": 0,
+  "module": "Custody Management"
+ }
+]

@@ -10,14 +10,37 @@ app_version = "1.0.0"
 required_apps = ["frappe/erpnext"]
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
-# Export custom fields on standard DocTypes for deployment
+# These fixtures are installed automatically when the app is installed on a site.
+# They create the Workspace (sidebar module), Number Cards, and Dashboard Charts.
 fixtures = [
+    # Custom fields added to standard ERPNext doctypes
     {
         "doctype": "Custom Field",
         "filters": [
             ["dt", "in", ["Purchase Receipt", "Purchase Invoice"]]
         ]
-    }
+    },
+    # Workspace — registers the module in the Frappe sidebar
+    {
+        "doctype": "Workspace",
+        "filters": [
+            ["module", "=", "Custody Management"]
+        ]
+    },
+    # Number Cards — dashboard KPI tiles
+    {
+        "doctype": "Number Card",
+        "filters": [
+            ["module", "=", "Custody Management"]
+        ]
+    },
+    # Dashboard Charts — visual charts on the workspace
+    {
+        "doctype": "Dashboard Chart",
+        "filters": [
+            ["module", "=", "Custody Management"]
+        ]
+    },
 ]
 
 # ─── Document Events ──────────────────────────────────────────────────────────

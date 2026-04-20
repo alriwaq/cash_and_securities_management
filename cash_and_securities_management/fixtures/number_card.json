@@ -1,0 +1,55 @@
+[
+ {
+  "name": "Open Custodies",
+  "doctype": "Number Card",
+  "label": "Open Custodies",
+  "document_type": "Accountant Custody",
+  "function": "Count",
+  "filters_json": "[[\"Accountant Custody\",\"status\",\"in\",[\"Submitted\",\"Receiving\",\"Fully Received\",\"Invoiced\"]],[\"Accountant Custody\",\"docstatus\",\"=\",1]]",
+  "color": "#5e64ff",
+  "stats_time_interval": "Monthly",
+  "show_percentage_stats": 1,
+  "is_public": 1,
+  "module": "Custody Management"
+ },
+ {
+  "name": "Pending Settlement",
+  "doctype": "Number Card",
+  "label": "Pending Settlement",
+  "document_type": "Accountant Custody",
+  "function": "Count",
+  "filters_json": "[[\"Accountant Custody\",\"status\",\"=\",\"Invoiced\"],[\"Accountant Custody\",\"docstatus\",\"=\",1]]",
+  "color": "#ff5858",
+  "stats_time_interval": "Monthly",
+  "show_percentage_stats": 1,
+  "is_public": 1,
+  "module": "Custody Management"
+ },
+ {
+  "name": "Open Custody Requests",
+  "doctype": "Number Card",
+  "label": "Open Custody Requests",
+  "document_type": "Custody Request",
+  "function": "Count",
+  "filters_json": "[[\"Custody Request\",\"status\",\"in\",[\"Unpaid\",\"Paid\",\"Partly Claimed\"]],[\"Custody Request\",\"docstatus\",\"=\",1]]",
+  "color": "#f8814f",
+  "stats_time_interval": "Monthly",
+  "show_percentage_stats": 1,
+  "is_public": 1,
+  "module": "Custody Management"
+ },
+ {
+  "name": "Total Advance Outstanding",
+  "doctype": "Number Card",
+  "label": "Total Advance Outstanding",
+  "document_type": "Custody Request",
+  "function": "Sum",
+  "aggregate_function_based_on": "remaining_balance",
+  "filters_json": "[[\"Custody Request\",\"status\",\"in\",[\"Paid\",\"Partly Claimed\"]],[\"Custody Request\",\"docstatus\",\"=\",1]]",
+  "color": "#2490ef",
+  "stats_time_interval": "Monthly",
+  "show_percentage_stats": 1,
+  "is_public": 1,
+  "module": "Custody Management"
+ }
+]
