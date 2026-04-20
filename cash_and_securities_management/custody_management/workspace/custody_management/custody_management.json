@@ -116,8 +116,8 @@
   {
    "color": "Grey",
    "label": "Cash and Securities Settings",
-   "link_to": "Cash and Securities Settings",
-   "type": "DocType"
+   "type": "URL",
+   "url": "/Form/Cash%20and%20Securities%20Settings/Cash%20and%20Securities%20Settings"
   }
  ],
  "title": "Custody Management"

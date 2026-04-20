@@ -1,7 +1,6 @@
 """
 Shared utility functions for the Cash and Securities Management module.
 """
-
 import frappe
 from frappe import _
 
@@ -10,18 +9,25 @@ def get_settings():
 	"""
 	Safely fetch Cash and Securities Settings.
 
-	For Single doctypes, Frappe requires at least one row in the database
-	before get_doc/get_cached_doc can return a record. If the user has not
-	yet visited the Settings page after installation, the record does not
-	exist and a DoesNotExistError is raised.
+	For Single doctypes, Frappe stores the record in tabSingles.
+	The correct existence check is frappe.db.exists("DocType", doctype)
+	to verify the DocType is installed, then frappe.db.get_singles_value()
+	to check if the singleton record has been saved at least once.
 
-	This helper ensures the record is auto-initialized with defaults on first
-	access so that all controllers can call it safely without crashing.
+	If the record does not exist yet (user has not visited Settings page),
+	this helper auto-initializes it so controllers do not crash.
 	"""
 	doctype = "Cash and Securities Settings"
 
-	# Check if the single record exists in the database
-	if not frappe.db.exists(doctype, doctype):
+	# First verify the DocType itself is installed in the database
+	if not frappe.db.exists("DocType", doctype):
+		# DocType not yet installed — return empty defaults silently
+		return frappe._dict()
+
+	# For Single doctypes, check if any value exists in tabSingles
+	# get_singles_value returns None if no record has been saved yet
+	exists = frappe.db.get_singles_value(doctype, "name")
+	if not exists:
 		# Auto-create the singleton record with empty defaults
 		try:
 			doc = frappe.new_doc(doctype)

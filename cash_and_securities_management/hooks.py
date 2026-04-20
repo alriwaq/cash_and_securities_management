@@ -9,6 +9,12 @@ app_version = "1.0.0"
 # ─── Required Apps ────────────────────────────────────────────────────────────
 required_apps = ["frappe/erpnext"]
 
+# ─── Install / Uninstall Hooks ────────────────────────────────────────────────
+# after_install is called once after the app is installed on a site.
+# We use it to auto-initialize the Cash and Securities Settings singleton so
+# it is always present in the database and never raises DoesNotExistError.
+after_install = "cash_and_securities_management.custody_management.setup.after_install"
+
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
 # These fixtures are installed automatically when the app is installed on a site.
 # They create the Workspace (sidebar module), Number Cards, and Dashboard Charts.
