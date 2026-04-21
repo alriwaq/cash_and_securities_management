@@ -64,7 +64,7 @@ frappe.ui.form.on("Custody Request", {
 	},
 
 	load_default_advance_account(frm) {
-		frappe.db.get_single_value("Cash and Securities Settings", "custody_advance_account").then((account) => {
+		frappe.db.get_single_value("Treasury Settings", "custody_advance_account").then((account) => {
 			if (account && !frm.doc.advance_account) {
 				frm.set_value("advance_account", account);
 			}

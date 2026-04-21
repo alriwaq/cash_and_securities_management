@@ -9,11 +9,12 @@ app_version = "1.0.0"
 # ─── Required Apps ────────────────────────────────────────────────────────────
 required_apps = ["frappe/erpnext"]
 
-# ─── Install / Uninstall Hooks ────────────────────────────────────────────────
+# ─── Install / Migrate Hooks ─────────────────────────────────────────────────
 # after_install is called once after the app is installed on a site.
-# We use it to auto-initialize the Cash and Securities Settings singleton so
-# it is always present in the database and never raises DoesNotExistError.
-after_install = "cash_and_securities_management.custody_management.setup.after_install"
+# after_migrate is called after every bench migrate.
+# Both ensure the Treasury Settings singleton record is always present.
+after_install = "cash_and_securities_management.treasury.setup.after_install"
+after_migrate = "cash_and_securities_management.treasury.setup.after_migrate"
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
 # These fixtures are installed automatically when the app is installed on a site.
@@ -37,21 +38,21 @@ fixtures = [
     {
         "doctype": "Workspace",
         "filters": [
-            ["module", "=", "Custody Management"]
+            ["module", "=", "Treasury"]
         ]
     },
     # Number Cards — dashboard KPI tiles
     {
         "doctype": "Number Card",
         "filters": [
-            ["module", "=", "Custody Management"]
+            ["module", "=", "Treasury"]
         ]
     },
     # Dashboard Charts — visual charts on the workspace
     {
         "doctype": "Dashboard Chart",
         "filters": [
-            ["module", "=", "Custody Management"]
+            ["module", "=", "Treasury"]
         ]
     },
 ]
@@ -59,14 +60,14 @@ fixtures = [
 # Hook into Purchase Receipt and Purchase Invoice to keep Accountant Custody in sync
 doc_events = {
     "Purchase Receipt": {
-        "validate": "cash_and_securities_management.custody_management.doctype.accountant_custody.pr_hooks.on_pr_validate",
-        "on_submit": "cash_and_securities_management.custody_management.doctype.accountant_custody.pr_hooks.on_pr_submit",
-        "on_cancel": "cash_and_securities_management.custody_management.doctype.accountant_custody.pr_hooks.on_pr_cancel",
+        "validate": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_pr_validate",
+        "on_submit": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_pr_submit",
+        "on_cancel": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_pr_cancel",
     },
     "Purchase Invoice": {
-        "validate": "cash_and_securities_management.custody_management.doctype.accountant_custody.pr_hooks.on_pi_validate",
-        "on_submit": "cash_and_securities_management.custody_management.doctype.accountant_custody.pr_hooks.on_pi_submit",
-        "on_cancel": "cash_and_securities_management.custody_management.doctype.accountant_custody.pr_hooks.on_pi_cancel",
+        "validate": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_pi_validate",
+        "on_submit": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_pi_submit",
+        "on_cancel": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_pi_cancel",
     },
 }
 

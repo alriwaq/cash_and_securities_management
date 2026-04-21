@@ -168,8 +168,8 @@
  "links": [],
  "modified": "2024-01-01 00:00:00.000000",
  "modified_by": "Administrator",
- "module": "Custody Management",
- "name": "Cash and Securities Settings",
+ "module": "Treasury",
+ "name": "Treasury Settings",
  "owner": "Administrator",
  "permissions": [
   {

@@ -9,7 +9,7 @@
    "label": "Monthly Custody Amount"
   }
  ],
- "content": "[{\"id\":\"csm_header_1\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Custody Management</b></span>\",\"col\":12}},{\"id\":\"csm_nc_1\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Open Custodies\",\"col\":3}},{\"id\":\"csm_nc_2\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Pending Settlement\",\"col\":3}},{\"id\":\"csm_nc_3\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Open Custody Requests\",\"col\":3}},{\"id\":\"csm_nc_4\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Total Advance Outstanding\",\"col\":3}},{\"id\":\"csm_spacer_1\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"csm_header_2\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Your Shortcuts</b></span>\",\"col\":12}},{\"id\":\"csm_sc_1\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Custody Request\",\"col\":3}},{\"id\":\"csm_sc_2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Accountant Custody\",\"col\":3}},{\"id\":\"csm_sc_3\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Cash and Securities Settings\",\"col\":3}},{\"id\":\"csm_spacer_2\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"csm_header_3\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Charts</b></span>\",\"col\":12}},{\"id\":\"csm_chart_1\",\"type\":\"chart\",\"data\":{\"chart_name\":\"Custody by Status\",\"col\":6}},{\"id\":\"csm_chart_2\",\"type\":\"chart\",\"data\":{\"chart_name\":\"Monthly Custody Amount\",\"col\":6}},{\"id\":\"csm_spacer_3\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"csm_header_4\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Documents</b></span>\",\"col\":12}},{\"id\":\"csm_card_1\",\"type\":\"card\",\"data\":{\"card_name\":\"Custody Transactions\",\"col\":4}},{\"id\":\"csm_card_2\",\"type\":\"card\",\"data\":{\"card_name\":\"Settings\",\"col\":4}}]",
+ "content": "[{\"id\":\"csm_header_1\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Treasury</b></span>\",\"col\":12}},{\"id\":\"csm_nc_1\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Open Custodies\",\"col\":3}},{\"id\":\"csm_nc_2\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Pending Settlement\",\"col\":3}},{\"id\":\"csm_nc_3\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Open Custody Requests\",\"col\":3}},{\"id\":\"csm_nc_4\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Total Advance Outstanding\",\"col\":3}},{\"id\":\"csm_spacer_1\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"csm_header_2\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Your Shortcuts</b></span>\",\"col\":12}},{\"id\":\"csm_sc_1\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Custody Request\",\"col\":3}},{\"id\":\"csm_sc_2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Accountant Custody\",\"col\":3}},{\"id\":\"csm_sc_3\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Treasury Settings\",\"col\":3}},{\"id\":\"csm_spacer_2\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"csm_header_3\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Charts</b></span>\",\"col\":12}},{\"id\":\"csm_chart_1\",\"type\":\"chart\",\"data\":{\"chart_name\":\"Custody by Status\",\"col\":6}},{\"id\":\"csm_chart_2\",\"type\":\"chart\",\"data\":{\"chart_name\":\"Monthly Custody Amount\",\"col\":6}},{\"id\":\"csm_spacer_3\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"csm_header_4\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Documents</b></span>\",\"col\":12}},{\"id\":\"csm_card_1\",\"type\":\"card\",\"data\":{\"card_name\":\"Custody Transactions\",\"col\":4}},{\"id\":\"csm_card_2\",\"type\":\"card\",\"data\":{\"card_name\":\"Settings\",\"col\":4}}]",
  "creation": "2024-01-01 00:00:00.000000",
  "custom_blocks": [],
  "docstatus": 0,
@@ -19,7 +19,7 @@
  "icon": "accounting",
  "idx": 0,
  "is_hidden": 0,
- "label": "Custody Management",
+ "label": "Treasury",
  "links": [
   {
    "hidden": 0,
@@ -60,9 +60,9 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Cash and Securities Settings",
+   "label": "Treasury Settings",
    "link_count": 0,
-   "link_to": "Cash and Securities Settings",
+   "link_to": "Treasury Settings",
    "link_type": "DocType",
    "onboard": 1,
    "type": "Link"
@@ -70,8 +70,8 @@
  ],
  "modified": "2024-01-01 00:00:00.000000",
  "modified_by": "Administrator",
- "module": "Custody Management",
- "name": "Custody Management",
+ "module": "Treasury",
+ "name": "Treasury",
  "number_cards": [
   {
    "label": "Open Custodies",
@@ -115,10 +115,10 @@
   },
   {
    "color": "Grey",
-   "label": "Cash and Securities Settings",
-   "type": "URL",
-   "url": "/Form/Cash%20and%20Securities%20Settings/Cash%20and%20Securities%20Settings"
+   "label": "Treasury Settings",
+   "link_to": "Treasury Settings",
+   "type": "DocType"
   }
  ],
- "title": "Custody Management"
+ "title": "Treasury"
 }

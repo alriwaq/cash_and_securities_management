@@ -10,7 +10,7 @@ def after_install():
 	Called once after the app is installed on a site via bench install-app.
 
 	Purpose:
-	  - Auto-initializes the Cash and Securities Settings singleton record
+	  - Auto-initializes the Treasury Settings singleton record
 	    so it always exists in the database from day one.
 	  - Without this, any controller that calls get_settings() before the
 	    user visits the Settings page would raise a DoesNotExistError.
@@ -27,8 +27,8 @@ def after_migrate():
 
 
 def _initialize_settings():
-	"""Initialize the Cash and Securities Settings singleton if it does not exist."""
-	doctype = "Cash and Securities Settings"
+	"""Initialize the Treasury Settings singleton if it does not exist."""
+	doctype = "Treasury Settings"
 
 	# Verify the DocType is installed before trying to create a record
 	if not frappe.db.exists("DocType", doctype):

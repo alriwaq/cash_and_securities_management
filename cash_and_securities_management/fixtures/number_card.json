@@ -10,7 +10,7 @@
   "stats_time_interval": "Monthly",
   "show_percentage_stats": 1,
   "is_public": 1,
-  "module": "Custody Management"
+  "module": "Treasury"
  },
  {
   "name": "Pending Settlement",
@@ -23,7 +23,7 @@
   "stats_time_interval": "Monthly",
   "show_percentage_stats": 1,
   "is_public": 1,
-  "module": "Custody Management"
+  "module": "Treasury"
  },
  {
   "name": "Open Custody Requests",
@@ -36,7 +36,7 @@
   "stats_time_interval": "Monthly",
   "show_percentage_stats": 1,
   "is_public": 1,
-  "module": "Custody Management"
+  "module": "Treasury"
  },
  {
   "name": "Total Advance Outstanding",
@@ -50,6 +50,6 @@
   "stats_time_interval": "Monthly",
   "show_percentage_stats": 1,
   "is_public": 1,
-  "module": "Custody Management"
+  "module": "Treasury"
  }
 ]

@@ -3,7 +3,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt
 
-from cash_and_securities_management.custody_management.utils import get_settings
+from cash_and_securities_management.treasury.utils import get_settings
 
 
 class CustodyRequest(Document):

@@ -1,5 +1,5 @@
 """
-Shared utility functions for the Cash and Securities Management module.
+Shared utility functions for the Treasury module.
 """
 import frappe
 from frappe import _
@@ -7,17 +7,14 @@ from frappe import _
 
 def get_settings():
 	"""
-	Safely fetch Cash and Securities Settings.
+	Safely fetch Treasury Settings.
 
 	For Single doctypes, Frappe stores the record in tabSingles.
-	The correct existence check is frappe.db.exists("DocType", doctype)
-	to verify the DocType is installed, then frappe.db.get_singles_value()
-	to check if the singleton record has been saved at least once.
-
-	If the record does not exist yet (user has not visited Settings page),
-	this helper auto-initializes it so controllers do not crash.
+	This helper checks if the DocType is installed and if the singleton
+	has been saved. If not, it auto-initializes it so controllers
+	do not crash.
 	"""
-	doctype = "Cash and Securities Settings"
+	doctype = "Treasury Settings"
 
 	# First verify the DocType itself is installed in the database
 	if not frappe.db.exists("DocType", doctype):

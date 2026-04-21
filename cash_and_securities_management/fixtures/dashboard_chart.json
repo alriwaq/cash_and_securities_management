@@ -13,7 +13,7 @@
   "time_interval": "Monthly",
   "is_public": 1,
   "is_custom": 0,
-  "module": "Custody Management"
+  "module": "Treasury"
  },
  {
   "name": "Monthly Custody Amount",
@@ -29,6 +29,6 @@
   "time_interval": "Monthly",
   "is_public": 1,
   "is_custom": 0,
-  "module": "Custody Management"
+  "module": "Treasury"
  }
 ]

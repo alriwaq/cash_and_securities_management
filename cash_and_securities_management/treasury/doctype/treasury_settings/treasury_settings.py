@@ -3,7 +3,7 @@ from frappe import _
 from frappe.model.document import Document
 
 
-class CashAndSecuritiesSettings(Document):
+class TreasurySettings(Document):
 
 	def validate(self):
 		self.validate_accounts()

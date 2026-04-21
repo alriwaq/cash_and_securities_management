@@ -3,7 +3,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, nowdate
 
-from cash_and_securities_management.custody_management.utils import get_settings
+from cash_and_securities_management.treasury.utils import get_settings
 
 
 class AccountantCustody(Document):
@@ -303,7 +303,7 @@ class AccountantCustody(Document):
 			)
 			if not advance_account:
 				frappe.throw(
-					_("Please set the Custody Advance Account in Cash and Securities Settings.")
+					_("Please set the Custody Advance Account in Treasury Settings.")
 				)
 			je.append(
 				"accounts",
@@ -321,7 +321,7 @@ class AccountantCustody(Document):
 			direct_account = settings.get("settlement_expense_account") or ""
 			if not direct_account:
 				frappe.throw(
-					_("Please set the Settlement Expense Account in Cash and Securities Settings.")
+					_("Please set the Settlement Expense Account in Treasury Settings.")
 				)
 			je.append(
 				"accounts",
