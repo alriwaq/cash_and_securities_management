@@ -12,21 +12,16 @@ required_apps = ["frappe/erpnext"]
 # ─── Install / Migrate Hooks ─────────────────────────────────────────────────
 # after_install is called once after the app is installed on a site.
 # after_migrate is called after every bench migrate.
-# Both ensure the Treasury Settings singleton record is always present.
+# Both ensure the Treasury Settings singleton record is always present
+# and clean up any old records from previous module names.
 after_install = "cash_and_securities_management.treasury.setup.after_install"
 after_migrate = "cash_and_securities_management.treasury.setup.after_migrate"
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
-# These fixtures are installed automatically when the app is installed on a site.
-# They create the Workspace (sidebar module), Number Cards, and Dashboard Charts.
+# NOTE: DocTypes are NOT listed here because Frappe automatically imports
+# DocType JSON files from the app's doctype/ folders during bench migrate.
+# Fixtures are only for data records (Custom Fields, Workspaces, etc.)
 fixtures = [
-    # Custom DocTypes — MUST be listed first so they exist before fixtures that depend on them
-    {
-        "doctype": "DocType",
-        "filters": [
-            ["module", "=", "Custody Management"]
-        ]
-    },
     # Custom fields added to standard ERPNext doctypes
     {
         "doctype": "Custom Field",
@@ -56,6 +51,7 @@ fixtures = [
         ]
     },
 ]
+
 # ─── Document Events ──────────────────────────────────────────────────────────
 # Hook into Purchase Receipt and Purchase Invoice to keep Accountant Custody in sync
 doc_events = {
@@ -73,11 +69,6 @@ doc_events = {
 
 # ─── Scheduled Tasks ──────────────────────────────────────────────────────────
 # (Add scheduled tasks here if needed in future phases)
-# scheduler_events = {
-#     "daily": [
-#         "cash_and_securities_management.tasks.daily"
-#     ]
-# }
 
 # ─── Website ──────────────────────────────────────────────────────────────────
 # No website routes needed for this module
