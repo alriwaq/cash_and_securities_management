@@ -19,6 +19,13 @@ after_install = "cash_and_securities_management.custody_management.setup.after_i
 # These fixtures are installed automatically when the app is installed on a site.
 # They create the Workspace (sidebar module), Number Cards, and Dashboard Charts.
 fixtures = [
+    # Custom DocTypes — MUST be listed first so they exist before fixtures that depend on them
+    {
+        "doctype": "DocType",
+        "filters": [
+            ["module", "=", "Custody Management"]
+        ]
+    },
     # Custom fields added to standard ERPNext doctypes
     {
         "doctype": "Custom Field",
@@ -48,7 +55,6 @@ fixtures = [
         ]
     },
 ]
-
 # ─── Document Events ──────────────────────────────────────────────────────────
 # Hook into Purchase Receipt and Purchase Invoice to keep Accountant Custody in sync
 doc_events = {
