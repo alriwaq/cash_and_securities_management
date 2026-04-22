@@ -12,43 +12,29 @@ required_apps = ["frappe/erpnext"]
 # ─── Install / Migrate Hooks ─────────────────────────────────────────────────
 # after_install is called once after the app is installed on a site.
 # after_migrate is called after every bench migrate.
-# Both ensure the Treasury Settings singleton record is always present
-# and clean up any old records from previous module names.
+# Both ensure DocTypes, Workspace, and Settings are properly synced
+# even when Developer Mode is off (e.g., on Frappe Cloud production sites).
 after_install = "cash_and_securities_management.treasury.setup.after_install"
 after_migrate = "cash_and_securities_management.treasury.setup.after_migrate"
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
-# NOTE: DocTypes are force-synced via setup.py (after_install / after_migrate)
-# using import_file_by_path() to ensure they are imported even when
-# Developer Mode is off (e.g., on Frappe Cloud production sites).
-# Fixtures below are for data records (Custom Fields, Workspaces, etc.)
+# Custom fields added to standard ERPNext doctypes.
+# NOTE: Workspace, Number Cards, and Dashboard Charts are synced via
+# setup.py (after_install / after_migrate) using frappe.reload_doc()
+# to ensure they work on production sites without Developer Mode.
 fixtures = [
-    # Custom fields added to standard ERPNext doctypes
     {
         "doctype": "Custom Field",
         "filters": [
-            ["dt", "in", ["Purchase Receipt", "Purchase Invoice"]]
-        ]
-    },
-    # Workspace — registers the module in the Frappe sidebar
-    {
-        "doctype": "Workspace",
-        "filters": [
-            ["module", "=", "Treasury"]
-        ]
-    },
-    # Number Cards — dashboard KPI tiles
-    {
-        "doctype": "Number Card",
-        "filters": [
-            ["module", "=", "Treasury"]
-        ]
-    },
-    # Dashboard Charts — visual charts on the workspace
-    {
-        "doctype": "Dashboard Chart",
-        "filters": [
-            ["module", "=", "Treasury"]
+            ["dt", "in", ["Purchase Receipt", "Purchase Invoice"]],
+            [
+                "fieldname",
+                "in",
+                [
+                    "custom_accountant_custody",
+                    "custom_source_document_type",
+                ],
+            ],
         ]
     },
 ]

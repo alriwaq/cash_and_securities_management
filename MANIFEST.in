@@ -1,0 +1,17 @@
+include MANIFEST.in
+include requirements.txt
+include *.json
+include *.md
+include *.py
+include *.txt
+recursive-include cash_and_securities_management *.css
+recursive-include cash_and_securities_management *.csv
+recursive-include cash_and_securities_management *.html
+recursive-include cash_and_securities_management *.ico
+recursive-include cash_and_securities_management *.js
+recursive-include cash_and_securities_management *.json
+recursive-include cash_and_securities_management *.md
+recursive-include cash_and_securities_management *.png
+recursive-include cash_and_securities_management *.py
+recursive-include cash_and_securities_management *.svg
+recursive-include cash_and_securities_management *.txt
