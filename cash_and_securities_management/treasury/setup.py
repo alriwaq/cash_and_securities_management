@@ -2,30 +2,28 @@
 Setup functions for Cash and Securities Management app.
 Called by Frappe during app installation and migration.
 """
+import os
 import frappe
+from frappe.modules.import_file import import_file_by_path
 
 
 def after_install():
 	"""
 	Called once after the app is installed on a site via bench install-app.
-
-	Purpose:
-	  - Cleans up old records from previous module names.
-	  - Ensures the 'Treasury' Module Def exists.
-	  - Auto-initializes the Treasury Settings singleton record.
 	"""
 	_cleanup_old_records()
 	_ensure_module_def()
+	_sync_doctypes()
 	_initialize_settings()
 
 
 def after_migrate():
 	"""
 	Called after every bench migrate.
-	Ensures the Settings record exists even after upgrades.
 	"""
 	_cleanup_old_records()
 	_ensure_module_def()
+	_sync_doctypes()
 	_initialize_settings()
 
 
@@ -35,7 +33,6 @@ def _cleanup_old_records():
 	if frappe.db.exists("DocType", "Cash and Securities Settings"):
 		try:
 			frappe.delete_doc("DocType", "Cash and Securities Settings", force=True, ignore_permissions=True)
-			frappe.logger().info("Cleaned up old DocType: Cash and Securities Settings")
 		except Exception:
 			pass
 
@@ -48,7 +45,6 @@ def _cleanup_old_records():
 	for ws_name in old_workspaces:
 		try:
 			frappe.delete_doc("Workspace", ws_name, force=True, ignore_permissions=True)
-			frappe.logger().info(f"Cleaned up old Workspace: {ws_name}")
 		except Exception:
 			pass
 
@@ -57,7 +53,6 @@ def _cleanup_old_records():
 		if frappe.db.exists("Module Def", old_module):
 			try:
 				frappe.delete_doc("Module Def", old_module, force=True, ignore_permissions=True)
-				frappe.logger().info(f"Cleaned up old Module Def: {old_module}")
 			except Exception:
 				pass
 
@@ -80,6 +75,40 @@ def _ensure_module_def():
 			frappe.logger().warning(f"Could not create Module Def Treasury: {e}")
 
 
+def _sync_doctypes():
+	"""
+	Force-sync all DocType JSON files from the app's doctype folder into the database.
+	This ensures DocTypes are registered even when Developer Mode is off (e.g., Frappe Cloud).
+	"""
+	# Find the treasury module's doctype directory
+	app_path = frappe.get_app_path("cash_and_securities_management")
+	doctype_dir = os.path.join(app_path, "treasury", "doctype")
+
+	if not os.path.exists(doctype_dir):
+		frappe.logger().warning(f"DocType directory not found: {doctype_dir}")
+		return
+
+	# List of all doctypes in the module
+	doctypes_to_sync = [
+		"treasury_settings",
+		"custody_request",
+		"accountant_custody",
+		"accountant_custody_item",
+		"custody_settlement_entry",
+	]
+
+	for dt_folder in doctypes_to_sync:
+		json_path = os.path.join(doctype_dir, dt_folder, f"{dt_folder}.json")
+		if os.path.exists(json_path):
+			try:
+				import_file_by_path(json_path, force=True)
+				frappe.logger().info(f"Synced DocType from: {json_path}")
+			except Exception as e:
+				frappe.logger().warning(f"Could not sync DocType {dt_folder}: {e}")
+
+	frappe.db.commit()
+
+
 def _initialize_settings():
 	"""Initialize the Treasury Settings singleton if it does not exist."""
 	doctype = "Treasury Settings"
@@ -87,20 +116,19 @@ def _initialize_settings():
 	# Verify the DocType is installed before trying to create a record
 	if not frappe.db.exists("DocType", doctype):
 		frappe.logger().warning(
-			f"DocType {doctype} not found in database. "
-			f"It should be auto-imported from the app's doctype folder during migrate."
+			f"DocType {doctype} not found in database after sync. "
+			f"Check the treasury_settings.json file."
 		)
 		return
 
 	# For Single doctypes, check tabSingles for any saved value
-	# If no value exists, the record has never been saved
 	try:
 		existing = frappe.db.sql(
 			"SELECT value FROM tabSingles WHERE doctype=%s AND field='creation' LIMIT 1",
 			(doctype,)
 		)
 		if existing:
-			return  # Already initialized, nothing to do
+			return  # Already initialized
 	except Exception:
 		pass
 
@@ -110,11 +138,6 @@ def _initialize_settings():
 		doc.flags.ignore_mandatory = True
 		doc.insert()
 		frappe.db.commit()
-		frappe.logger().info(
-			f"Cash and Securities Management: Initialized {doctype} singleton."
-		)
+		frappe.logger().info(f"Initialized {doctype} singleton.")
 	except Exception as e:
-		# Log but do not raise — a missing Settings record should not block installation
-		frappe.logger().warning(
-			f"Cash and Securities Management: Could not initialize {doctype}: {e}"
-		)
+		frappe.logger().warning(f"Could not initialize {doctype}: {e}")

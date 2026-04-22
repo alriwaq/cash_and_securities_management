@@ -18,9 +18,10 @@ after_install = "cash_and_securities_management.treasury.setup.after_install"
 after_migrate = "cash_and_securities_management.treasury.setup.after_migrate"
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
-# NOTE: DocTypes are NOT listed here because Frappe automatically imports
-# DocType JSON files from the app's doctype/ folders during bench migrate.
-# Fixtures are only for data records (Custom Fields, Workspaces, etc.)
+# NOTE: DocTypes are force-synced via setup.py (after_install / after_migrate)
+# using import_file_by_path() to ensure they are imported even when
+# Developer Mode is off (e.g., on Frappe Cloud production sites).
+# Fixtures below are for data records (Custom Fields, Workspaces, etc.)
 fixtures = [
     # Custom fields added to standard ERPNext doctypes
     {
