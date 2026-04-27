@@ -3,6 +3,17 @@
 
 frappe.ui.form.on("Custodian", {
 
+    // ── Form Setup ────────────────────────────────────────────────────────
+
+    setup: function (frm) {
+        // Filter: only Active employees can be assigned as custodians
+        frm.set_query("employee", function () {
+            return {
+                filters: { status: "Active" }
+            };
+        });
+    },
+
     // ── Form Load ──────────────────────────────────────────────────────────
 
     refresh(frm) {
