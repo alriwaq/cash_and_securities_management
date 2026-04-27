@@ -1,3 +1,7 @@
+"""
+Treasury Settings controller.
+Singleton document — one record per site.
+"""
 import frappe
 from frappe import _
 from frappe.model.document import Document
@@ -5,21 +9,35 @@ from frappe.model.document import Document
 
 class TreasurySettings(Document):
 
-	def validate(self):
-		self.validate_accounts()
+    def validate(self):
+        self._validate_supplier_mode()
+        self._validate_parent_account()
 
-	def validate_accounts(self):
-		"""Ensure the custody advance account is an asset-type account."""
-		if self.custody_advance_account:
-			account_type = frappe.db.get_value(
-				"Account", self.custody_advance_account, "account_type"
-			)
-			if account_type not in ("Receivable", "Current Asset", None):
-				frappe.msgprint(
-					_(
-						"Custody Advance Account should ideally be a Receivable or Current Asset account. "
-						"Current type: {0}"
-					).format(account_type),
-					indicator="orange",
-					alert=True,
-				)
+    # ── Validation ────────────────────────────────────────────────────────────
+
+    def _validate_supplier_mode(self):
+        """If single dummy supplier mode is on, the supplier must be set."""
+        if self.use_single_dummy_supplier and not self.default_cash_purchases_supplier:
+            frappe.throw(
+                _("Please set the Default Cash Purchases Supplier when "
+                  "'Use Single Dummy Supplier' is enabled."),
+                title=_("Missing Supplier"),
+            )
+
+    def _validate_parent_account(self):
+        """Custody parent account must be set and should be a group account."""
+        if not self.custody_parent_account:
+            frappe.throw(
+                _("Custody Parent Account is required."),
+                title=_("Missing Account"),
+            )
+        is_group = frappe.db.get_value(
+            "Account", self.custody_parent_account, "is_group"
+        )
+        if not is_group:
+            frappe.msgprint(
+                _("Custody Parent Account should be a Group account so that "
+                  "per-custodian sub-accounts can be created under it."),
+                indicator="orange",
+                alert=True,
+            )

@@ -1,5 +1,18 @@
 [
  {
+  "name": "Active Custodians",
+  "doctype": "Number Card",
+  "label": "Active Custodians",
+  "document_type": "Custodian",
+  "function": "Count",
+  "filters_json": "[[\"Custodian\",\"status\",\"=\",\"Active\"],[\"Custodian\",\"docstatus\",\"=\",1]]",
+  "color": "#28a745",
+  "stats_time_interval": "Monthly",
+  "show_percentage_stats": 0,
+  "is_public": 1,
+  "module": "Treasury"
+ },
+ {
   "name": "Open Custodies",
   "doctype": "Number Card",
   "label": "Open Custodies",
@@ -20,19 +33,6 @@
   "function": "Count",
   "filters_json": "[[\"Accountant Custody\",\"status\",\"=\",\"Invoiced\"],[\"Accountant Custody\",\"docstatus\",\"=\",1]]",
   "color": "#ff5858",
-  "stats_time_interval": "Monthly",
-  "show_percentage_stats": 1,
-  "is_public": 1,
-  "module": "Treasury"
- },
- {
-  "name": "Open Custody Requests",
-  "doctype": "Number Card",
-  "label": "Open Custody Requests",
-  "document_type": "Custody Request",
-  "function": "Count",
-  "filters_json": "[[\"Custody Request\",\"status\",\"in\",[\"Unpaid\",\"Paid\",\"Partly Claimed\"]],[\"Custody Request\",\"docstatus\",\"=\",1]]",
-  "color": "#f8814f",
   "stats_time_interval": "Monthly",
   "show_percentage_stats": 1,
   "is_public": 1,

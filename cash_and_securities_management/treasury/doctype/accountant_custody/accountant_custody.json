@@ -6,7 +6,7 @@
  "doctype": "DocType",
  "document_type": "Document",
  "engine": "InnoDB",
- "field_order": [
+  "field_order": [
   "main_tab",
   "naming_series",
   "employee",
@@ -14,6 +14,7 @@
   "department",
   "company",
   "column_break_5",
+  "custodian",
   "posting_date",
   "status",
   "custody_request",
@@ -85,6 +86,17 @@
   {
    "fieldname": "column_break_5",
    "fieldtype": "Column Break"
+  },
+  {
+   "description": "Active Custodian record for this employee. Auto-set from the linked Custody Request.",
+   "fetch_from": "custody_request.custodian",
+   "fetch_if_empty": 1,
+   "fieldname": "custodian",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Custodian",
+   "options": "Custodian",
+   "read_only": 1
   },
   {
    "default": "Today",

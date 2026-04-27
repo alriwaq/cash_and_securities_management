@@ -4,91 +4,84 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "custody_accounts_section",
-  "custody_advance_account",
-  "default_cash_purchases_supplier",
-  "column_break_1",
-  "default_cost_center",
-  "default_mode_of_payment",
-  "settlement_section",
+  "accounts_section",
+  "custody_parent_account",
+  "column_break_accounts",
   "settlement_expense_account",
-  "column_break_2",
   "variance_account",
+  "supplier_mode_section",
+  "use_single_dummy_supplier",
+  "column_break_supplier",
+  "default_cash_purchases_supplier",
   "naming_section",
   "custody_request_series",
-  "column_break_3",
+  "column_break_naming",
   "accountant_custody_series",
   "pr_series",
-  "column_break_4",
+  "column_break_naming2",
   "pi_series",
   "pe_series",
   "permissions_section",
   "custody_approver_role",
-  "column_break_5",
+  "column_break_roles",
   "custody_manager_role"
  ],
  "fields": [
   {
-   "fieldname": "custody_accounts_section",
+   "fieldname": "accounts_section",
    "fieldtype": "Section Break",
-   "label": "Custody Accounts"
+   "label": "Default Accounts"
   },
   {
-   "fieldname": "custody_advance_account",
+   "description": "Parent account under which a dedicated sub-account is auto-created for each custodian (e.g., Advance to Employees)",
+   "fieldname": "custody_parent_account",
    "fieldtype": "Link",
-   "label": "Custody Advance Account",
+   "label": "Custody Parent Account",
    "options": "Account",
-   "reqd": 1,
-   "description": "Asset account used to track employee custody advances (e.g., Advance to Employees)"
+   "reqd": 1
   },
   {
-   "fieldname": "default_cash_purchases_supplier",
-   "fieldtype": "Link",
-   "label": "Default Cash Purchases Supplier",
-   "options": "Supplier",
-   "reqd": 1,
-   "description": "Dummy supplier used to settle all custody purchase invoices"
-  },
-  {
-   "fieldname": "column_break_1",
+   "fieldname": "column_break_accounts",
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "default_cost_center",
-   "fieldtype": "Link",
-   "label": "Default Cost Center",
-   "options": "Cost Center",
-   "description": "Default cost center for custody transactions"
-  },
-  {
-   "fieldname": "default_mode_of_payment",
-   "fieldtype": "Link",
-   "label": "Default Mode of Payment",
-   "options": "Mode of Payment",
-   "description": "Default mode of payment for custody advance disbursement"
-  },
-  {
-   "fieldname": "settlement_section",
-   "fieldtype": "Section Break",
-   "label": "Settlement Accounts"
-  },
-  {
+   "description": "Expense account used for direct payment settlement entries",
    "fieldname": "settlement_expense_account",
    "fieldtype": "Link",
    "label": "Settlement Expense Account",
-   "options": "Account",
-   "description": "Expense account used for direct payment settlement entries"
+   "options": "Account"
   },
   {
-   "fieldname": "column_break_2",
-   "fieldtype": "Column Break"
-  },
-  {
+   "description": "Account used to post settlement variance amounts",
    "fieldname": "variance_account",
    "fieldtype": "Link",
    "label": "Variance Account",
-   "options": "Account",
-   "description": "Account used to post settlement variance amounts"
+   "options": "Account"
+  },
+  {
+   "fieldname": "supplier_mode_section",
+   "fieldtype": "Section Break",
+   "label": "Supplier Mode"
+  },
+  {
+   "default": "0",
+   "description": "If enabled, all custodians share one dummy supplier for Purchase Invoices. If disabled, each custodian must have a dedicated supplier assigned on their Custodian record.",
+   "fieldname": "use_single_dummy_supplier",
+   "fieldtype": "Check",
+   "label": "Use Single Dummy Supplier"
+  },
+  {
+   "fieldname": "column_break_supplier",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.use_single_dummy_supplier == 1",
+   "description": "The shared dummy supplier used for all custody Purchase Invoices when single-supplier mode is active",
+   "fieldname": "default_cash_purchases_supplier",
+   "fieldtype": "Link",
+   "label": "Default Cash Purchases Supplier",
+   "mandatory_depends_on": "eval:doc.use_single_dummy_supplier == 1",
+   "options": "Supplier"
   },
   {
    "fieldname": "naming_section",
@@ -96,72 +89,72 @@
    "label": "Document Naming Series"
   },
   {
+   "default": "CR-.YYYY.-.#####",
+   "description": "Naming series for Custody Request documents",
    "fieldname": "custody_request_series",
    "fieldtype": "Data",
-   "label": "Custody Request Series",
-   "default": "CR-.YYYY.-.#####",
-   "description": "Naming series for Custody Request documents"
+   "label": "Custody Request Series"
   },
   {
-   "fieldname": "column_break_3",
+   "fieldname": "column_break_naming",
    "fieldtype": "Column Break"
   },
   {
+   "default": "AC-.YYYY.-.#####",
+   "description": "Naming series for Accountant Custody documents",
    "fieldname": "accountant_custody_series",
    "fieldtype": "Data",
-   "label": "Accountant Custody Series",
-   "default": "AC-.YYYY.-.#####",
-   "description": "Naming series for Accountant Custody documents"
+   "label": "Accountant Custody Series"
   },
   {
+   "default": "AC-PRE-.YYYY.-.#####",
+   "description": "Naming series for custody-generated Purchase Receipts",
    "fieldname": "pr_series",
    "fieldtype": "Data",
-   "label": "Custody PR Series",
-   "default": "AC-PRE-.YYYY.-.#####",
-   "description": "Naming series for custody-generated Purchase Receipts"
+   "label": "Custody PR Series"
   },
   {
-   "fieldname": "column_break_4",
+   "fieldname": "column_break_naming2",
    "fieldtype": "Column Break"
   },
   {
+   "default": "AC-PINV-.YYYY.-.#####",
+   "description": "Naming series for custody-generated Purchase Invoices",
    "fieldname": "pi_series",
    "fieldtype": "Data",
-   "label": "Custody PI Series",
-   "default": "AC-PINV-.YYYY.-.#####",
-   "description": "Naming series for custody-generated Purchase Invoices"
+   "label": "Custody PI Series"
   },
   {
+   "default": "AC-PAY-.YYYY.-.#####",
+   "description": "Naming series for custody-generated Payment Entries",
    "fieldname": "pe_series",
    "fieldtype": "Data",
-   "label": "Custody PE Series",
-   "default": "AC-PAY-.YYYY.-.#####",
-   "description": "Naming series for custody-generated Payment Entries"
+   "label": "Custody PE Series"
   },
   {
    "fieldname": "permissions_section",
    "fieldtype": "Section Break",
-   "label": "Roles & Permissions"
+   "label": "Roles and Permissions"
   },
   {
+   "default": "Accounts User",
+   "description": "Role allowed to approve and submit Custody Requests",
    "fieldname": "custody_approver_role",
    "fieldtype": "Link",
    "label": "Custody Approver Role",
-   "options": "Role",
-   "default": "Accounts User",
-   "description": "Role allowed to approve and submit Custody Requests"
+   "options": "Role"
   },
   {
-   "fieldname": "column_break_5",
+   "fieldname": "column_break_roles",
    "fieldtype": "Column Break"
   },
   {
+   "default": "Accounts Manager",
+   "description": "Role allowed to manage and settle Accountant Custody records",
    "fieldname": "custody_manager_role",
    "fieldtype": "Link",
    "label": "Custody Manager Role",
-   "options": "Role",
-   "default": "Accounts Manager",
-   "description": "Role allowed to manage and settle Accountant Custody records"
+   "options": "Role"
   }
  ],
  "issingle": 1,

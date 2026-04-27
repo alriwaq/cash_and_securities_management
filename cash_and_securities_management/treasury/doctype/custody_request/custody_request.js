@@ -3,84 +3,128 @@
 
 frappe.ui.form.on("Custody Request", {
 
-	// ─── Form Setup ─────────────────────────────────────────────────────────
+    // ─── Form Setup ─────────────────────────────────────────────────────────
 
-	setup(frm) {
-		frm.set_query("employee", () => ({
-			filters: { status: "Active" }
-		}));
+    setup(frm) {
+        frm.set_query("employee", () => ({
+            filters: { status: "Active" }
+        }));
 
-		frm.set_query("advance_account", () => ({
-			filters: {
-				account_type: "Receivable",
-				company: frm.doc.company,
-				is_group: 0
-			}
-		}));
-	},
+        // Only show active/suspended custodians for the selected employee
+        frm.set_query("custodian", () => ({
+            filters: {
+                employee: frm.doc.employee || undefined,
+                docstatus: 1,
+                status: ["in", ["Active", "Suspended"]]
+            }
+        }));
 
-	// ─── Refresh ────────────────────────────────────────────────────────────
+        frm.set_query("advance_account", () => ({
+            filters: {
+                account_type: "Receivable",
+                company: frm.doc.company,
+                is_group: 0
+            }
+        }));
+    },
 
-	refresh(frm) {
-		frm.trigger("set_status_indicator");
-		frm.trigger("add_action_buttons");
-	},
+    // ─── Refresh ────────────────────────────────────────────────────────────
 
-	set_status_indicator(frm) {
-		const color_map = {
-			"Draft": "red",
-			"Unpaid": "orange",
-			"Paid": "green",
-			"Claimed": "blue",
-			"Partly Claimed": "yellow",
-			"Cancelled": "red"
-		};
-		if (frm.doc.status) {
-			frm.page.set_indicator(frm.doc.status, color_map[frm.doc.status] || "gray");
-		}
-	},
+    refresh(frm) {
+        frm.trigger("set_status_indicator");
+        frm.trigger("add_action_buttons");
+        frm.trigger("show_custodian_alert");
+    },
 
-	add_action_buttons(frm) {
-		// Show linked Accountant Custody records
-		if (frm.doc.docstatus === 1) {
-			frm.add_custom_button(__("View Accountant Custodies"), () => {
-				frappe.set_route("List", "Accountant Custody", {
-					custody_request: frm.doc.name
-				});
-			}, __("Links"));
-		}
-	},
+    set_status_indicator(frm) {
+        const color_map = {
+            "Draft": "red",
+            "Unpaid": "orange",
+            "Paid": "green",
+            "Claimed": "blue",
+            "Partly Claimed": "yellow",
+            "Cancelled": "red"
+        };
+        if (frm.doc.status) {
+            frm.page.set_indicator(frm.doc.status, color_map[frm.doc.status] || "gray");
+        }
+    },
 
-	// ─── Field Events ────────────────────────────────────────────────────────
+    add_action_buttons(frm) {
+        if (frm.doc.docstatus === 1) {
+            frm.add_custom_button(__("View Accountant Custodies"), () => {
+                frappe.set_route("List", "Accountant Custody", {
+                    custody_request: frm.doc.name
+                });
+            }, __("Links"));
 
-	employee(frm) {
-		if (frm.doc.employee) {
-			frappe.db.get_value("Employee", frm.doc.employee, ["company", "department"], (r) => {
-				frm.set_value("company", r.company);
-				frm.set_value("department", r.department);
-			});
-			frm.trigger("load_default_advance_account");
-		}
-	},
+            frm.add_custom_button(__("View Custodian"), () => {
+                frappe.set_route("Form", "Custodian", frm.doc.custodian);
+            }, __("Links"));
+        }
+    },
 
-	load_default_advance_account(frm) {
-		frappe.db.get_single_value("Treasury Settings", "custody_advance_account").then((account) => {
-			if (account && !frm.doc.advance_account) {
-				frm.set_value("advance_account", account);
-			}
-		});
-	},
+    show_custodian_alert(frm) {
+        if (frm.doc.custodian_status === "Suspended") {
+            frm.dashboard.add_comment(
+                __("Warning: The custodian for this employee is currently Suspended. "
+                    "This request cannot be submitted until the custodian is reactivated."),
+                "orange",
+                true
+            );
+        }
+    },
 
-	advance_amount(frm) {
-		frm.trigger("calculate_remaining_balance");
-	},
+    // ─── Field Events ────────────────────────────────────────────────────────
 
-	claimed_amount(frm) {
-		frm.trigger("calculate_remaining_balance");
-	},
+    employee(frm) {
+        if (!frm.doc.employee) return;
 
-	calculate_remaining_balance(frm) {
-		const remaining = flt(frm.doc.advance_amount) - flt(frm.doc.claimed_amount);
-		frm.set_value("remaining_balance", remaining);
-	}
+        // Auto-set custodian for this employee
+        frappe.db.get_value(
+            "Custodian",
+            { employee: frm.doc.employee, docstatus: 1, status: ["in", ["Active", "Suspended"]] },
+            "name",
+            (r) => {
+                if (r && r.name) {
+                    frm.set_value("custodian", r.name);
+                } else {
+                    frm.set_value("custodian", null);
+                    frappe.msgprint({
+                        title: __("No Active Custodian"),
+                        message: __("No active Custodian record found for employee {0}. "
+                            + "Please create a Custodian record first.", [frm.doc.employee_name || frm.doc.employee]),
+                        indicator: "orange"
+                    });
+                }
+            }
+        );
+    },
+
+    custodian(frm) {
+        if (!frm.doc.custodian) return;
+        frm.trigger("load_account_from_custodian");
+    },
+
+    load_account_from_custodian(frm) {
+        if (!frm.doc.custodian) return;
+        frappe.db.get_value("Custodian", frm.doc.custodian, "custody_account", (r) => {
+            if (r && r.custody_account && !frm.doc.advance_account) {
+                frm.set_value("advance_account", r.custody_account);
+            }
+        });
+    },
+
+    advance_amount(frm) {
+        frm.trigger("calculate_remaining_balance");
+    },
+
+    claimed_amount(frm) {
+        frm.trigger("calculate_remaining_balance");
+    },
+
+    calculate_remaining_balance(frm) {
+        const remaining = flt(frm.doc.advance_amount) - flt(frm.doc.claimed_amount);
+        frm.set_value("remaining_balance", remaining);
+    }
 });

@@ -107,6 +107,7 @@ def _sync_all_doctypes():
     # Method 1: Use frappe.reload_doc (preferred, standard Frappe approach)
     doctypes_to_sync = [
         "treasury_settings",
+        "custodian",
         "accountant_custody_item",
         "custody_settlement_entry",
         "custody_request",

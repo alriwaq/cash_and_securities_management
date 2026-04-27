@@ -1,0 +1,254 @@
+{
+ "actions": [
+  {
+   "action": "Suspend",
+   "action_label": "Suspend",
+   "condition": "doc.status == 'Active'",
+   "label": "Suspend"
+  },
+  {
+   "action": "Reactivate",
+   "action_label": "Reactivate",
+   "condition": "doc.status == 'Suspended'",
+   "label": "Reactivate"
+  },
+  {
+   "action": "Close",
+   "action_label": "Close Custodian",
+   "condition": "doc.status in ('Active', 'Suspended')",
+   "label": "Close"
+  }
+ ],
+ "allow_import": 1,
+ "autoname": "field:employee",
+ "creation": "2024-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "details_tab",
+  "employee_section",
+  "employee",
+  "employee_name",
+  "column_break_employee",
+  "department",
+  "company",
+  "custody_account_section",
+  "custody_account",
+  "custody_limit",
+  "column_break_account",
+  "status",
+  "total_outstanding",
+  "total_disbursed",
+  "supplier_section",
+  "dedicated_supplier",
+  "dashboard_tab"
+ ],
+ "fields": [
+  {
+   "fieldname": "details_tab",
+   "fieldtype": "Tab Break",
+   "label": "Custodian Details"
+  },
+  {
+   "fieldname": "employee_section",
+   "fieldtype": "Section Break",
+   "label": "Employee"
+  },
+  {
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Employee",
+   "options": "Employee",
+   "reqd": 1,
+   "search_index": 1,
+   "set_only_once": 1
+  },
+  {
+   "fetch_from": "employee.employee_name",
+   "fieldname": "employee_name",
+   "fieldtype": "Data",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "label": "Employee Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_employee",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "employee.department",
+   "fetch_if_empty": 1,
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "Department",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "employee.company",
+   "fetch_if_empty": 1,
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "custody_account_section",
+   "fieldtype": "Section Break",
+   "label": "Custody Account and Limits"
+  },
+  {
+   "description": "Dedicated sub-account auto-created under the Custody Parent Account on submit",
+   "fieldname": "custody_account",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Custody Account",
+   "no_copy": 1,
+   "options": "Account",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Maximum outstanding custody amount allowed for this custodian. Set to 0 for unlimited.",
+   "fieldname": "custody_limit",
+   "fieldtype": "Currency",
+   "label": "Custody Limit",
+   "options": "Company:company:default_currency"
+  },
+  {
+   "fieldname": "column_break_account",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "no_copy": 1,
+   "options": "Active\nSuspended\nClosed",
+   "read_only": 1
+  },
+  {
+   "description": "Sum of all open (unpaid / partly claimed) Custody Request balances",
+   "fieldname": "total_outstanding",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Outstanding",
+   "no_copy": 1,
+   "options": "Company:company:default_currency",
+   "read_only": 1
+  },
+  {
+   "description": "Lifetime total of all advance amounts disbursed to this custodian",
+   "fieldname": "total_disbursed",
+   "fieldtype": "Currency",
+   "label": "Total Disbursed",
+   "no_copy": 1,
+   "options": "Company:company:default_currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "supplier_section",
+   "fieldtype": "Section Break",
+   "label": "Supplier Assignment",
+   "depends_on": "eval:frappe.db.get_single_value('Treasury Settings', 'use_single_dummy_supplier') == 0"
+  },
+  {
+   "depends_on": "eval:frappe.db.get_single_value('Treasury Settings', 'use_single_dummy_supplier') == 0",
+   "description": "Dedicated supplier for this custodian's Purchase Invoices. Required when single dummy supplier mode is disabled in Treasury Settings.",
+   "fieldname": "dedicated_supplier",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Dedicated Supplier",
+   "options": "Supplier"
+  },
+  {
+   "fieldname": "dashboard_tab",
+   "fieldtype": "Tab Break",
+   "label": "Dashboard"
+  }
+ ],
+ "is_submittable": 1,
+ "links": [
+  {
+   "group": "Custody",
+   "link_doctype": "Custody Request",
+   "link_fieldname": "custodian"
+  },
+  {
+   "group": "Custody",
+   "link_doctype": "Accountant Custody",
+   "link_fieldname": "custodian"
+  }
+ ],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Treasury",
+ "name": "Custodian",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "submit": 1,
+   "amend": 1,
+   "cancel": 1,
+   "delete": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Employee",
+   "share": 0
+  }
+ ],
+ "search_fields": "employee,employee_name,status",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [
+  {
+   "color": "Green",
+   "title": "Active"
+  },
+  {
+   "color": "Orange",
+   "title": "Suspended"
+  },
+  {
+   "color": "Red",
+   "title": "Closed"
+  }
+ ],
+ "title_field": "employee_name",
+ "track_changes": 1
+}
