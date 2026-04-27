@@ -275,8 +275,7 @@ function calculate_amount(cdt, cdn) {
 	const amount = flt(row.qty) * flt(row.rate);
 	frappe.model.set_value(cdt, cdn, "amount", amount);
 	// Trigger total recalculation on the parent form
-	const frm = frappe.get_form("Accountant Custody");
-	if (frm) frm.trigger("update_totals");
+	if (cur_frm) cur_frm.trigger("update_totals");
 }
 
 // Extend the form with a utility trigger

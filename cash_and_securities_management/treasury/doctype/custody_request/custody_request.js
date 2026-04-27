@@ -15,13 +15,14 @@ frappe.ui.form.on("Custody Request", {
 
         // Filter: only submitted, non-closed Custodians for the selected employee
         frm.set_query("custodian", function () {
-            return {
-                filters: {
-                    employee: frm.doc.employee || undefined,
-                    docstatus: 1,
-                    status: ["in", ["Active", "Suspended"]]
-                }
+            var filters = {
+                docstatus: 1,
+                status: ["in", ["Active", "Suspended"]]
             };
+            if (frm.doc.employee) {
+                filters.employee = frm.doc.employee;
+            }
+            return { filters: filters };
         });
 
         // Filter: Receivable accounts for the company
@@ -74,10 +75,9 @@ frappe.ui.form.on("Custody Request", {
 
     show_custodian_alert: function (frm) {
         if (frm.doc.custodian_status === "Suspended") {
-            frm.dashboard.add_comment(
+            frm.set_intro(
                 __("Warning: The custodian for this employee is currently Suspended. This request cannot be submitted until the custodian is reactivated."),
-                "orange",
-                true
+                "orange"
             );
         }
     },
