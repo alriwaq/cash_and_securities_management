@@ -160,11 +160,9 @@
   {
    "fieldname": "supplier_section",
    "fieldtype": "Section Break",
-   "label": "Supplier Assignment",
-   "depends_on": "eval:frappe.db.get_single_value('Treasury Settings', 'use_single_dummy_supplier') == 0"
+   "label": "Supplier Assignment"
   },
   {
-   "depends_on": "eval:frappe.db.get_single_value('Treasury Settings', 'use_single_dummy_supplier') == 0",
    "description": "Dedicated supplier for this custodian's Purchase Invoices. Required when single dummy supplier mode is disabled in Treasury Settings.",
    "fieldname": "dedicated_supplier",
    "fieldtype": "Link",
