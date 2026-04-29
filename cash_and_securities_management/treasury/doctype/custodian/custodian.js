@@ -16,15 +16,41 @@ frappe.ui.form.on("Custodian", {
 
     // ── Form Load ──────────────────────────────────────────────────────────
 
-    refresh(frm) {
-        setup_action_buttons(frm);
-        refresh_supplier_visibility(frm);
-        setup_dashboard_indicators(frm);
+    refresh: function (frm) {
+        // Clear any previous intro messages
+        frm.set_intro("");
+
+        // Each helper is wrapped so a failure in one does not block the others
+        try {
+            setup_action_buttons(frm);
+        } catch (e) {
+            console.error("Custodian: setup_action_buttons error", e);
+        }
+
+        try {
+            refresh_supplier_visibility(frm);
+        } catch (e) {
+            console.error("Custodian: refresh_supplier_visibility error", e);
+        }
+
+        try {
+            setup_dashboard_indicators(frm);
+        } catch (e) {
+            console.error("Custodian: setup_dashboard_indicators error", e);
+        }
     },
 
     // ── Field Events ───────────────────────────────────────────────────────
 
-
+    employee: function (frm) {
+        if (!frm.doc.employee) {
+            frm.set_value("employee_name", null);
+            frm.set_value("department", null);
+            frm.set_value("company", null);
+        }
+        // When employee IS set, fetch_from in the JSON handles auto-population
+    }
+});
 
 // ── Helper Functions ───────────────────────────────────────────────────────
 
@@ -79,16 +105,27 @@ function setup_action_buttons(frm) {
 }
 
 function refresh_supplier_visibility(frm) {
-    // Show/hide the Dedicated Supplier section based on Treasury Settings
-    frappe.db.get_single_value("Treasury Settings", "use_single_dummy_supplier").then(function (val) {
-        var show = !val;
-        frm.toggle_display("supplier_section", show);
-        frm.toggle_display("dedicated_supplier", show);
-    });
+    // Show/hide the Dedicated Supplier section based on Treasury Settings.
+    // Default to showing the section if the settings call fails (safe fallback).
+    frappe.db.get_single_value("Treasury Settings", "use_single_dummy_supplier")
+        .then(function (val) {
+            var show = !val;
+            frm.toggle_display("supplier_section", show);
+            frm.toggle_display("dedicated_supplier", show);
+        })
+        .catch(function () {
+            // Treasury Settings may not exist yet — default to showing the section
+            frm.toggle_display("supplier_section", true);
+            frm.toggle_display("dedicated_supplier", true);
+        });
 }
 
 function setup_dashboard_indicators(frm) {
+    // Only show indicators on submitted documents
     if (frm.doc.docstatus !== 1) return;
+
+    // Guard: ensure the dashboard object is available
+    if (!frm.dashboard) return;
 
     // Show outstanding balance as a colored indicator
     if (frm.doc.total_outstanding > 0) {
