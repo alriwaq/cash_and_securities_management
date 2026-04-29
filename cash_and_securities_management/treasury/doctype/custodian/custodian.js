@@ -24,14 +24,7 @@ frappe.ui.form.on("Custodian", {
 
     // ── Field Events ───────────────────────────────────────────────────────
 
-    employee(frm) {
-        if (frm.doc.employee) {
-            frm.set_value("employee_name", null);
-            frm.set_value("department", null);
-            frm.set_value("company", null);
-        }
-    },
-});
+
 
 // ── Helper Functions ───────────────────────────────────────────────────────
 
