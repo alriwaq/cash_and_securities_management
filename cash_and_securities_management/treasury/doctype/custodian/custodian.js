@@ -94,12 +94,13 @@ function setup_action_buttons(frm) {
         }, __("Actions"));
     }
 
-    // Refresh balance button — always visible on submitted docs
-    frm.add_custom_button(__("Refresh Balances"), function () {
+    // Refresh balance button — top-level (not nested in Actions) for easy access
+    frm.add_custom_button(__("Update Balance"), function () {
         frm.call("refresh_outstanding").then(function () {
             frm.reload_doc();
+            frappe.show_alert({message: __("Balances updated"), indicator: "green"});
         });
-    }, __("Actions"));
+    });
 
     // Change Limit button — available unless custodian is Closed
     if (frm.doc.status !== "Closed") {

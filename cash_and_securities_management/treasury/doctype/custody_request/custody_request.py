@@ -39,7 +39,14 @@ class CustodyRequest(Document):
 
     @frappe.whitelist()
     def create_payment_entry(self):
-        """Create a Payment Entry to pay the employee for this custody request."""
+        """
+        Create a draft Payment Entry (Internal Transfer) to disburse funds
+        from the company bank/cash account to the custodian's custody account.
+
+        This is an Internal Transfer (not Pay to Party) to avoid the
+        Party Bank Account mandatory validation in ERPNext.
+        The PE is created as Draft so the accountant can review before submitting.
+        """
         if self.status != "Unpaid":
             frappe.throw(_("Payment can only be created for Unpaid Custody Requests."))
 
@@ -59,35 +66,35 @@ class CustodyRequest(Document):
             )
 
         pe = frappe.new_doc("Payment Entry")
-        pe.payment_type = "Pay"
+        pe.payment_type = "Internal Transfer"
         pe.posting_date = nowdate()
         pe.company = company
-        pe.mode_of_payment = self.mode_of_payment
-        pe.party_type = "Employee"
-        pe.party = self.employee
-        pe.party_name = self.employee_name
+        pe.mode_of_payment = self.mode_of_payment if self.mode_of_payment else None
+
+        # Internal Transfer: paid_from = bank/cash, paid_to = custody account
         pe.paid_from = default_bank
         pe.paid_to = custodian.custody_account
         pe.paid_amount = flt(self.advance_amount)
         pe.received_amount = flt(self.advance_amount)
+
+        # Reference fields for traceability
         pe.reference_no = self.name
         pe.reference_date = nowdate()
+        pe.remarks = _("Custody advance for {0} - {1}").format(
+            self.employee_name or self.employee, self.name
+        )
+
+        # Custom fields for dashboard linking
         pe.custom_custodian = self.custodian
         pe.custom_custody_request = self.name
 
         pe.flags.ignore_permissions = True
+        pe.flags.ignore_mandatory = True
         pe.insert()
-
-        # Update paid_amount and status
-        self.db_set("paid_amount", flt(self.advance_amount))
-        self.db_set("status", "Paid")
-        self._save_unallocated()
-
-        # Refresh custodian balances
-        self._refresh_custodian_balance()
+        # DO NOT submit — leave as Draft for accountant review
 
         frappe.msgprint(
-            _("Payment Entry {0} created successfully.").format(
+            _("Payment Entry {0} created as Draft. Please review and submit it.").format(
                 frappe.utils.get_link_to_form("Payment Entry", pe.name)
             ),
             alert=True,
@@ -97,14 +104,14 @@ class CustodyRequest(Document):
     @frappe.whitelist()
     def refresh_amounts(self):
         """Recalculate paid_amount and claimed_amount from linked documents."""
-        # Paid: sum of Payment Entries linked to this request
+        # Paid: sum of submitted Payment Entries linked to this request
         paid = frappe.db.sql(
             """
             SELECT COALESCE(SUM(pe.paid_amount), 0)
             FROM `tabPayment Entry` pe
             WHERE pe.custom_custody_request = %s
               AND pe.docstatus = 1
-              AND pe.payment_type = 'Pay'
+              AND pe.payment_type = 'Internal Transfer'
             """,
             (self.name,),
         )
@@ -138,6 +145,9 @@ class CustodyRequest(Document):
 
         self.status = status
         self.db_update()
+
+        # Also refresh the custodian
+        self._refresh_custodian_balance()
 
     # ── Private Helpers ───────────────────────────────────────────────────────
 
