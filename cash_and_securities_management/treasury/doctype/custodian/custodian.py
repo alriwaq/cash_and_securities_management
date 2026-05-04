@@ -267,7 +267,10 @@ class Custodian(Document):
         account.account_name = account_name
         account.parent_account = parent_account
         account.company = company
-        account.account_type = "Receivable"
+        # Do NOT set account_type to 'Receivable' — that would require a Customer
+        # party on every transaction. Custody accounts are plain current-asset
+        # ledgers (similar to a petty-cash account) that hold the advance balance.
+        account.account_type = ""
         account.is_group = 0
         account.flags.ignore_permissions = True
         account.insert()
