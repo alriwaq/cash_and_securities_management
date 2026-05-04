@@ -17,26 +17,30 @@ frappe.ui.form.on("Custodian", {
     // ── Form Load ──────────────────────────────────────────────────────────
 
     refresh: function (frm) {
-        // Clear any previous intro messages
+        // Clear any previous intro messages and custom buttons
         frm.set_intro("");
+        frm.clear_custom_buttons();
 
         // Each helper is wrapped so a failure in one does not block the others
-        try {
-            setup_action_buttons(frm);
-        } catch (e) {
-            console.error("Custodian: setup_action_buttons error", e);
-        }
-
         try {
             refresh_supplier_visibility(frm);
         } catch (e) {
             console.error("Custodian: refresh_supplier_visibility error", e);
         }
 
-        try {
-            setup_dashboard_indicators(frm);
-        } catch (e) {
-            console.error("Custodian: setup_dashboard_indicators error", e);
+        // Only show action buttons on submitted documents
+        if (frm.doc.docstatus === 1) {
+            try {
+                setup_action_buttons(frm);
+            } catch (e) {
+                console.error("Custodian: setup_action_buttons error", e);
+            }
+
+            try {
+                setup_dashboard_indicators(frm);
+            } catch (e) {
+                console.error("Custodian: setup_dashboard_indicators error", e);
+            }
         }
     },
 
@@ -55,9 +59,7 @@ frappe.ui.form.on("Custodian", {
 // ── Helper Functions ───────────────────────────────────────────────────────
 
 function setup_action_buttons(frm) {
-    // Only show action buttons on submitted documents
-    if (frm.doc.docstatus !== 1) return;
-
+    // Status-based action buttons inside the "Actions" dropdown
     if (frm.doc.status === "Active") {
         frm.add_custom_button(__("Suspend"), function () {
             frappe.confirm(
@@ -65,7 +67,6 @@ function setup_action_buttons(frm) {
                 function () {
                     frm.call("suspend").then(function () {
                         frm.reload_doc();
-                        frappe.show_alert({ message: __("Custodian suspended."), indicator: "orange" });
                     });
                 }
             );
@@ -76,7 +77,6 @@ function setup_action_buttons(frm) {
         frm.add_custom_button(__("Reactivate"), function () {
             frm.call("reactivate").then(function () {
                 frm.reload_doc();
-                frappe.show_alert({ message: __("Custodian reactivated."), indicator: "green" });
             });
         }, __("Actions"));
     }
@@ -84,11 +84,10 @@ function setup_action_buttons(frm) {
     if (frm.doc.status === "Active" || frm.doc.status === "Suspended") {
         frm.add_custom_button(__("Close Custodian"), function () {
             frappe.confirm(
-                __("Closing this custodian is permanent and cannot be undone. Ensure all outstanding balances are settled. Continue?"),
+                __("Closing this custodian is permanent. Ensure all outstanding balances are settled. Continue?"),
                 function () {
                     frm.call("close").then(function () {
                         frm.reload_doc();
-                        frappe.show_alert({ message: __("Custodian closed."), indicator: "red" });
                     });
                 }
             );
@@ -99,14 +98,41 @@ function setup_action_buttons(frm) {
     frm.add_custom_button(__("Refresh Balances"), function () {
         frm.call("refresh_outstanding").then(function () {
             frm.reload_doc();
-            frappe.show_alert({ message: __("Balances updated."), indicator: "blue" });
         });
     }, __("Actions"));
+
+    // Change Limit button — available unless custodian is Closed
+    if (frm.doc.status !== "Closed") {
+        frm.add_custom_button(__("Change Limit"), function () {
+            var d = new frappe.ui.Dialog({
+                title: __("Change Custody Limit"),
+                fields: [
+                    {
+                        fieldname: "new_limit",
+                        fieldtype: "Currency",
+                        label: __("New Limit"),
+                        reqd: 1,
+                        default: frm.doc.custody_limit,
+                        description: __("Set to 0 for unlimited. Current limit: {0}", [
+                            format_currency(frm.doc.custody_limit)
+                        ])
+                    }
+                ],
+                primary_action_label: __("Update Limit"),
+                primary_action: function (values) {
+                    frm.call("change_limit", { new_limit: values.new_limit }).then(function () {
+                        d.hide();
+                        frm.reload_doc();
+                    });
+                }
+            });
+            d.show();
+        });
+    }
 }
 
 function refresh_supplier_visibility(frm) {
     // Show/hide the Dedicated Supplier section based on Treasury Settings.
-    // Default to showing the section if the settings call fails (safe fallback).
     frappe.db.get_single_value("Treasury Settings", "use_single_dummy_supplier")
         .then(function (val) {
             var show = !val;
@@ -121,9 +147,6 @@ function refresh_supplier_visibility(frm) {
 }
 
 function setup_dashboard_indicators(frm) {
-    // Only show indicators on submitted documents
-    if (frm.doc.docstatus !== 1) return;
-
     // Guard: ensure the dashboard object is available
     if (!frm.dashboard) return;
 

@@ -6,7 +6,7 @@
  "doctype": "DocType",
  "document_type": "Document",
  "engine": "InnoDB",
-  "field_order": [
+ "field_order": [
   "main_tab",
   "naming_series",
   "employee",
@@ -26,19 +26,13 @@
   "column_break_totals",
   "total_accepted_amount",
   "total_billed_amount",
-  "accounting_tab",
-  "accounting_details",
-  "cost_center",
-  "project",
-  "column_break_24",
-  "payable_account",
-  "remark",
-  "linked_documents_section",
-  "purchase_invoice",
-  "column_break_linked",
   "settlement_tab",
+  "settlement_type",
+  "settlement_section",
   "settlements",
   "more_info_tab",
+  "purchase_invoice",
+  "column_break_more",
   "amended_from"
  ],
  "fields": [
@@ -84,6 +78,16 @@
    "options": "Department"
   },
   {
+   "fetch_from": "employee.company",
+   "fetch_if_empty": 1,
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
    "fieldname": "column_break_5",
    "fieldtype": "Column Break"
   },
@@ -125,23 +129,13 @@
    "options": "Custody Request"
   },
   {
-   "description": "Remaining balance on the linked Custody Request",
+   "description": "Remaining unallocated balance on the linked Custody Request",
    "fieldname": "custody_request_balance",
    "fieldtype": "Currency",
    "label": "Custody Request Balance",
    "no_copy": 1,
    "options": "Company:company:default_currency",
    "read_only": 1
-  },
-  {
-   "fetch_from": "employee.company",
-   "fetch_if_empty": 1,
-   "fieldname": "company",
-   "fieldtype": "Link",
-   "in_standard_filter": 1,
-   "label": "Company",
-   "options": "Company",
-   "reqd": 1
   },
   {
    "fieldname": "items_section",
@@ -192,71 +186,21 @@
    "read_only": 1
   },
   {
-   "fieldname": "accounting_tab",
-   "fieldtype": "Tab Break",
-   "label": "Accounting"
-  },
-  {
-   "fieldname": "accounting_details",
-   "fieldtype": "Section Break",
-   "label": "Accounting Details"
-  },
-  {
-   "allow_on_submit": 1,
-   "fetch_from": "company.cost_center",
-   "fetch_if_empty": 1,
-   "fieldname": "cost_center",
-   "fieldtype": "Link",
-   "label": "Cost Center",
-   "options": "Cost Center"
-  },
-  {
-   "allow_on_submit": 1,
-   "fieldname": "project",
-   "fieldtype": "Link",
-   "label": "Project",
-   "options": "Project"
-  },
-  {
-   "fieldname": "column_break_24",
-   "fieldtype": "Column Break"
-  },
-  {
-   "description": "Supplier Payable account. Defaults to the Cash Purchases supplier payable account.",
-   "fetch_if_empty": 1,
-   "fieldname": "payable_account",
-   "fieldtype": "Link",
-   "label": "Payable Account",
-   "options": "Account"
-  },
-  {
-   "fieldname": "remark",
-   "fieldtype": "Small Text",
-   "label": "Remark",
-   "no_copy": 1
-  },
-  {
-   "fieldname": "linked_documents_section",
-   "fieldtype": "Section Break",
-   "label": "Linked Documents"
-  },
-  {
-   "description": "Purchase Invoice generated from this custody record",
-   "fieldname": "purchase_invoice",
-   "fieldtype": "Link",
-   "label": "Purchase Invoice",
-   "no_copy": 1,
-   "options": "Purchase Invoice",
-   "read_only": 1
-  },
-  {
-   "fieldname": "column_break_linked",
-   "fieldtype": "Column Break"
-  },
-  {
    "fieldname": "settlement_tab",
    "fieldtype": "Tab Break",
    "label": "Settlement"
+  },
+  {
+   "description": "Select the settlement method for this custody record.",
+   "fieldname": "settlement_type",
+   "fieldtype": "Select",
+   "label": "Settlement Type",
+   "options": "\nFull Advance Settlement\nFull Direct Payment\nMixed Settlement"
+  },
+  {
+   "fieldname": "settlement_section",
+   "fieldtype": "Section Break",
+   "label": "Settlement Entries"
   },
   {
    "fieldname": "settlements",
@@ -268,6 +212,19 @@
    "fieldname": "more_info_tab",
    "fieldtype": "Tab Break",
    "label": "More Info"
+  },
+  {
+   "description": "Purchase Invoice generated from this custody record",
+   "fieldname": "purchase_invoice",
+   "fieldtype": "Link",
+   "label": "Purchase Invoice",
+   "no_copy": 1,
+   "options": "Purchase Invoice",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_more",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "amended_from",
@@ -291,6 +248,11 @@
   {
    "group": "Purchase",
    "link_doctype": "Purchase Invoice",
+   "link_fieldname": "custom_accountant_custody"
+  },
+  {
+   "group": "Payment",
+   "link_doctype": "Payment Entry",
    "link_fieldname": "custom_accountant_custody"
   }
  ],

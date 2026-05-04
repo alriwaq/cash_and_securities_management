@@ -1,4 +1,4 @@
-// Custody Request — Client Script
+// Custody Request — Client-side controller
 // Cash and Securities Management App
 
 frappe.ui.form.on("Custody Request", {
@@ -8,75 +8,66 @@ frappe.ui.form.on("Custody Request", {
     setup: function (frm) {
         // Filter: only Active employees
         frm.set_query("employee", function () {
-            return {
-                filters: { status: "Active" }
-            };
+            return { filters: { status: "Active" } };
         });
 
-        // Filter: only submitted, non-closed Custodians for the selected employee
+        // Filter: only Active custodians for the selected employee
         frm.set_query("custodian", function () {
-            var filters = {
-                docstatus: 1,
-                status: ["in", ["Active", "Suspended"]]
-            };
+            var filters = { docstatus: 1, status: "Active" };
             if (frm.doc.employee) {
                 filters.employee = frm.doc.employee;
             }
             return { filters: filters };
-        });
-
-        // Filter: Receivable accounts for the company
-        frm.set_query("advance_account", function () {
-            return {
-                filters: {
-                    account_type: "Receivable",
-                    company: frm.doc.company,
-                    is_group: 0
-                }
-            };
         });
     },
 
     // ─── Refresh ────────────────────────────────────────────────────────────
 
     refresh: function (frm) {
-        frm.trigger("set_status_indicator");
-        frm.trigger("add_action_buttons");
-        frm.trigger("show_custodian_alert");
-    },
+        frm.set_intro("");
+        frm.clear_custom_buttons();
 
-    set_status_indicator: function (frm) {
-        var color_map = {
-            "Draft": "red",
-            "Unpaid": "orange",
-            "Paid": "green",
-            "Claimed": "blue",
-            "Partly Claimed": "yellow",
-            "Cancelled": "red"
-        };
-        if (frm.doc.status) {
-            frm.page.set_indicator(frm.doc.status, color_map[frm.doc.status] || "gray");
+        // Show Create Payment button for Unpaid submitted requests
+        if (frm.doc.docstatus === 1 && frm.doc.status === "Unpaid") {
+            frm.add_custom_button(__("Create Payment Entry"), function () {
+                frappe.confirm(
+                    __("This will create a Payment Entry for {0}. Continue?", [
+                        format_currency(frm.doc.advance_amount)
+                    ]),
+                    function () {
+                        frm.call("create_payment_entry").then(function () {
+                            frm.reload_doc();
+                        });
+                    }
+                );
+            }).addClass("btn-primary");
         }
-    },
 
-    add_action_buttons: function (frm) {
+        // Refresh Amounts button for submitted docs
         if (frm.doc.docstatus === 1) {
+            frm.add_custom_button(__("Refresh Amounts"), function () {
+                frm.call("refresh_amounts").then(function () {
+                    frm.reload_doc();
+                });
+            }, __("Actions"));
+
+            frm.add_custom_button(__("View Custodian"), function () {
+                frappe.set_route("Form", "Custodian", frm.doc.custodian);
+            }, __("Links"));
+
             frm.add_custom_button(__("View Accountant Custodies"), function () {
                 frappe.set_route("List", "Accountant Custody", {
                     custody_request: frm.doc.name
                 });
             }, __("Links"));
-
-            frm.add_custom_button(__("View Custodian"), function () {
-                frappe.set_route("Form", "Custodian", frm.doc.custodian);
-            }, __("Links"));
         }
-    },
 
-    show_custodian_alert: function (frm) {
-        if (frm.doc.custodian_status === "Suspended") {
+        // Show warning if custodian is not Active
+        if (frm.doc.custodian_status && frm.doc.custodian_status !== "Active") {
             frm.set_intro(
-                __("Warning: The custodian for this employee is currently Suspended. This request cannot be submitted until the custodian is reactivated."),
+                __("Warning: Custodian is currently {0}. This request cannot be submitted.", [
+                    frm.doc.custodian_status
+                ]),
                 "orange"
             );
         }
@@ -85,57 +76,59 @@ frappe.ui.form.on("Custody Request", {
     // ─── Field Events ────────────────────────────────────────────────────────
 
     employee: function (frm) {
-        if (!frm.doc.employee) return;
+        if (!frm.doc.employee) {
+            frm.set_value("custodian", "");
+            frm.set_value("advance_account", "");
+            return;
+        }
 
-        // Auto-find and set the active Custodian for this employee
-        frappe.db.get_value(
-            "Custodian",
-            {
-                employee: frm.doc.employee,
-                docstatus: 1,
-                status: ["in", ["Active", "Suspended"]]
-            },
-            "name",
-            function (r) {
-                if (r && r.name) {
-                    frm.set_value("custodian", r.name);
-                } else {
-                    frm.set_value("custodian", null);
-                    frappe.msgprint({
-                        title: __("No Active Custodian"),
-                        message: __("No active Custodian record found for employee {0}. Please create a Custodian record first.", [frm.doc.employee_name || frm.doc.employee]),
-                        indicator: "orange"
-                    });
-                }
+        // Auto-lookup the active Custodian for this employee
+        frappe.db.get_value("Custodian", {
+            employee: frm.doc.employee,
+            docstatus: 1,
+            status: "Active"
+        }, ["name", "custody_account"], function (r) {
+            if (r && r.name) {
+                frm.set_value("custodian", r.name);
+                frm.set_value("advance_account", r.custody_account || "");
+            } else {
+                frm.set_value("custodian", "");
+                frm.set_value("advance_account", "");
+                frappe.show_alert({
+                    message: __("No active Custodian found for this employee. Please create one first."),
+                    indicator: "orange"
+                }, 7);
             }
-        );
+        });
     },
 
     custodian: function (frm) {
-        if (!frm.doc.custodian) return;
-        frm.trigger("load_account_from_custodian");
-    },
-
-    load_account_from_custodian: function (frm) {
-        if (!frm.doc.custodian) return;
+        if (!frm.doc.custodian) {
+            frm.set_value("advance_account", "");
+            return;
+        }
+        // Lock the advance account to the custodian's account
         frappe.db.get_value("Custodian", frm.doc.custodian, "custody_account", function (r) {
-            if (r && r.custody_account && !frm.doc.advance_account) {
+            if (r && r.custody_account) {
                 frm.set_value("advance_account", r.custody_account);
             }
         });
     },
 
     advance_amount: function (frm) {
-        frm.trigger("calculate_remaining_balance");
+        calculate_unallocated(frm);
+    },
+
+    paid_amount: function (frm) {
+        calculate_unallocated(frm);
     },
 
     claimed_amount: function (frm) {
-        frm.trigger("calculate_remaining_balance");
-    },
-
-    calculate_remaining_balance: function (frm) {
-        var remaining = flt(frm.doc.advance_amount) - flt(frm.doc.claimed_amount);
-        frm.set_value("remaining_balance", remaining);
+        calculate_unallocated(frm);
     }
-
 });
+
+function calculate_unallocated(frm) {
+    var unallocated = flt(frm.doc.paid_amount) - flt(frm.doc.claimed_amount);
+    frm.set_value("unallocated_amount", unallocated);
+}

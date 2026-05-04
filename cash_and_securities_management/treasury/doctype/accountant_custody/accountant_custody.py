@@ -9,7 +9,10 @@ Supplier Resolution Logic:
   - Mode A (use_single_dummy_supplier = ON):
       Supplier = Treasury Settings.default_cash_purchases_supplier
   - Mode B (use_single_dummy_supplier = OFF):
-      Supplier = Custodian.dedicated_supplier  (looked up via custody_request)
+      Supplier = Custodian.dedicated_supplier (looked up via custodian)
+
+The payable account is automatically resolved from the supplier — no user input needed.
+The settlement_type is now a header-level field on the document.
 """
 import frappe
 from frappe import _
@@ -26,7 +29,6 @@ class AccountantCustody(Document):
     def validate(self):
         self._auto_link_custody_request()
         self._set_custodian_from_request()
-        self._set_payable_account_from_supplier()
         self._calculate_totals()
         self._update_custody_request_balance()
         self._validate_items()
@@ -61,9 +63,11 @@ class AccountantCustody(Document):
             return supplier
 
         # Mode B — get dedicated supplier from Custodian
-        custodian_name = self.custodian or frappe.db.get_value(
-            "Custody Request", self.custody_request, "custodian"
-        ) if self.custody_request else None
+        custodian_name = self.custodian
+        if not custodian_name and self.custody_request:
+            custodian_name = frappe.db.get_value(
+                "Custody Request", self.custody_request, "custodian"
+            )
 
         if not custodian_name:
             frappe.throw(
@@ -83,6 +87,22 @@ class AccountantCustody(Document):
             )
         return dedicated_supplier
 
+    def _get_payable_account(self):
+        """Resolve the payable account from the supplier automatically."""
+        supplier = self._resolve_supplier()
+        payable = frappe.db.get_value("Supplier", supplier, "default_payable_account")
+        if not payable:
+            # Fallback to company default
+            payable = frappe.db.get_value(
+                "Company", self.company, "default_payable_account"
+            )
+        if not payable:
+            frappe.throw(
+                _("No payable account found for supplier {0} or company {1}. "
+                  "Please configure a default payable account.").format(supplier, self.company)
+            )
+        return payable
+
     # ─── Defaults & Setup ─────────────────────────────────────────────────────
 
     def _set_custodian_from_request(self):
@@ -93,18 +113,6 @@ class AccountantCustody(Document):
             )
             if custodian:
                 self.custodian = custodian
-
-    def _set_payable_account_from_supplier(self):
-        """Default payable_account from the resolved supplier."""
-        if self.payable_account:
-            return
-        try:
-            supplier = self._resolve_supplier()
-            payable = frappe.db.get_value("Supplier", supplier, "default_payable_account")
-            if payable:
-                self.payable_account = payable
-        except Exception:
-            pass  # Non-blocking on validate; will be enforced on submit
 
     def _auto_link_custody_request(self):
         """Auto-link to the first unpaid Custody Request for this employee if not set."""
@@ -124,9 +132,10 @@ class AccountantCustody(Document):
             self.custody_request = first_unpaid
 
     def _update_custody_request_balance(self):
+        """Fetch the unallocated balance from the linked Custody Request."""
         if self.custody_request:
             balance = frappe.db.get_value(
-                "Custody Request", self.custody_request, "remaining_balance"
+                "Custody Request", self.custody_request, "unallocated_amount"
             )
             self.custody_request_balance = flt(balance)
 
@@ -221,8 +230,6 @@ class AccountantCustody(Document):
         pr.supplier = supplier
         pr.posting_date = self.posting_date
         pr.company = self.company
-        pr.cost_center = self.cost_center
-        pr.project = self.project
         pr.custom_accountant_custody = self.name
         pr.custom_source_document_type = "Custody"
         if settings.get("pr_series"):
@@ -238,8 +245,6 @@ class AccountantCustody(Document):
                     "warehouse": item.warehouse,
                     "is_fixed_asset": item.is_fixed_asset,
                     "asset_location": item.asset_location,
-                    "cost_center": self.cost_center,
-                    "project": self.project,
                 },
             )
 
@@ -277,8 +282,6 @@ class AccountantCustody(Document):
         pi.supplier = supplier
         pi.posting_date = nowdate()
         pi.company = self.company
-        pi.cost_center = self.cost_center
-        pi.project = self.project
         pi.custom_accountant_custody = self.name
         pi.custom_source_document_type = "Custody"
         if settings.get("pi_series"):
@@ -298,8 +301,6 @@ class AccountantCustody(Document):
                     "item_code": item.item_code,
                     "qty": bill_qty,
                     "rate": item.rate,
-                    "cost_center": self.cost_center,
-                    "project": self.project,
                     "warehouse": item.warehouse,
                 },
             )
@@ -323,14 +324,20 @@ class AccountantCustody(Document):
     @frappe.whitelist()
     def create_settlement(
         self,
-        settlement_type,
         advance_amount_allocated=0,
         direct_payment_amount=0,
         settlement_notes="",
     ):
-        """Called from the 'Settle' button. Creates a JE and records settlement."""
+        """
+        Called from the 'Settle' button.
+        Uses the settlement_type from the document header.
+        Creates a JE and records the settlement entry.
+        """
         if self.status != "Invoiced":
             frappe.throw(_("Settlement can only be done when status is 'Invoiced'."))
+
+        if not self.settlement_type:
+            frappe.throw(_("Please select a Settlement Type before settling."))
 
         settings = get_settings()
         advance_amount_allocated = flt(advance_amount_allocated)
@@ -345,6 +352,7 @@ class AccountantCustody(Document):
             )
 
         supplier = self._resolve_supplier()
+        payable_account = self._get_payable_account()
 
         je = frappe.new_doc("Journal Entry")
         je.voucher_type = "Journal Entry"
@@ -356,32 +364,30 @@ class AccountantCustody(Document):
         je.append(
             "accounts",
             {
-                "account": self.payable_account,
+                "account": payable_account,
                 "debit_in_account_currency": total_settlement,
                 "party_type": "Supplier",
                 "party": supplier,
                 "reference_type": "Purchase Invoice",
                 "reference_name": self.purchase_invoice,
-                "cost_center": self.cost_center,
             },
         )
 
-        # Credit Custody Advance Account
+        # Credit Custody Advance Account (from custodian)
         if advance_amount_allocated > 0:
-            custody_request_doc = (
-                frappe.get_doc("Custody Request", self.custody_request)
-                if self.custody_request
-                else None
-            )
-            advance_account = (
-                custody_request_doc.advance_account
-                if custody_request_doc
-                else None
-            )
+            advance_account = None
+            if self.custodian:
+                advance_account = frappe.db.get_value(
+                    "Custodian", self.custodian, "custody_account"
+                )
+            if not advance_account and self.custody_request:
+                advance_account = frappe.db.get_value(
+                    "Custody Request", self.custody_request, "advance_account"
+                )
             if not advance_account:
                 frappe.throw(
                     _("Cannot find the Custody Advance Account. Please ensure the "
-                      "linked Custody Request has an advance account set.")
+                      "linked Custodian has a custody account set.")
                 )
             je.append(
                 "accounts",
@@ -390,7 +396,6 @@ class AccountantCustody(Document):
                     "credit_in_account_currency": advance_amount_allocated,
                     "party_type": "Employee",
                     "party": self.employee,
-                    "cost_center": self.cost_center,
                 },
             )
 
@@ -398,15 +403,20 @@ class AccountantCustody(Document):
         if direct_payment_amount > 0:
             direct_account = settings.get("settlement_expense_account") or ""
             if not direct_account:
+                # Fallback to company default cash account
+                direct_account = frappe.db.get_value(
+                    "Company", self.company, "default_cash_account"
+                )
+            if not direct_account:
                 frappe.throw(
-                    _("Please set the Settlement Expense Account in Treasury Settings.")
+                    _("Please set the Settlement Expense Account in Treasury Settings "
+                      "or a Default Cash Account in Company settings.")
                 )
             je.append(
                 "accounts",
                 {
                     "account": direct_account,
                     "credit_in_account_currency": direct_payment_amount,
-                    "cost_center": self.cost_center,
                 },
             )
 
@@ -414,21 +424,25 @@ class AccountantCustody(Document):
         je.insert()
         je.submit()
 
+        # Record settlement entry in the child table
         self.append(
             "settlements",
             {
-                "settlement_type": settlement_type,
-                "settlement_date": nowdate(),
+                "custody_request": self.custody_request,
+                "custody_request_balance": self.custody_request_balance,
+                "claimed_amount": advance_amount_allocated,
                 "advance_amount_allocated": advance_amount_allocated,
                 "direct_payment_amount": direct_payment_amount,
                 "total_settlement_amount": total_settlement,
                 "settlement_je": je.name,
+                "settlement_date": nowdate(),
                 "settlement_notes": settlement_notes,
             },
         )
         self.db_set("status", "Settled")
         self.save(ignore_permissions=True)
 
+        # Update the Custody Request claimed amounts
         if self.custody_request and advance_amount_allocated > 0:
             cr_doc = frappe.get_doc("Custody Request", self.custody_request)
             cr_doc.update_claimed_amount()

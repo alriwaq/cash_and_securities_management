@@ -1,26 +1,7 @@
 {
- "actions": [
-  {
-   "action": "Suspend",
-   "action_label": "Suspend",
-   "condition": "doc.status == 'Active'",
-   "label": "Suspend"
-  },
-  {
-   "action": "Reactivate",
-   "action_label": "Reactivate",
-   "condition": "doc.status == 'Suspended'",
-   "label": "Reactivate"
-  },
-  {
-   "action": "Close",
-   "action_label": "Close Custodian",
-   "condition": "doc.status in ('Active', 'Suspended')",
-   "label": "Close"
-  }
- ],
+ "actions": [],
  "allow_import": 1,
- "autoname": "field:employee",
+ "autoname": "naming_series:",
  "creation": "2024-01-01 00:00:00.000000",
  "doctype": "DocType",
  "document_type": "Document",
@@ -28,6 +9,7 @@
  "field_order": [
   "details_tab",
   "employee_section",
+  "naming_series",
   "employee",
   "employee_name",
   "column_break_employee",
@@ -38,10 +20,15 @@
   "custody_limit",
   "column_break_account",
   "status",
-  "total_outstanding",
-  "total_disbursed",
   "supplier_section",
   "dedicated_supplier",
+  "financials_tab",
+  "financials_section",
+  "total_disbursed",
+  "total_outstanding",
+  "column_break_financials",
+  "pending_requests",
+  "pending_settlements",
   "dashboard_tab"
  ],
  "fields": [
@@ -54,6 +41,16 @@
    "fieldname": "employee_section",
    "fieldtype": "Section Break",
    "label": "Employee"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "CUST-.YYYY.-.#####",
+   "default": "CUST-.YYYY.-.#####",
+   "reqd": 1,
+   "set_only_once": 1,
+   "hidden": 1
   },
   {
    "fieldname": "employee",
@@ -117,11 +114,12 @@
   },
   {
    "default": "0",
-   "description": "Maximum outstanding custody amount allowed for this custodian. Set to 0 for unlimited.",
+   "description": "Maximum outstanding custody amount allowed. Set to 0 for unlimited. Use the Change Limit button to modify.",
    "fieldname": "custody_limit",
    "fieldtype": "Currency",
    "label": "Custody Limit",
-   "options": "Company:company:default_currency"
+   "options": "Company:company:default_currency",
+   "read_only": 1
   },
   {
    "fieldname": "column_break_account",
@@ -139,25 +137,6 @@
    "read_only": 1
   },
   {
-   "description": "Sum of all open (unpaid / partly claimed) Custody Request balances",
-   "fieldname": "total_outstanding",
-   "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Total Outstanding",
-   "no_copy": 1,
-   "options": "Company:company:default_currency",
-   "read_only": 1
-  },
-  {
-   "description": "Lifetime total of all advance amounts disbursed to this custodian",
-   "fieldname": "total_disbursed",
-   "fieldtype": "Currency",
-   "label": "Total Disbursed",
-   "no_copy": 1,
-   "options": "Company:company:default_currency",
-   "read_only": 1
-  },
-  {
    "fieldname": "supplier_section",
    "fieldtype": "Section Break",
    "label": "Supplier Assignment"
@@ -169,6 +148,58 @@
    "in_list_view": 1,
    "label": "Dedicated Supplier",
    "options": "Supplier"
+  },
+  {
+   "fieldname": "financials_tab",
+   "fieldtype": "Tab Break",
+   "label": "Financials"
+  },
+  {
+   "fieldname": "financials_section",
+   "fieldtype": "Section Break",
+   "label": "Financial Summary"
+  },
+  {
+   "description": "Sum of all Payment Entries disbursed to this custodian",
+   "fieldname": "total_disbursed",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Disbursed",
+   "no_copy": 1,
+   "options": "Company:company:default_currency",
+   "read_only": 1
+  },
+  {
+   "description": "Total Disbursed minus Total Settled via Accountant Custodies",
+   "fieldname": "total_outstanding",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Outstanding",
+   "no_copy": 1,
+   "options": "Company:company:default_currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_financials",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Sum of Advance Amounts from Custody Requests in Draft or Unpaid status",
+   "fieldname": "pending_requests",
+   "fieldtype": "Currency",
+   "label": "Pending Requests",
+   "no_copy": 1,
+   "options": "Company:company:default_currency",
+   "read_only": 1
+  },
+  {
+   "description": "Sum of unsettled Accountant Custody totals",
+   "fieldname": "pending_settlements",
+   "fieldtype": "Currency",
+   "label": "Pending Settlements",
+   "no_copy": 1,
+   "options": "Company:company:default_currency",
+   "read_only": 1
   },
   {
    "fieldname": "dashboard_tab",
@@ -187,13 +218,28 @@
    "group": "Custody",
    "link_doctype": "Accountant Custody",
    "link_fieldname": "custodian"
+  },
+  {
+   "group": "Purchases",
+   "link_doctype": "Purchase Receipt",
+   "link_fieldname": "custom_custodian"
+  },
+  {
+   "group": "Purchases",
+   "link_doctype": "Purchase Invoice",
+   "link_fieldname": "custom_custodian"
+  },
+  {
+   "group": "Payments",
+   "link_doctype": "Payment Entry",
+   "link_fieldname": "custom_custodian"
   }
  ],
- "modified": "2024-01-01 00:00:00.000000",
+ "modified": "2024-01-15 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Treasury",
  "name": "Custodian",
- "naming_rule": "By fieldname",
+ "naming_rule": "By \"Naming Series\" field",
  "owner": "Administrator",
  "permissions": [
   {

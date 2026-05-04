@@ -8,6 +8,7 @@
  "engine": "InnoDB",
  "field_order": [
   "naming_series",
+  "employee_section",
   "employee",
   "employee_name",
   "column_break_4",
@@ -24,13 +25,11 @@
   "advance_amount",
   "paid_amount",
   "claimed_amount",
-  "remaining_balance",
+  "unallocated_amount",
   "accounting_section",
   "advance_account",
   "column_break_18",
   "mode_of_payment",
-  "project",
-  "cost_center",
   "more_info_section",
   "status",
   "column_break_kimx",
@@ -41,21 +40,36 @@
    "fieldname": "naming_series",
    "fieldtype": "Select",
    "label": "Series",
-   "options": "CR-.YYYY.-.#####"
+   "options": "CR-.YYYY.-.#####",
+   "default": "CR-.YYYY.-.#####",
+   "reqd": 1,
+   "set_only_once": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "employee_section",
+   "fieldtype": "Section Break",
+   "label": "Employee"
   },
   {
    "fieldname": "employee",
    "fieldtype": "Link",
+   "in_global_search": 1,
    "in_list_view": 1,
+   "in_standard_filter": 1,
    "label": "Employee",
    "options": "Employee",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fetch_from": "employee.employee_name",
    "fieldname": "employee_name",
-   "fieldtype": "Read Only",
-   "label": "Employee Name"
+   "fieldtype": "Data",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "label": "Employee Name",
+   "read_only": 1
   },
   {
    "fieldname": "column_break_4",
@@ -71,8 +85,10 @@
   },
   {
    "fetch_from": "employee.company",
+   "fetch_if_empty": 1,
    "fieldname": "company",
    "fieldtype": "Link",
+   "in_standard_filter": 1,
    "label": "Company",
    "options": "Company",
    "read_only": 1,
@@ -138,7 +154,7 @@
    "reqd": 1
   },
   {
-   "description": "Amount that has been paid to the employee",
+   "description": "Amount that has been paid to the employee via Payment Entry",
    "fieldname": "paid_amount",
    "fieldtype": "Currency",
    "label": "Paid Amount",
@@ -156,10 +172,10 @@
    "read_only": 1
   },
   {
-   "description": "Advance Amount minus Claimed Amount",
-   "fieldname": "remaining_balance",
+   "description": "Paid Amount minus Total Claimed — the unallocated balance remaining",
+   "fieldname": "unallocated_amount",
    "fieldtype": "Currency",
-   "label": "Remaining Balance",
+   "label": "Unallocated Amount",
    "no_copy": 1,
    "options": "Company:company:default_currency",
    "read_only": 1
@@ -170,13 +186,13 @@
    "label": "Accounting"
   },
   {
-   "description": "Asset account used to track this custody advance. Defaults from the Custodian's dedicated account.",
-   "fetch_if_empty": 1,
+   "description": "Locked to the Custodian's dedicated custody account. Cannot be changed.",
    "fieldname": "advance_account",
    "fieldtype": "Link",
    "ignore_user_permissions": 1,
    "label": "Advance Account",
-   "options": "Account"
+   "options": "Account",
+   "read_only": 1
   },
   {
    "fieldname": "column_break_18",
@@ -187,20 +203,6 @@
    "fieldtype": "Link",
    "label": "Mode of Payment",
    "options": "Mode of Payment"
-  },
-  {
-   "allow_on_submit": 1,
-   "fieldname": "project",
-   "fieldtype": "Link",
-   "label": "Project",
-   "options": "Project"
-  },
-  {
-   "allow_on_submit": 1,
-   "fieldname": "cost_center",
-   "fieldtype": "Link",
-   "label": "Cost Center",
-   "options": "Cost Center"
   },
   {
    "collapsible": 1,
@@ -230,16 +232,20 @@
    "read_only": 1
   }
  ],
- "grid_page_length": 50,
  "is_submittable": 1,
  "links": [
   {
-   "group": "Accountant Custody",
+   "group": "Custody",
    "link_doctype": "Accountant Custody",
    "link_fieldname": "custody_request"
+  },
+  {
+   "group": "Payments",
+   "link_doctype": "Payment Entry",
+   "link_fieldname": "custom_custody_request"
   }
  ],
- "modified": "2024-01-01 00:00:00.000000",
+ "modified": "2024-01-15 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Treasury",
  "name": "Custody Request",
@@ -288,7 +294,6 @@
    "write": 1
   }
  ],
- "row_format": "Dynamic",
  "search_fields": "employee,employee_name,custodian",
  "sort_field": "creation",
  "sort_order": "DESC",

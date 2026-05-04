@@ -78,42 +78,88 @@ class Custodian(Document):
         ))
         frappe.db.commit()
 
+    @frappe.whitelist()
+    def change_limit(self, new_limit):
+        """Change the custody limit and record the action in the timeline."""
+        new_limit = flt(new_limit)
+        old_limit = flt(self.custody_limit)
+        if new_limit < 0:
+            frappe.throw(_("Custody limit cannot be negative."))
+        self.db_set("custody_limit", new_limit)
+        self.add_comment(
+            "Info",
+            _("Custody limit changed from {0} to {1} by {2}").format(
+                frappe.utils.fmt_money(old_limit),
+                frappe.utils.fmt_money(new_limit),
+                frappe.session.user,
+            ),
+        )
+        frappe.msgprint(
+            _("Custody limit updated to {0}").format(frappe.utils.fmt_money(new_limit))
+        )
+
     # ── Balance Refresh ───────────────────────────────────────────────────────
 
     @frappe.whitelist()
     def refresh_outstanding(self):
         """
-        Recalculate total_outstanding and total_disbursed from linked
-        Custody Requests and update the Custodian record.
+        Recalculate all financial summary fields based on actual payments
+        and settlements rather than request amounts.
         """
-        open_statuses = ("Unpaid", "Paid", "Partly Claimed")
-
-        # Total outstanding: sum of remaining_balance on open requests
-        outstanding = frappe.db.sql(
-            """
-            SELECT COALESCE(SUM(remaining_balance), 0)
-            FROM `tabCustody Request`
-            WHERE custodian = %s
-              AND docstatus = 1
-              AND status IN ({statuses})
-            """.format(
-                statuses=", ".join(["%s"] * len(open_statuses))
-            ),
-            (self.name, *open_statuses),
-        )
-        self.total_outstanding = flt(outstanding[0][0]) if outstanding else 0.0
-
-        # Total disbursed: sum of all advance_amounts ever submitted
+        # Total Disbursed: sum of all Payment Entries linked to this custodian
         disbursed = frappe.db.sql(
             """
-            SELECT COALESCE(SUM(advance_amount), 0)
-            FROM `tabCustody Request`
-            WHERE custodian = %s
-              AND docstatus = 1
+            SELECT COALESCE(SUM(pe.paid_amount), 0)
+            FROM `tabPayment Entry` pe
+            WHERE pe.custom_custodian = %s
+              AND pe.docstatus = 1
+              AND pe.payment_type = 'Pay'
             """,
             (self.name,),
         )
         self.total_disbursed = flt(disbursed[0][0]) if disbursed else 0.0
+
+        # Total Settled: sum of settled Accountant Custody totals
+        settled = frappe.db.sql(
+            """
+            SELECT COALESCE(SUM(ac.total_amount), 0)
+            FROM `tabAccountant Custody` ac
+            WHERE ac.custodian = %s
+              AND ac.docstatus = 1
+              AND ac.status = 'Settled'
+            """,
+            (self.name,),
+        )
+        total_settled = flt(settled[0][0]) if settled else 0.0
+
+        # Total Outstanding = Disbursed - Settled
+        self.total_outstanding = flt(self.total_disbursed) - total_settled
+
+        # Pending Requests: sum of advance_amount from Custody Requests in Unpaid or Paid status
+        pending_req = frappe.db.sql(
+            """
+            SELECT COALESCE(SUM(cr.advance_amount), 0)
+            FROM `tabCustody Request` cr
+            WHERE cr.custodian = %s
+              AND cr.docstatus = 1
+              AND cr.status IN ('Unpaid', 'Paid')
+            """,
+            (self.name,),
+        )
+        self.pending_requests = flt(pending_req[0][0]) if pending_req else 0.0
+
+        # Pending Settlements: sum of unsettled Accountant Custody totals
+        pending_sett = frappe.db.sql(
+            """
+            SELECT COALESCE(SUM(ac.total_amount), 0)
+            FROM `tabAccountant Custody` ac
+            WHERE ac.custodian = %s
+              AND ac.docstatus = 1
+              AND ac.status NOT IN ('Settled', 'Cancelled')
+            """,
+            (self.name,),
+        )
+        self.pending_settlements = flt(pending_sett[0][0]) if pending_sett else 0.0
 
         self.db_update()
 
@@ -151,8 +197,8 @@ class Custodian(Document):
             "Treasury Settings", "use_single_dummy_supplier"
         )
         if not use_single and self.docstatus == 0 and not self.dedicated_supplier:
-            # Warn on save, throw on submit is handled in on_submit
-            pass  # Allow saving draft without supplier; enforce on submit
+            # Allow saving draft without supplier; enforce on submit
+            pass
 
     def _validate_no_open_transactions(self):
         """Prevent cancellation if there are linked submitted documents."""
@@ -233,7 +279,7 @@ class Custodian(Document):
             f"Created custody account '{account.name}' for custodian {self.name}"
         )
 
-    def _set_status(self, new_status: str):
+    def _set_status(self, new_status):
         """Update status field directly in the database."""
         self.status = new_status
         self.db_set("status", new_status, notify=True)

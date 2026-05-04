@@ -5,52 +5,57 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "settlement_type",
-  "settlement_date",
+  "custody_request",
+  "custody_request_balance",
   "column_break_1",
-  "total_settlement_amount",
-  "settlement_je",
+  "claimed_amount",
+  "payment_entry",
   "amounts_section",
   "advance_amount_allocated",
   "column_break_2",
   "direct_payment_amount",
+  "total_settlement_amount",
   "notes_section",
+  "settlement_je",
+  "column_break_3",
+  "settlement_date",
   "settlement_notes"
  ],
  "fields": [
   {
-   "fieldname": "settlement_type",
-   "fieldtype": "Select",
+   "fieldname": "custody_request",
+   "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Settlement Type",
-   "options": "\nFull Advance Settlement\nFull Direct Payment\nMixed Settlement",
-   "reqd": 1
+   "label": "Custody Request",
+   "options": "Custody Request"
   },
   {
-   "default": "Today",
-   "fieldname": "settlement_date",
-   "fieldtype": "Date",
-   "in_list_view": 1,
-   "label": "Settlement Date",
-   "reqd": 1
+   "description": "Available balance on the linked Custody Request at time of settlement",
+   "fieldname": "custody_request_balance",
+   "fieldtype": "Currency",
+   "label": "Request Balance",
+   "options": "Company:company:default_currency",
+   "read_only": 1
   },
   {
    "fieldname": "column_break_1",
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "total_settlement_amount",
+   "description": "Amount claimed from the advance for this settlement entry",
+   "fieldname": "claimed_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Total Settlement Amount",
-   "options": "Company:company:default_currency",
-   "read_only": 1
+   "label": "Claimed Amount",
+   "options": "Company:company:default_currency"
   },
   {
-   "fieldname": "settlement_je",
+   "description": "Payment Entry created for direct payment portion",
+   "fieldname": "payment_entry",
    "fieldtype": "Link",
-   "label": "Settlement Journal Entry",
-   "options": "Journal Entry",
+   "in_list_view": 1,
+   "label": "Payment Entry",
+   "options": "Payment Entry",
    "read_only": 1
   },
   {
@@ -59,7 +64,6 @@
    "label": "Settlement Amounts"
   },
   {
-   "depends_on": "eval:['Full Advance Settlement','Mixed Settlement'].includes(doc.settlement_type)",
    "description": "Amount allocated from the linked Custody Request advance",
    "fieldname": "advance_amount_allocated",
    "fieldtype": "Currency",
@@ -71,7 +75,6 @@
    "fieldtype": "Column Break"
   },
   {
-   "depends_on": "eval:['Full Direct Payment','Mixed Settlement'].includes(doc.settlement_type)",
    "description": "Amount paid directly (not from advance)",
    "fieldname": "direct_payment_amount",
    "fieldtype": "Currency",
@@ -79,9 +82,35 @@
    "options": "Company:company:default_currency"
   },
   {
+   "fieldname": "total_settlement_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Settlement Amount",
+   "options": "Company:company:default_currency",
+   "read_only": 1
+  },
+  {
    "fieldname": "notes_section",
    "fieldtype": "Section Break",
-   "label": "Notes"
+   "label": "Reference"
+  },
+  {
+   "fieldname": "settlement_je",
+   "fieldtype": "Link",
+   "label": "Settlement Journal Entry",
+   "options": "Journal Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Today",
+   "fieldname": "settlement_date",
+   "fieldtype": "Date",
+   "label": "Settlement Date",
+   "reqd": 1
   },
   {
    "fieldname": "settlement_notes",
