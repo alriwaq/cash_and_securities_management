@@ -126,6 +126,20 @@ frappe.ui.form.on("Accountant Custody Item", {
                         frappe.model.set_value(cdt, cdn, "is_fixed_asset", r.is_fixed_asset || 0);
                         frappe.model.set_value(cdt, cdn, "uom", r.stock_uom || "");
                         frappe.model.set_value(cdt, cdn, "asset_category", r.asset_category || "");
+                        // ─── Parent defaults: Project ─────────────────────
+                        if (frm.doc.project && !row.project) {
+                            frappe.model.set_value(cdt, cdn, "project", frm.doc.project);
+                        }
+
+                        // ─── Parent defaults: Cost Center ────────────────
+                        if (frm.doc.cost_center && !row.cost_center) {
+                            frappe.model.set_value(cdt, cdn, "cost_center", frm.doc.cost_center);
+                        }
+
+                        // ─── Parent defaults: Warehouse ──────────────────
+                        if (frm.doc.warehouse && !row.warehouse) {
+                            frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.warehouse);
+                        }
                     }
                 });
         }
