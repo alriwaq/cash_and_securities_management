@@ -59,7 +59,7 @@ def on_pr_validate(doc, method):
 				# Sum already received qty from other submitted PRs
 				already_received = frappe.db.sql(
 					"""
-					SELECT SUM(pri.accepted_qty)
+					SELECT SUM(pri.qty)
 					FROM `tabPurchase Receipt Item` pri
 					JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent
 					WHERE pr.custom_accountant_custody = %s
