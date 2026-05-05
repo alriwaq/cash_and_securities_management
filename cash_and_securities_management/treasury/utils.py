@@ -7,36 +7,29 @@ from frappe import _
 
 def get_settings():
 	"""
-	Safely fetch Treasury Settings.
+	Safely fetch Treasury Settings as a plain dict.
 
-	For Single doctypes, Frappe stores the record in tabSingles.
-	This helper checks if the DocType is installed and if the singleton
-	has been saved. If not, it auto-initializes it so controllers
-	do not crash.
+	Uses frappe.db.get_singles_dict() which reads directly from the
+	tabSingles table and returns a frappe._dict with no field-name
+	validation. This avoids the "Field name does not exist on Treasury
+	Settings" error that occurs when frappe.get_cached_doc() is used
+	and the DocType metadata cache is stale or the field is not yet
+	registered in the current session.
+
+	Returns a frappe._dict so callers can use .get("fieldname") safely —
+	missing keys return None instead of raising an exception.
 	"""
 	doctype = "Treasury Settings"
 
-	# First verify the DocType itself is installed in the database
+	# Guard: DocType not yet installed (first deploy before bench migrate)
 	if not frappe.db.exists("DocType", doctype):
-		# DocType not yet installed — return empty defaults silently
 		return frappe._dict()
 
-	# For Single doctypes, check if any value exists in tabSingles
-	# get_singles_value returns None if no record has been saved yet
-	exists = frappe.db.get_singles_value(doctype, "name")
-	if not exists:
-		# Auto-create the singleton record with empty defaults
-		try:
-			doc = frappe.new_doc(doctype)
-			doc.flags.ignore_permissions = True
-			doc.flags.ignore_mandatory = True
-			doc.insert()
-			frappe.db.commit()
-		except Exception:
-			# If insert fails (e.g., race condition), return an empty object
-			return frappe._dict()
-
 	try:
-		return frappe.get_cached_doc(doctype)
+		# get_singles_dict reads directly from tabSingles and returns a
+		# plain frappe._dict. It never raises "Field name does not exist"
+		# because it does not validate against the DocType field list.
+		data = frappe.db.get_singles_dict(doctype)
+		return data if data else frappe._dict()
 	except Exception:
 		return frappe._dict()
