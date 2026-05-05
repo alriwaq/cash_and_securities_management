@@ -23,6 +23,8 @@
   "column_break_3",
   "billed_qty",
   "pending_qty",
+  "project",
+  "cost_center",
   "warehouse_section",
   "warehouse",
   "column_break_4",
@@ -163,7 +165,22 @@
    "fieldname": "warehouse",
    "fieldtype": "Link",
    "label": "Warehouse",
-   "options": "Warehouse"
+   "options": "Warehouse",
+   "fetch_from": "parent.warehouse",
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Project",
+   "options": "Project",
+   "fetch_from": "parent.project",
+  },
+  {
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Cost Center",
+   "options": "Cost Center",
+   "fetch_from": "parent.cost_center",
   },
   {
    "fieldname": "column_break_4",
