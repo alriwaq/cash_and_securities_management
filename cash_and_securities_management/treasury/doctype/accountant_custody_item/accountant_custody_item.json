@@ -169,7 +169,7 @@
    "fetch_from": "parent.warehouse"
   },
   {
-   "depends_on": "eval:doc.project"
+   "depends_on": "eval:doc.project",
    "fieldname": "project",
    "fieldtype": "Link",
    "label": "Project",
@@ -177,7 +177,7 @@
    "fetch_from": "parent.project"
   },
   {
-   "depends_on": "eval:doc.cost_center"
+   "depends_on": "eval:doc.cost_center",
    "fieldname": "cost_center",
    "fieldtype": "Link",
    "label": "Cost Center",
