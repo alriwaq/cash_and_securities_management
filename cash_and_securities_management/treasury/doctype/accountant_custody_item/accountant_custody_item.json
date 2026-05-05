@@ -166,21 +166,21 @@
    "fieldtype": "Link",
    "label": "Warehouse",
    "options": "Warehouse",
-   "fetch_from": "parent.warehouse",
+   "fetch_from": "parent.warehouse"
   },
   {
    "fieldname": "project",
    "fieldtype": "Link",
    "label": "Project",
    "options": "Project",
-   "fetch_from": "parent.project",
+   "fetch_from": "parent.project"
   },
   {
    "fieldname": "cost_center",
    "fieldtype": "Link",
    "label": "Cost Center",
    "options": "Cost Center",
-   "fetch_from": "parent.cost_center",
+   "fetch_from": "parent.cost_center"
   },
   {
    "fieldname": "column_break_4",
