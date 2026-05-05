@@ -161,7 +161,7 @@
    "label": "Warehouse / Location"
   },
   {
-   "depends_on": "eval:parent.is_stock_item",
+   "depends_on": "eval:doc.is_stock_item",
    "fieldname": "warehouse",
    "fieldtype": "Link",
    "label": "Warehouse",
