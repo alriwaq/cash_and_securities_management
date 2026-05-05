@@ -13,8 +13,14 @@ def get_settings():
 	tabSingles table and returns a frappe._dict with no field-name
 	validation. This avoids the "Field name does not exist on Treasury
 	Settings" error that occurs when frappe.get_cached_doc() is used
-	and the DocType metadata cache is stale or the field is not yet
-	registered in the current session.
+	and the DocType metadata cache is stale.
+
+	IMPORTANT — Checkbox values:
+	  tabSingles stores checkbox values as the strings "0" and "1".
+	  In Python, any non-empty string is truthy, so `if "0":` evaluates
+	  to True. This function casts all checkbox fields to int so that
+	  callers can safely use `if settings.get("use_single_dummy_supplier"):`
+	  and get the correct boolean behaviour.
 
 	Returns a frappe._dict so callers can use .get("fieldname") safely —
 	missing keys return None instead of raising an exception.
@@ -26,10 +32,22 @@ def get_settings():
 		return frappe._dict()
 
 	try:
-		# get_singles_dict reads directly from tabSingles and returns a
-		# plain frappe._dict. It never raises "Field name does not exist"
-		# because it does not validate against the DocType field list.
 		data = frappe.db.get_singles_dict(doctype)
-		return data if data else frappe._dict()
+		if not data:
+			return frappe._dict()
+
+		# Cast known checkbox fields from string "0"/"1" to int 0/1
+		# so that `if settings.get("checkbox_field"):` works correctly.
+		checkbox_fields = [
+			"use_single_dummy_supplier",
+		]
+		for field in checkbox_fields:
+			if field in data:
+				try:
+					data[field] = int(data[field])
+				except (ValueError, TypeError):
+					data[field] = 0
+
+		return data
 	except Exception:
 		return frappe._dict()
