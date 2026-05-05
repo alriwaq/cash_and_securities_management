@@ -161,7 +161,7 @@
    "label": "Warehouse / Location"
   },
   {
-   "depends_on": "eval:doc.is_stock_item",
+   "depends_on": "eval:parent.is_stock_item",
    "fieldname": "warehouse",
    "fieldtype": "Link",
    "label": "Warehouse",
@@ -169,20 +169,20 @@
    "fetch_from": "parent.warehouse"
   },
   {
-   "depends_on": "eval:doc.project",
    "fieldname": "project",
    "fieldtype": "Link",
    "label": "Project",
    "options": "Project",
-   "fetch_from": "parent.project"
+   "fetch_from": "parent.project",
+   "reqd": 1
   },
   {
-   "depends_on": "eval:doc.cost_center",
    "fieldname": "cost_center",
    "fieldtype": "Link",
    "label": "Cost Center",
    "options": "Cost Center",
-   "fetch_from": "parent.cost_center"
+   "fetch_from": "parent.cost_center",
+   "reqd": 1
   },
   {
    "fieldname": "column_break_4",
