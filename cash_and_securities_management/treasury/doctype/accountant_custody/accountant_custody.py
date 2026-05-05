@@ -228,9 +228,9 @@ class AccountantCustody(Document):
 
         pr = frappe.new_doc("Purchase Receipt")
         pr.supplier = supplier
-        pr.project = project
-        pr.cost_center = cost_center
-        PR.set_warehouse = warehouse
+        pr.project = self.project
+        pr.cost_center = self.cost_center
+        pr.set_warehouse = self.warehouse
         pr.posting_date = self.posting_date
         pr.company = self.company
         pr.custom_accountant_custody = self.name
