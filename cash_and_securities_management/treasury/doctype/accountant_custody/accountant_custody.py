@@ -234,6 +234,7 @@ class AccountantCustody(Document):
         pr.posting_date = self.posting_date
         pr.company = self.company
         pr.custom_accountant_custody = self.name
+        pr.custom_custodian = self.custodian
         pr.custom_source_document_type = "Custody"
         if settings.get("pr_series"):
             pr.naming_series = settings.pr_series
@@ -245,11 +246,11 @@ class AccountantCustody(Document):
                     "item_code": item.item_code,
                     "qty": item.qty,
                     "rate": item.rate,
-                    "project": item.project,
                     "warehouse": item.warehouse,
-                    "cost_center": item.cost_center,
                     "is_fixed_asset": item.is_fixed_asset,
                     "asset_location": item.asset_location,
+                    "project": item.project,
+                    "cost_center": item.cost_center,
                 },
             )
 
@@ -336,6 +337,8 @@ class AccountantCustody(Document):
                             "warehouse": item.warehouse,
                             "purchase_receipt": pr_name,
                             "purchase_receipt_item": pr_item_name,
+                            "project": item.project,
+                            "cost_center": item.cost_center,
                         },
                     )
                     remaining_qty -= qty_to_bill
@@ -348,6 +351,8 @@ class AccountantCustody(Document):
                         "qty": bill_qty,
                         "rate": item.rate,
                         "warehouse": item.warehouse,
+                        "project": item.project,
+                        "cost_center": item.cost_center,
                     },
                 )
 
@@ -538,15 +543,33 @@ class AccountantCustody(Document):
         self.db_set("status", new_status)
         self.save(ignore_permissions=True)
 
-    def update_billed_quantities(self):
-        """Called after the linked PI is submitted. Updates billed_qty on items."""
-        if not self.purchase_invoice:
+    def update_billed_quantities(self, pi_name=None):
+        """Called after the linked PI is submitted. Updates billed_qty on items.
+        Accepts an optional pi_name parameter to handle PI created from PR button.
+        """
+        invoice_name = pi_name or self.purchase_invoice
+        if not invoice_name:
             return
-        pi_doc = frappe.get_doc("Purchase Invoice", self.purchase_invoice)
-        for pi_item in pi_doc.items:
-            for custody_item in self.custody_items:
-                if custody_item.item_code == pi_item.item_code:
-                    custody_item.billed_qty = flt(pi_item.qty)
-                    break
+        # Set the purchase_invoice link if not already set
+        if not self.purchase_invoice:
+            self.db_set("purchase_invoice", invoice_name)
+        pi_doc = frappe.get_doc("Purchase Invoice", invoice_name)
+        # Reset billed qty first
+        for custody_item in self.custody_items:
+            custody_item.billed_qty = 0
+        # Sum billed qty from all submitted PIs for this custody
+        all_pis = frappe.get_all(
+            "Purchase Invoice",
+            filters={"custom_accountant_custody": self.name, "docstatus": 1},
+            fields=["name"],
+        )
+        for pi_record in all_pis:
+            pi = frappe.get_doc("Purchase Invoice", pi_record.name)
+            for pi_item in pi.items:
+                for custody_item in self.custody_items:
+                    if custody_item.item_code == pi_item.item_code:
+                        custody_item.billed_qty = flt(custody_item.billed_qty) + flt(pi_item.qty)
+                        break
         self._calculate_totals()
+        self.db_set("status", "Invoiced")
         self.save(ignore_permissions=True)

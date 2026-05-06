@@ -87,12 +87,22 @@ def on_pr_validate(doc, method):
 
 
 def on_pi_submit(doc, method):
-	"""Triggered after a Purchase Invoice is submitted. Updates billed quantities."""
+	"""Triggered after a Purchase Invoice is submitted.
+	Updates billed quantities, sets purchase_invoice link, and sets status to Invoiced.
+	Works whether PI was created from the AC button or from the PR button.
+	"""
 	if not doc.get("custom_accountant_custody"):
 		return
 	custody_name = doc.custom_accountant_custody
-	custody_doc = frappe.get_doc("Accountant Custody", custody_name)
-	custody_doc.update_billed_quantities()
+	try:
+		custody_doc = frappe.get_doc("Accountant Custody", custody_name)
+	except frappe.DoesNotExistError:
+		frappe.log_error(
+			f"Accountant Custody {custody_name} not found during PI submit hook",
+			"on_pi_submit"
+		)
+		return
+	custody_doc.update_billed_quantities(pi_name=doc.name)
 
 
 def on_pi_cancel(doc, method):

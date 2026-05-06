@@ -19,11 +19,10 @@
   "status",
   "custody_request",
   "custody_request_balance",
-  "warehouse_section",
-  "warehouse",
-  "accounting_dimension",
   "project",
   "cost_center",
+  "warehouse_section",
+  "warehouse",
   "items_section",
   "custody_items",
   "totals_section",
@@ -143,36 +142,27 @@
    "read_only": 1
   },
   {
-   "fieldname": "warehouse_section",
-   "fieldtype": "Section Break",
-   "label": "Targeted Warehouse"
-  },
-    {
-   "fieldname": "warehouse",
-   "fieldtype": "Link",
-   "label": "Warehouse",
-   "options": "Warehouse"
-  },
-  
-    {
-   "fieldname": "accounting_dimension",
-   "fieldtype": "Section Break",
-   "label": "Accounting Dimension"
-  },
-   {
    "fieldname": "project",
    "fieldtype": "Link",
    "label": "Project",
-   "options": "Project",
-   "reqd": 1
-    
+   "options": "Project"
   },
   {
    "fieldname": "cost_center",
    "fieldtype": "Link",
    "label": "Cost Center",
-   "options": "Cost Center",
-   "reqd": 1
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "warehouse_section",
+   "fieldtype": "Section Break",
+   "label": "Targeted Warehouse"
+  },
+  {
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Warehouse",
+   "options": "Warehouse"
   },
   {
    "fieldname": "items_section",
