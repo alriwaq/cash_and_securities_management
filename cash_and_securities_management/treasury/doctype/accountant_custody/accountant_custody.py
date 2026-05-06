@@ -299,7 +299,7 @@ class AccountantCustody(Document):
                 if pr_item.item_code not in pr_item_map:
                     pr_item_map[pr_item.item_code] = []
                 pr_item_map[pr_item.item_code].append(
-                    (pr_rec.name, pr_item.name, flt(pr_item.accepted_qty))
+                    (pr_rec.name, pr_item.name, flt(pr_item.qty))
                 )
 
         pi = frappe.new_doc("Purchase Invoice")
