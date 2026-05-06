@@ -105,7 +105,7 @@ def on_pi_cancel(doc, method):
 	# Reset billed quantities
 	for custody_item in custody_doc.custody_items:
 		custody_item.billed_qty = 0
-	custody_doc.calculate_totals()
+	custody_doc._calculate_totals()
 	custody_doc.db_set("purchase_invoice", None)
 	custody_doc.db_set("status", "Fully Received")
 	custody_doc.save(ignore_permissions=True)
@@ -135,5 +135,5 @@ def on_pi_validate(doc, method):
 					custody_item.billed_qty = flt(pi_item.qty)
 				break
 
-	custody_doc.calculate_totals()
+	custody_doc._calculate_totals()
 	custody_doc.save(ignore_permissions=True)
