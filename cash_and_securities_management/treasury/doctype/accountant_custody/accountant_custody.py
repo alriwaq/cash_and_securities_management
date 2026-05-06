@@ -480,7 +480,7 @@ class AccountantCustody(Document):
                 for custody_item in self.custody_items:
                     if custody_item.item_code == pr_item.item_code:
                         custody_item.accepted_qty = (
-                            flt(custody_item.accepted_qty) + flt(pr_item.accepted_qty)
+                            flt(custody_item.accepted_qty) + flt(pr_item.qty)
                         )
                         custody_item.rejected_qty = (
                             flt(custody_item.rejected_qty) + flt(pr_item.rejected_qty)
@@ -489,7 +489,7 @@ class AccountantCustody(Document):
 
         self._calculate_totals()
         all_received = all(
-            flt(item.accepted_qty) >= flt(item.qty)
+            flt(item.qty) >= flt(item.qty)
             for item in self.custody_items
             if item.is_stock_item or item.is_fixed_asset
         )
