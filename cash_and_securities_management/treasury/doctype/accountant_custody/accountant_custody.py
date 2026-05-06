@@ -283,32 +283,73 @@ class AccountantCustody(Document):
         settings = get_settings()
         supplier = self._resolve_supplier()
 
+        # Build a map of item_code -> list of (pr_name, pr_item_name, accepted_qty)
+        # from all submitted PRs linked to this Accountant Custody.
+        # This allows PI items to reference the PR so ERPNext clears the
+        # "Stock Received But Not Billed" (GRNVB) account correctly.
+        pr_item_map = {}
+        submitted_prs = frappe.get_all(
+            "Purchase Receipt",
+            filters={"custom_accountant_custody": self.name, "docstatus": 1},
+            fields=["name"],
+        )
+        for pr_rec in submitted_prs:
+            pr_doc = frappe.get_doc("Purchase Receipt", pr_rec.name)
+            for pr_item in pr_doc.items:
+                if pr_item.item_code not in pr_item_map:
+                    pr_item_map[pr_item.item_code] = []
+                pr_item_map[pr_item.item_code].append(
+                    (pr_rec.name, pr_item.name, flt(pr_item.accepted_qty))
+                )
+
         pi = frappe.new_doc("Purchase Invoice")
         pi.supplier = supplier
         pi.posting_date = nowdate()
         pi.company = self.company
         pi.custom_accountant_custody = self.name
+        pi.custom_custodian = self.custodian
         pi.custom_source_document_type = "Custody"
         if settings.get("pi_series"):
             pi.naming_series = settings.pi_series
 
         for item in self.custody_items:
-            bill_qty = (
-                flt(item.accepted_qty)
-                if (item.is_stock_item or item.is_fixed_asset)
-                else flt(item.qty)
-            )
+            is_stock = item.is_stock_item or item.is_fixed_asset
+            bill_qty = flt(item.accepted_qty) if is_stock else flt(item.qty)
             if bill_qty <= 0:
                 continue
-            pi.append(
-                "items",
-                {
-                    "item_code": item.item_code,
-                    "qty": bill_qty,
-                    "rate": item.rate,
-                    "warehouse": item.warehouse,
-                },
-            )
+
+            if is_stock and item.item_code in pr_item_map:
+                # Link each PI item row to its corresponding PR item row.
+                # ERPNext uses purchase_receipt + purchase_receipt_item to
+                # determine goods were already received and clears GRNVB.
+                remaining_qty = bill_qty
+                for pr_name, pr_item_name, pr_accepted_qty in pr_item_map[item.item_code]:
+                    if remaining_qty <= 0:
+                        break
+                    qty_to_bill = min(remaining_qty, pr_accepted_qty)
+                    pi.append(
+                        "items",
+                        {
+                            "item_code": item.item_code,
+                            "qty": qty_to_bill,
+                            "rate": item.rate,
+                            "warehouse": item.warehouse,
+                            "purchase_receipt": pr_name,
+                            "purchase_receipt_item": pr_item_name,
+                        },
+                    )
+                    remaining_qty -= qty_to_bill
+            else:
+                # Service/non-stock item -- no PR linkage needed
+                pi.append(
+                    "items",
+                    {
+                        "item_code": item.item_code,
+                        "qty": bill_qty,
+                        "rate": item.rate,
+                        "warehouse": item.warehouse,
+                    },
+                )
 
         pi.flags.ignore_permissions = True
         pi.insert()

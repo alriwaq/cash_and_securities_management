@@ -112,7 +112,28 @@ def on_pi_cancel(doc, method):
 
 
 def on_pi_validate(doc, method):
-	"""Triggered on Purchase Invoice validate. Validates items and reflects changes to Custody."""
+	"""Triggered on Purchase Invoice validate. Validates items and reflects changes to Custody.
+	Also propagates custom_custodian and custom_accountant_custody from linked PR items
+	when the PI is created via ERPNext's standard Create -> Purchase Invoice button on a PR.
+	"""
+	# Propagate custom fields from the linked PR if not already set.
+	# This handles the case where the user clicks "Create -> Purchase Invoice"
+	# directly on a Purchase Receipt that has custom_accountant_custody set.
+	if not doc.get("custom_accountant_custody"):
+		# Try to inherit from the first PR item reference
+		for pi_item in doc.items:
+			if pi_item.get("purchase_receipt"):
+				pr_ac = frappe.db.get_value(
+					"Purchase Receipt", pi_item.purchase_receipt, "custom_accountant_custody"
+				)
+				pr_custodian = frappe.db.get_value(
+					"Purchase Receipt", pi_item.purchase_receipt, "custom_custodian"
+				)
+				if pr_ac:
+					doc.custom_accountant_custody = pr_ac
+				if pr_custodian:
+					doc.custom_custodian = pr_custodian
+				break
 	if not doc.get("custom_accountant_custody"):
 		return
 	custody_name = doc.custom_accountant_custody
@@ -137,3 +158,78 @@ def on_pi_validate(doc, method):
 
 	custody_doc._calculate_totals()
 	custody_doc.save(ignore_permissions=True)
+
+
+def on_payment_submit(doc, method):
+	"""Triggered after a Payment Entry is submitted.
+	If the PE is linked to a Custody Request, updates the custodian balance
+	and marks the Custody Request status accordingly.
+	"""
+	from frappe.utils import flt
+
+	custody_request = doc.get("custom_custody_request")
+	custodian = doc.get("custom_custodian")
+
+	if custody_request:
+		try:
+			cr_doc = frappe.get_doc("Custody Request", custody_request)
+			# Sum all submitted Payment Entries for this Custody Request
+			total_paid = frappe.db.sql(
+				"""SELECT COALESCE(SUM(paid_amount), 0)
+				   FROM `tabPayment Entry`
+				   WHERE custom_custody_request = %s AND docstatus = 1""",
+				(custody_request,),
+			)[0][0]
+			cr_doc.db_set("paid_amount", total_paid)
+			unallocated = flt(total_paid) - flt(cr_doc.get("total_claimed_amount") or 0)
+			cr_doc.db_set("unallocated_amount", unallocated)
+			# Update status
+			if flt(total_paid) >= flt(cr_doc.requested_amount):
+				cr_doc.db_set("status", "Paid")
+			elif flt(total_paid) > 0:
+				cr_doc.db_set("status", "Partly Paid")
+		except Exception as e:
+			frappe.log_error(str(e), "on_payment_submit - Custody Request update failed")
+
+	if custodian:
+		try:
+			custodian_doc = frappe.get_doc("Custodian", custodian)
+			custodian_doc.refresh_outstanding()
+		except Exception as e:
+			frappe.log_error(str(e), "on_payment_submit - Custodian refresh failed")
+
+
+def on_payment_cancel(doc, method):
+	"""Triggered after a Payment Entry is cancelled.
+	Reverses the paid amount update on the linked Custody Request.
+	"""
+	from frappe.utils import flt
+
+	custody_request = doc.get("custom_custody_request")
+	custodian = doc.get("custom_custodian")
+
+	if custody_request:
+		try:
+			cr_doc = frappe.get_doc("Custody Request", custody_request)
+			total_paid = frappe.db.sql(
+				"""SELECT COALESCE(SUM(paid_amount), 0)
+				   FROM `tabPayment Entry`
+				   WHERE custom_custody_request = %s AND docstatus = 1""",
+				(custody_request,),
+			)[0][0]
+			cr_doc.db_set("paid_amount", total_paid)
+			unallocated = flt(total_paid) - flt(cr_doc.get("total_claimed_amount") or 0)
+			cr_doc.db_set("unallocated_amount", unallocated)
+			if flt(total_paid) <= 0:
+				cr_doc.db_set("status", "Approved")
+			elif flt(total_paid) < flt(cr_doc.requested_amount):
+				cr_doc.db_set("status", "Partly Paid")
+		except Exception as e:
+			frappe.log_error(str(e), "on_payment_cancel - Custody Request update failed")
+
+	if custodian:
+		try:
+			custodian_doc = frappe.get_doc("Custodian", custodian)
+			custodian_doc.refresh_outstanding()
+		except Exception as e:
+			frappe.log_error(str(e), "on_payment_cancel - Custodian refresh failed")

@@ -52,6 +52,10 @@ doc_events = {
         "on_submit": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_pi_submit",
         "on_cancel": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_pi_cancel",
     },
+    "Payment Entry": {
+        "on_submit": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_payment_submit",
+        "on_cancel": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_payment_cancel",
+    },
 }
 
 # ─── Scheduled Tasks ──────────────────────────────────────────────────────────
