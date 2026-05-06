@@ -125,7 +125,8 @@
    "fieldtype": "Float",
    "label": "Accepted Qty",
    "no_copy": 1,
-   "read_only": 1
+   "read_only": 1,
+   "allow_on_submit": 1
   },
   {
    "description": "Quantity rejected during receipt",
@@ -133,7 +134,8 @@
    "fieldtype": "Float",
    "label": "Rejected Qty",
    "no_copy": 1,
-   "read_only": 1
+   "read_only": 1,
+   "allow_on_submit": 1
   },
   {
    "fieldname": "column_break_3",
@@ -145,7 +147,8 @@
    "fieldtype": "Float",
    "label": "Billed Qty",
    "no_copy": 1,
-   "read_only": 1
+   "read_only": 1,
+   "allow_on_submit": 1
   },
   {
    "description": "Qty ordered minus accepted qty",
