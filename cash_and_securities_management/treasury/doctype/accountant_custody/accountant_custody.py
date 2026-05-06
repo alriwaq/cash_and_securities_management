@@ -268,107 +268,129 @@ class AccountantCustody(Document):
 
     @frappe.whitelist()
     def generate_purchase_invoice(self):
-        """Called from the 'Generate Invoice' button. Creates a draft PI."""
+        """
+        Called from the 'Generate Invoice' button.
+        Uses ERPNext's native make_purchase_invoice() to build the PI from submitted PRs.
+        This ensures all accounting dimensions (project, cost_center), GRNVB clearing,
+        and purchase_receipt/pr_detail linkage are handled natively by ERPNext.
+        """
         if self.status not in ("Receiving", "Fully Received"):
             frappe.throw(
                 _("Purchase Invoice can only be generated when status is "
                   "'Receiving' or 'Fully Received'.")
             )
-        if self.purchase_invoice:
+
+        existing_pi = frappe.db.get_value(
+            "Purchase Invoice",
+            {"custom_accountant_custody": self.name, "docstatus": ["!=", 2]},
+            "name",
+        )
+        if existing_pi:
             frappe.throw(
                 _("A Purchase Invoice {0} already exists for this Accountant Custody.").format(
-                    self.purchase_invoice
+                    existing_pi
                 )
             )
 
-        settings = get_settings()
-        supplier = self._resolve_supplier()
-
-        # Build a map of item_code -> list of (pr_name, pr_item_name, accepted_qty)
-        # from all submitted PRs linked to this Accountant Custody.
-        # This allows PI items to reference the PR so ERPNext clears the
-        # "Stock Received But Not Billed" (GRNVB) account correctly.
-        pr_item_map = {}
+        # Get all submitted PRs linked to this Accountant Custody
         submitted_prs = frappe.get_all(
             "Purchase Receipt",
             filters={"custom_accountant_custody": self.name, "docstatus": 1},
             fields=["name"],
+            order_by="creation asc",
         )
-        for pr_rec in submitted_prs:
-            pr_doc = frappe.get_doc("Purchase Receipt", pr_rec.name)
-            for pr_item in pr_doc.items:
-                if pr_item.item_code not in pr_item_map:
-                    pr_item_map[pr_item.item_code] = []
-                pr_item_map[pr_item.item_code].append(
-                    (pr_rec.name, pr_item.name, flt(pr_item.qty))
+
+        # Check if there are service/non-stock items that need direct invoicing
+        # (items not covered by any PR)
+        has_service_items = any(
+            not (item.is_stock_item or item.is_fixed_asset)
+            for item in self.custody_items
+        )
+
+        settings = get_settings()
+        supplier = self._resolve_supplier()
+
+        if submitted_prs:
+            # Use ERPNext's native make_purchase_invoice for the first PR
+            # This correctly sets purchase_receipt, pr_detail, cost_center, project, etc.
+            from erpnext.stock.doctype.purchase_receipt.purchase_receipt import (
+                make_purchase_invoice as erpnext_make_pi,
+            )
+
+            pi_doc = erpnext_make_pi(submitted_prs[0].name)
+
+            # If there are multiple PRs, merge their items into the same PI
+            if len(submitted_prs) > 1:
+                for pr_record in submitted_prs[1:]:
+                    additional_pi = erpnext_make_pi(pr_record.name)
+                    for item in additional_pi.get("items"):
+                        pi_doc.append("items", item.as_dict())
+
+            # Override supplier to the custody supplier (may differ from PR supplier
+            # if dummy supplier mode is used)
+            pi_doc.supplier = supplier
+
+            # Add service items that have no PR
+            if has_service_items:
+                for item in self.custody_items:
+                    if not (item.is_stock_item or item.is_fixed_asset):
+                        pi_doc.append(
+                            "items",
+                            {
+                                "item_code": item.item_code,
+                                "qty": flt(item.qty),
+                                "rate": item.rate,
+                                "project": item.project,
+                                "cost_center": item.cost_center,
+                            },
+                        )
+
+        else:
+            # No PRs exist — all items are service/non-stock, create PI directly
+            if not has_service_items:
+                frappe.throw(
+                    _("No submitted Purchase Receipts found for this Accountant Custody. "
+                      "Please create and submit a Purchase Receipt first for stock/fixed asset items.")
                 )
-
-        pi = frappe.new_doc("Purchase Invoice")
-        pi.supplier = supplier
-        pi.posting_date = nowdate()
-        pi.company = self.company
-        pi.custom_accountant_custody = self.name
-        pi.custom_custodian = self.custodian
-        pi.custom_source_document_type = "Custody"
-        if settings.get("pi_series"):
-            pi.naming_series = settings.pi_series
-
-        for item in self.custody_items:
-            is_stock = item.is_stock_item or item.is_fixed_asset
-            bill_qty = flt(item.accepted_qty) if is_stock else flt(item.qty)
-            if bill_qty <= 0:
-                continue
-
-            if is_stock and item.item_code in pr_item_map:
-                # Link each PI item row to its corresponding PR item row.
-                # ERPNext uses purchase_receipt + purchase_receipt_item to
-                # determine goods were already received and clears GRNVB.
-                remaining_qty = bill_qty
-                for pr_name, pr_item_name, pr_accepted_qty in pr_item_map[item.item_code]:
-                    if remaining_qty <= 0:
-                        break
-                    qty_to_bill = min(remaining_qty, pr_accepted_qty)
-                    pi.append(
-                        "items",
-                        {
-                            "item_code": item.item_code,
-                            "qty": qty_to_bill,
-                            "rate": item.rate,
-                            "warehouse": item.warehouse,
-                            "purchase_receipt": pr_name,
-                            "purchase_receipt_item": pr_item_name,
-                            "project": item.project,
-                            "cost_center": item.cost_center,
-                        },
-                    )
-                    remaining_qty -= qty_to_bill
-            else:
-                # Service/non-stock item -- no PR linkage needed
-                pi.append(
+            pi_doc = frappe.new_doc("Purchase Invoice")
+            pi_doc.supplier = supplier
+            pi_doc.posting_date = nowdate()
+            pi_doc.company = self.company
+            for item in self.custody_items:
+                pi_doc.append(
                     "items",
                     {
                         "item_code": item.item_code,
-                        "qty": bill_qty,
+                        "qty": flt(item.qty),
                         "rate": item.rate,
-                        "warehouse": item.warehouse,
                         "project": item.project,
                         "cost_center": item.cost_center,
                     },
                 )
 
-        pi.flags.ignore_permissions = True
-        pi.insert()
+        # Set our custom fields on the PI header
+        pi_doc.custom_accountant_custody = self.name
+        pi_doc.custom_custodian = self.custodian
+        pi_doc.custom_source_document_type = "Custody"
+        pi_doc.posting_date = nowdate()
+        pi_doc.company = self.company
 
-        self.db_set("purchase_invoice", pi.name)
+        if settings.get("pi_series"):
+            pi_doc.naming_series = settings.pi_series
+
+        pi_doc.flags.ignore_permissions = True
+        pi_doc.insert()
+
+        self.db_set("purchase_invoice", pi_doc.name)
         self.db_set("status", "Invoiced")
 
         frappe.msgprint(
             _("Purchase Invoice {0} created in Draft. Please review and submit.").format(
-                frappe.bold(pi.name)
+                frappe.bold(pi_doc.name)
             ),
             alert=True,
         )
-        return pi.name
+        return pi_doc.name
 
     # ─── Settlement ───────────────────────────────────────────────────────────
 
