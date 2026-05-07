@@ -87,7 +87,7 @@ class AccountantCustody(Document):
             )
         return dedicated_supplier
 
-         def _get_payable_account(self):
+    def _get_payable_account(self):
         """Get payable account from Supplier Party Account, then Supplier Group Party Account."""
 
         supplier = self._resolve_supplier()
