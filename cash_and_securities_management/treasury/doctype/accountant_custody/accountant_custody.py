@@ -87,56 +87,55 @@ class AccountantCustody(Document):
             )
         return dedicated_supplier
 
-     def _get_payable_account(self):
-      """Get payable account from Supplier Party Account, then Supplier Group Party Account."""
-  
-      supplier = self._resolve_supplier()
-  
-      supplier_group = frappe.db.get_value(
-          "Supplier",
-          supplier,
-          "supplier_group"
-      )
-  
-      # 1. Supplier Party Account
-      payable = frappe.db.get_value(
-          "Party Account",
-          {
-              "parenttype": "Supplier",
-              "parent": supplier,
-              "company": self.company
-          },
-          "account"
-      )
-  
-      # 2. Supplier Group Party Account
-      if not payable and supplier_group:
-          payable = frappe.db.get_value(
-              "Party Account",
-              {
-                  "parenttype": "Supplier Group",
-                  "parent": supplier_group,
-                  "company": self.company
-              },
-              "account"
-          )
-  
-      # 3. Error if nothing found
-      if not payable:
-          frappe.throw(
-              _(
-                  "No default payable account configured for "
-                  "Supplier <b>{0}</b> or Supplier Group <b>{1}</b> "
-                  "for Company <b>{2}</b>."
-              ).format(
-                  supplier,
-                  supplier_group or _("Not Set"),
-                  self.company
-              )
-          )
-  
-      return payable
+         def _get_payable_account(self):
+        """Get payable account from Supplier Party Account, then Supplier Group Party Account."""
 
+        supplier = self._resolve_supplier()
+
+        supplier_group = frappe.db.get_value(
+            "Supplier",
+            supplier,
+            "supplier_group"
+        )
+
+        # 1. Supplier Party Account
+        payable = frappe.db.get_value(
+            "Party Account",
+            {
+                "parenttype": "Supplier",
+                "parent": supplier,
+                "company": self.company
+            },
+            "account"
+        )
+
+        # 2. Supplier Group Party Account
+        if not payable and supplier_group:
+            payable = frappe.db.get_value(
+                "Party Account",
+                {
+                    "parenttype": "Supplier Group",
+                    "parent": supplier_group,
+                    "company": self.company
+                },
+                "account"
+            )
+
+        # 3. Error if nothing found
+        if not payable:
+            frappe.throw(
+                _(
+                    "No default payable account configured for "
+                    "Supplier <b>{0}</b> or Supplier Group <b>{1}</b> "
+                    "for Company <b>{2}</b>."
+                ).format(
+                    supplier,
+                    supplier_group or _("Not Set"),
+                    self.company
+                )
+            )
+
+        return payable
     # ─── Defaults & Setup ─────────────────────────────────────────────────────
 
     def _set_custodian_from_request(self):
