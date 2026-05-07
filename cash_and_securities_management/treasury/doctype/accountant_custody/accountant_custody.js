@@ -63,9 +63,14 @@ frappe.ui.form.on("Accountant Custody", {
             }, __("Actions"));
         }
 
-        // Lock the form after settlement
-        if (frm.doc.status === "Settled") {
+        // Lock both child tables after submission — user cannot edit them manually.
+        // The Python controller can still write to them via allow_on_submit=1 in the DocType JSON.
+        if (frm.doc.docstatus === 1) {
             frm.set_df_property("custody_items", "read_only", 1);
+            frm.set_df_property("settlements", "read_only", 1);
+        }
+        // Additionally lock all other header fields after settlement
+        if (frm.doc.status === "Settled") {
             frm.set_df_property("custody_request", "read_only", 1);
             frm.set_df_property("settlement_type", "read_only", 1);
         }

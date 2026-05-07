@@ -174,7 +174,8 @@
    "fieldtype": "Table",
    "label": "Custody Items",
    "options": "Accountant Custody Item",
-   "reqd": 1
+   "reqd": 1,
+   "allow_on_submit": 1
   },
   {
    "fieldname": "totals_section",
@@ -236,7 +237,8 @@
    "fieldname": "settlements",
    "fieldtype": "Table",
    "label": "Settlement Entries",
-   "options": "Custody Settlement Entry"
+   "options": "Custody Settlement Entry",
+   "allow_on_submit": 1
   },
   {
    "fieldname": "more_info_tab",
