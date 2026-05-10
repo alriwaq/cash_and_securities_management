@@ -1,304 +1,290 @@
 """
-Custody Request DocType controller — v2.1
-Tracks the advance lifecycle for a custodian:
-  Draft → Approved → Partly Paid → Paid → Partly Claimed → Claimed → Cancelled
+Custody Request controller.
 
-Stage 1 of the three-step flow:
-  Custody Request → Payment Entry (Advance disbursement)
+A Custody Request is raised by an employee to request a cash advance for
+business purchases. It must be linked to an active Custodian record.
 
-GL entry produced by the Payment Entry:
-  Debit:  Custodian Advance Account (Asset)   ← custody_account on Custodian
-  Credit: Bank/Cash Account
+The advance_account is locked to the Custodian's dedicated custody_account.
 
-In Consolidated mode the advance account is the shared group account and the
-Custodian is set as the Party (Party Type = Custodian) on the Payment Entry to
-isolate individual balances within the shared account.
-
-paid_amount is strictly read-only, computed from submitted Payment Entries.
-remaining_to_pay = advance_amount - paid_amount.
+Lifecycle:
+    Draft → (Submit) → Unpaid → (Payment created) → Paid → (Claims) → Partly Claimed / Claimed
 """
 import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, nowdate
 
-CONSOLIDATED = "Consolidated (Party-Based)"
-
 
 class CustodyRequest(Document):
-	# ── Lifecycle ─────────────────────────────────────────────────────────────
-	def validate(self):
-		self._sync_employee_from_custodian()
-		self._lock_advance_account()
-		self._calculate_remaining()
 
-	def on_submit(self):
-		self._validate_custodian_status()
-		self._validate_custody_limit()
-		self.db_set("status", "Approved")
+    # ── Frappe Lifecycle Hooks ────────────────────────────────────────────────
 
-	def on_cancel(self):
-		self._validate_no_linked_documents()
-		self.db_set("status", "Cancelled")
-		self._refresh_custodian_balance()
+    def validate(self):
+        self._auto_set_custodian()
+        self._validate_custodian_status()
+        self._validate_custody_limit()
+        self._lock_advance_account()
+        self._calculate_unallocated()
 
-	# ── Private helpers ───────────────────────────────────────────────────────
-	def _sync_employee_from_custodian(self):
-		"""Pull employee, employee_name, department, company from the linked Custodian."""
-		if not self.custodian:
-			return
-		cust = frappe.db.get_value(
-			"Custodian",
-			self.custodian,
-			["employee", "employee_name", "department", "company"],
-			as_dict=True,
-		)
-		if cust:
-			self.employee = cust.employee
-			self.employee_name = cust.employee_name
-			if not self.department:
-				self.department = cust.department
-			if not self.company:
-				self.company = cust.company
-			# Mirror custodian status for display
-			self.custodian_status = frappe.db.get_value("Custodian", self.custodian, "status")
+    def on_submit(self):
+        self.db_set("status", "Unpaid")
+        self._refresh_custodian_balance()
 
-	def _lock_advance_account(self):
-		"""Lock the advance account to the custodian's asset sub-ledger account."""
-		if self.custodian:
-			custody_account = frappe.db.get_value(
-				"Custodian", self.custodian, "custody_account"
-			)
-			if custody_account:
-				self.advance_account = custody_account
+    def on_cancel(self):
+        self._validate_no_linked_documents()
+        self.db_set("status", "Cancelled")
+        self._refresh_custodian_balance()
 
-	def _calculate_remaining(self):
-		"""remaining_to_pay = advance_amount - paid_amount."""
-		self.remaining_to_pay = flt(self.advance_amount) - flt(self.paid_amount)
+    # ── Whitelisted Actions ───────────────────────────────────────────────────
 
-	def _validate_custodian_status(self):
-		"""Custodian must exist and be Active."""
-		if not self.custodian:
-			# Try to find custodian for this employee
-			custodian_name = frappe.db.get_value(
-				"Custodian",
-				{"employee": self.employee, "docstatus": 1},
-				"name",
-			)
-			if not custodian_name:
-				frappe.throw(
-					_("A Custodian record is required. Please create an active Custodian "
-					  "for employee {0} before raising a Custody Request.").format(
-						self.employee_name or self.employee
-					),
-					title=_("No Custodian Found"),
-				)
-			self.custodian = custodian_name
+    @frappe.whitelist()
+    def create_payment_entry(self):
+        """
+        Create a draft Payment Entry (Internal Transfer) to disburse funds
+        from the company bank/cash account to the custodian's custody account.
 
-		status = frappe.db.get_value("Custodian", self.custodian, "status")
-		if status == "Suspended":
-			frappe.throw(
-				_("Custodian {0} is currently Suspended. New Custody Requests cannot "
-				  "be created until the custodian is reactivated.").format(self.custodian),
-				title=_("Custodian Suspended"),
-			)
-		if status == "Closed":
-			frappe.throw(
-				_("Custodian {0} is Closed. No further Custody Requests are allowed.").format(
-					self.custodian
-				),
-				title=_("Custodian Closed"),
-			)
+        This is an Internal Transfer (not Pay to Party) to avoid the
+        Party Bank Account mandatory validation in ERPNext.
+        The PE is created as Draft so the accountant can review before submitting.
+        """
+        if self.status != "Unpaid":
+            frappe.throw(_("Payment can only be created for Unpaid Custody Requests."))
 
-	def _validate_custody_limit(self):
-		"""Ensure the new request does not exceed the custodian's limit."""
-		if not self.custodian or not self.advance_amount:
-			return
-		limit_val, outstanding = frappe.db.get_value(
-			"Custodian",
-			self.custodian,
-			["custody_limit", "total_outstanding"],
-		) or (0, 0)
-		limit_val = flt(limit_val)
-		outstanding = flt(outstanding)
-		if limit_val > 0:
-			projected = outstanding + flt(self.advance_amount)
-			if projected > limit_val:
-				frappe.throw(
-					_("This request of {0} would push the custodian's outstanding balance "
-					  "to {1}, exceeding the custody limit of {2}. "
-					  "Please reduce the amount or increase the limit.").format(
-						frappe.utils.fmt_money(self.advance_amount),
-						frappe.utils.fmt_money(projected),
-						frappe.utils.fmt_money(limit_val),
-					),
-					title=_("Custody Limit Exceeded"),
-				)
+        custodian = frappe.get_doc("Custodian", self.custodian)
+        if not custodian.custody_account:
+            frappe.throw(
+                _("Custodian {0} does not have a custody account configured.").format(
+                    self.custodian
+                )
+            )
 
-	def _validate_no_linked_documents(self):
-		"""Prevent cancellation if there are linked Accountant Custody records."""
-		linked_custodies = frappe.get_all(
-			"Accountant Custody",
-			filters={"custody_request": self.name, "docstatus": ["!=", 2]},
-			fields=["name"],
-		)
-		if linked_custodies:
-			frappe.throw(
-				_("Cannot cancel Custody Request {0} as it has linked Accountant "
-				  "Custody records: {1}").format(
-					self.name,
-					", ".join([d.name for d in linked_custodies]),
-				)
-			)
+        company = self.company
+        default_bank = frappe.db.get_value("Company", company, "default_bank_account")
+        if not default_bank:
+            frappe.throw(
+                _("Please set a Default Bank Account in Company {0} settings.").format(company)
+            )
 
-	def _refresh_custodian_balance(self):
-		"""Trigger a balance refresh on the linked Custodian."""
-		if self.custodian:
-			try:
-				from cash_and_securities_management.treasury.balances import (
-					update_custodian_dashboard,
-				)
-				update_custodian_dashboard(self.custodian)
-			except Exception:
-				pass  # Non-critical; balance can be refreshed manually
+        pe = frappe.new_doc("Payment Entry")
+        pe.payment_type = "Internal Transfer"
+        pe.posting_date = nowdate()
+        pe.company = company
+        pe.mode_of_payment = self.mode_of_payment if self.mode_of_payment else None
 
-	# ── Public API ────────────────────────────────────────────────────────────
-	@frappe.whitelist()
-	def refresh_amounts(self):
-		"""Refresh payment/claim aggregates and dependent balances."""
-		self.update_paid_amount()
-		self.update_claimed_amount()
+        # Internal Transfer: paid_from = bank/cash, paid_to = custody account
+        pe.paid_from = default_bank
+        pe.paid_to = custodian.custody_account
+        pe.paid_amount = flt(self.advance_amount)
+        pe.received_amount = flt(self.advance_amount)
 
-	def update_paid_amount(self):
-		"""
-		Recalculate paid_amount from all submitted Payment Entries linked to this
-		Custody Request. Called from the centralized balance engine (balances.py).
-		"""
-		total_paid = frappe.db.sql(
-			"""SELECT COALESCE(SUM(paid_amount), 0)
-			   FROM `tabPayment Entry`
-			   WHERE custom_custody_request = %s AND docstatus = 1""",
-			(self.name,),
-		)[0][0] or 0
-		total_paid = flt(total_paid)
+        # Reference fields for traceability
+        pe.reference_no = self.name
+        pe.reference_date = nowdate()
+        pe.remarks = _("Custody advance for {0} - {1}").format(
+            self.employee_name or self.employee, self.name
+        )
 
-		self.db_set("paid_amount", total_paid)
-		self.db_set("remaining_to_pay", flt(self.advance_amount) - total_paid)
+        # Custom fields for dashboard linking
+        pe.custom_custodian = self.custodian
+        pe.custom_custody_request = self.name
 
-		# Update status based on payment progress
-		if total_paid <= 0:
-			new_status = "Approved"
-		elif total_paid < flt(self.advance_amount):
-			new_status = "Partly Paid"
-		else:
-			new_status = "Paid"
-		self.db_set("status", new_status)
+        pe.flags.ignore_permissions = True
+        pe.flags.ignore_mandatory = True
+        pe.insert()
+        # DO NOT submit — leave as Draft for accountant review
 
-		self._refresh_custodian_balance()
+        frappe.msgprint(
+            _("Payment Entry {0} created as Draft. Please review and submit it.").format(
+                frappe.utils.get_link_to_form("Payment Entry", pe.name)
+            ),
+            alert=True,
+        )
+        return pe.name
 
-	def update_claimed_amount(self):
-		"""
-		Called when an Accountant Custody is settled against this request.
-		Recalculates claimed_amount from submitted AC settlement entries.
-		"""
-		total_claimed = frappe.db.sql(
-			"""
-			SELECT COALESCE(SUM(cse.claimed_amount), 0)
-			FROM `tabCustody Settlement Entry` cse
-			JOIN `tabAccountant Custody` ac ON ac.name = cse.parent
-			WHERE cse.custody_request = %s
-			  AND ac.docstatus = 1
-			""",
-			self.name,
-		)[0][0] or 0
-		total_claimed = flt(total_claimed)
+    @frappe.whitelist()
+    def refresh_amounts(self):
+        """Recalculate paid_amount and claimed_amount from linked documents."""
+        # Paid: sum of submitted Payment Entries linked to this request
+        paid = frappe.db.sql(
+            """
+            SELECT COALESCE(SUM(pe.paid_amount), 0)
+            FROM `tabPayment Entry` pe
+            WHERE pe.custom_custody_request = %s
+              AND pe.docstatus = 1
+              AND pe.payment_type = 'Internal Transfer'
+            """,
+            (self.name,),
+        )
+        self.paid_amount = flt(paid[0][0]) if paid else 0.0
 
-		self.db_set("claimed_amount", total_claimed)
-		unallocated = flt(self.paid_amount) - total_claimed
-		self.db_set("unallocated_amount", unallocated)
+        # Claimed: sum from Accountant Custody settlement entries
+        claimed = frappe.db.sql(
+            """
+            SELECT COALESCE(SUM(cse.claimed_amount), 0)
+            FROM `tabCustody Settlement Entry` cse
+            JOIN `tabAccountant Custody` ac ON ac.name = cse.parent
+            WHERE cse.custody_request = %s
+              AND ac.docstatus = 1
+            """,
+            (self.name,),
+        )
+        self.claimed_amount = flt(claimed[0][0]) if claimed else 0.0
 
-		# Update status based on claim progress
-		if total_claimed >= flt(self.paid_amount) and flt(self.paid_amount) > 0:
-			self.db_set("status", "Claimed")
-		elif total_claimed > 0:
-			self.db_set("status", "Partly Claimed")
+        # Unallocated
+        self.unallocated_amount = flt(self.paid_amount) - flt(self.claimed_amount)
 
-		self._refresh_custodian_balance()
+        # Update status
+        if flt(self.paid_amount) == 0:
+            status = "Unpaid"
+        elif flt(self.claimed_amount) >= flt(self.paid_amount):
+            status = "Claimed"
+        elif flt(self.claimed_amount) > 0:
+            status = "Partly Claimed"
+        else:
+            status = "Paid"
 
-	@frappe.whitelist()
-	def create_payment_entry(self):
-		"""
-		Stage 1 — Funding: Create a DRAFT Payment Entry to disburse the advance.
+        self.status = status
+        self.db_update()
 
-		GL Entry:
-		  Debit:  Custodian Advance Account (Asset)   ← custody_account on Custodian
-		  Credit: Bank/Cash Account
+        # Also refresh the custodian
+        self._refresh_custodian_balance()
 
-		Mode handling:
-		  Consolidated — payment_type = "Internal Transfer"
-		                 paid_to = shared advance group account
-		                 party_type = "Custodian", party = self.custodian
-		                 (Party field isolates the balance within the shared account)
+    # ── Private Helpers ───────────────────────────────────────────────────────
 
-		  Individual   — payment_type = "Internal Transfer"
-		                 paid_to = custodian's dedicated leaf advance account
-		                 No party needed — the account itself is the isolator.
+    def _auto_set_custodian(self):
+        """Auto-set the custodian field from the employee's active Custodian."""
+        if self.employee and not self.custodian:
+            custodian = frappe.db.get_value(
+                "Custodian",
+                {
+                    "employee": self.employee,
+                    "docstatus": 1,
+                    "status": "Active",
+                },
+                "name",
+            )
+            if custodian:
+                self.custodian = custodian
 
-		Returns the name of the created Payment Entry.
-		"""
-		if not self.advance_account:
-			frappe.throw(
-				_("Advance Account is not set. Please ensure the Custodian has a "
-				  "valid sub-ledger account configured."),
-				title=_("Missing Account"),
-			)
+    def _validate_custodian_status(self):
+        """Block submission if the custodian is Suspended or Closed."""
+        if not self.custodian:
+            frappe.throw(
+                _("A Custodian record is required. Please create an active Custodian "
+                  "for employee {0} before raising a Custody Request.").format(
+                    self.employee_name or self.employee
+                ),
+                title=_("No Custodian Found"),
+            )
 
-		settings = frappe.db.get_singles_dict("Treasury Settings")
-		series = settings.get("pe_series") or "AC-PAY-.YYYY.-.#####"
-		mode = settings.get("accounting_mode") or CONSOLIDATED
+        status = frappe.db.get_value("Custodian", self.custodian, "status")
+        if status == "Suspended":
+            frappe.throw(
+                _("Custodian {0} is currently Suspended. New Custody Requests cannot "
+                  "be created until the custodian is reactivated.").format(self.custodian),
+                title=_("Custodian Suspended"),
+            )
+        if status == "Closed":
+            frappe.throw(
+                _("Custodian {0} is Closed. No further Custody Requests are allowed.").format(
+                    self.custodian
+                ),
+                title=_("Custodian Closed"),
+            )
 
-		# Determine the bank/cash account to pay from
-		pay_from_account = (
-			frappe.db.get_value("Company", self.company, "default_bank_account")
-			or frappe.db.get_value("Company", self.company, "default_cash_account")
-		)
+    def _validate_custody_limit(self):
+        """Ensure the new request does not exceed the custodian's limit."""
+        if not self.custodian or not self.advance_amount:
+            return
 
-		if not pay_from_account:
-			frappe.throw(
-				_("Please set a Default Bank Account or Default Cash Account for company {0}.").format(
-					self.company
-				),
-				title=_("Missing Bank Account"),
-			)
+        limit_val, outstanding = frappe.db.get_value(
+            "Custodian",
+            self.custodian,
+            ["custody_limit", "total_outstanding"],
+        ) or (0, 0)
 
-		pe = frappe.new_doc("Payment Entry")
-		pe.naming_series = series
-		pe.payment_type = "Internal Transfer"
-		pe.posting_date = nowdate()
-		pe.company = self.company
-		pe.paid_amount = flt(self.advance_amount)
-		pe.received_amount = flt(self.advance_amount)
-		pe.paid_from = pay_from_account
-		pe.paid_to = self.advance_account
-		pe.custom_custody_request = self.name
-		pe.custom_custodian = self.custodian
-		pe.reference_no = self.name
-		pe.reference_date = nowdate()
-		pe.remarks = f"Advance disbursement for Custody Request {self.name}"
+        limit_val = flt(limit_val)
+        outstanding = flt(outstanding)
 
-		# In Consolidated mode, set the Custodian as the Party so that the shared
-		# group account can carry individual balances per custodian.
-		if mode == CONSOLIDATED:
-			pe.party_type = "Custodian"
-			pe.party = self.custodian
+        if limit_val > 0:
+            projected = outstanding + flt(self.advance_amount)
+            if projected > limit_val:
+                frappe.throw(
+                    _("This request of {0} would push the custodian's outstanding balance "
+                      "to {1}, exceeding the custody limit of {2}. "
+                      "Please reduce the amount or increase the limit.").format(
+                        frappe.utils.fmt_money(self.advance_amount),
+                        frappe.utils.fmt_money(projected),
+                        frappe.utils.fmt_money(limit_val),
+                    ),
+                    title=_("Custody Limit Exceeded"),
+                )
 
-		pe.flags.ignore_permissions = True
-		pe.insert()
-		# Intentionally left as DRAFT — user must review and submit manually
-		frappe.msgprint(
-			_("Payment Entry {0} created as Draft. Please review and submit it.").format(
-				frappe.bold(pe.name)
-			),
-			indicator="blue",
-		)
-		return pe.name
+    def _lock_advance_account(self):
+        """Lock the advance account to the custodian's dedicated account — always override."""
+        if self.custodian:
+            custody_account = frappe.db.get_value(
+                "Custodian", self.custodian, "custody_account"
+            )
+            if custody_account:
+                self.advance_account = custody_account
+
+    def _calculate_unallocated(self):
+        """Calculate unallocated_amount = paid_amount - claimed_amount."""
+        self.unallocated_amount = flt(self.paid_amount) - flt(self.claimed_amount)
+
+    def _save_unallocated(self):
+        """Recalculate and persist unallocated_amount."""
+        paid = flt(frappe.db.get_value("Custody Request", self.name, "paid_amount"))
+        claimed = flt(frappe.db.get_value("Custody Request", self.name, "claimed_amount"))
+        self.db_set("unallocated_amount", paid - claimed)
+
+    def _validate_no_linked_documents(self):
+        """Prevent cancellation if there are linked Accountant Custody records."""
+        linked_custodies = frappe.get_all(
+            "Accountant Custody",
+            filters={"custody_request": self.name, "docstatus": ["!=", 2]},
+            fields=["name"],
+        )
+        if linked_custodies:
+            frappe.throw(
+                _("Cannot cancel Custody Request {0} as it has linked Accountant "
+                  "Custody records: {1}").format(
+                    self.name,
+                    ", ".join([d.name for d in linked_custodies]),
+                )
+            )
+
+    def _refresh_custodian_balance(self):
+        """Trigger a balance refresh on the linked Custodian."""
+        if self.custodian:
+            try:
+                custodian_doc = frappe.get_doc("Custodian", self.custodian)
+                custodian_doc.refresh_outstanding()
+            except Exception:
+                pass  # Non-critical; balance can be refreshed manually
+
+    # ── Public API (called from Accountant Custody) ───────────────────────────
+
+    def update_claimed_amount(self):
+        """Called when an Accountant Custody is settled against this request."""
+        total_claimed = frappe.db.sql(
+            """
+            SELECT COALESCE(SUM(cse.claimed_amount), 0)
+            FROM `tabCustody Settlement Entry` cse
+            JOIN `tabAccountant Custody` ac ON ac.name = cse.parent
+            WHERE cse.custody_request = %s
+              AND ac.docstatus = 1
+            """,
+            self.name,
+        )[0][0] or 0
+
+        self.db_set("claimed_amount", flt(total_claimed))
+        self.db_set("unallocated_amount", flt(self.paid_amount) - flt(total_claimed))
+
+        if flt(total_claimed) >= flt(self.paid_amount):
+            self.db_set("status", "Claimed")
+        elif flt(total_claimed) > 0:
+            self.db_set("status", "Partly Claimed")
+
+        self._refresh_custodian_balance()

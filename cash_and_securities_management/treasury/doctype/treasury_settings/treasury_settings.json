@@ -4,13 +4,11 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "accounting_mode_section",
-  "accounting_mode",
-  "column_break_mode",
-  "sub_ledger_section",
-  "custody_advance_group",
-  "column_break_sub_ledger",
-  "custodian_payable_group",
+  "accounts_section",
+  "custody_parent_account",
+  "column_break_accounts",
+  "settlement_expense_account",
+  "variance_account",
   "supplier_mode_section",
   "use_single_dummy_supplier",
   "column_break_supplier",
@@ -30,45 +28,35 @@
  ],
  "fields": [
   {
-   "fieldname": "accounting_mode_section",
+   "fieldname": "accounts_section",
    "fieldtype": "Section Break",
-   "label": "Accounting Mode"
+   "label": "Default Accounts"
   },
   {
-   "fieldname": "accounting_mode",
-   "fieldtype": "Select",
-   "label": "Accounting Mode",
-   "options": "\nConsolidated (Party-Based)\nIndividual (Account-Based)",
-   "default": "Consolidated (Party-Based)",
-   "reqd": 1,
-   "description": "Consolidated: All custodians share the group accounts; transactions are isolated by the Custodian Party. Individual: Each custodian gets their own dedicated GL account."
+   "description": "Parent account under which a dedicated sub-account is auto-created for each custodian (e.g., Advance to Employees)",
+   "fieldname": "custody_parent_account",
+   "fieldtype": "Link",
+   "label": "Custody Parent Account",
+   "options": "Account",
+   "reqd": 1
   },
   {
-   "fieldname": "column_break_mode",
+   "fieldname": "column_break_accounts",
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "sub_ledger_section",
-   "fieldtype": "Section Break",
-   "label": "Sub-Ledger Account Groups"
-  },
-  {
-   "fieldname": "custody_advance_group",
+   "description": "Expense account used for direct payment settlement entries",
+   "fieldname": "settlement_expense_account",
    "fieldtype": "Link",
-   "label": "Custody Advance Account Group",
-   "options": "Account",
-   "description": "Parent group account under which the Asset advance sub-ledger is auto-created for each custodian (e.g., Advances to Employees). Must be a Group account."
+   "label": "Settlement Expense Account",
+   "options": "Account"
   },
   {
-   "fieldname": "column_break_sub_ledger",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "custodian_payable_group",
+   "description": "Account used to post settlement variance amounts",
+   "fieldname": "variance_account",
    "fieldtype": "Link",
-   "label": "Custodian Payable Account Group",
-   "options": "Account",
-   "description": "Parent group account under which the Liability payable sub-ledger is auto-created for each custodian (e.g., Employee Payables). Must be a Group account."
+   "label": "Variance Account",
+   "options": "Account"
   },
   {
    "fieldname": "supplier_mode_section",

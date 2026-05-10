@@ -24,12 +24,12 @@
   "column_break_11",
   "advance_amount",
   "paid_amount",
-  "remaining_to_pay",
   "claimed_amount",
   "unallocated_amount",
   "accounting_section",
   "advance_account",
   "column_break_18",
+  "mode_of_payment",
   "more_info_section",
   "status",
   "column_break_kimx",
@@ -154,21 +154,13 @@
    "reqd": 1
   },
   {
-   "description": "Automatically calculated as the sum of all submitted Payment Entries linked to this Custody Request. Do not edit manually.",
+   "description": "Amount that has been paid to the employee via Payment Entry",
    "fieldname": "paid_amount",
    "fieldtype": "Currency",
    "label": "Paid Amount",
    "no_copy": 1,
    "options": "Company:company:default_currency",
    "read_only": 1
-  },
-  {
-   "fieldname": "remaining_to_pay",
-   "fieldtype": "Currency",
-   "label": "Remaining to Pay",
-   "options": "Company:company:default_currency",
-   "read_only": 1,
-   "description": "advance_amount minus paid_amount. Positive = still owed to custodian."
   },
   {
    "description": "Total amount claimed via Accountant Custody records",
@@ -207,6 +199,12 @@
    "fieldtype": "Column Break"
   },
   {
+   "fieldname": "mode_of_payment",
+   "fieldtype": "Link",
+   "label": "Mode of Payment",
+   "options": "Mode of Payment"
+  },
+  {
    "collapsible": 1,
    "fieldname": "more_info_section",
    "fieldtype": "Section Break",
@@ -217,7 +215,7 @@
    "fieldtype": "Select",
    "label": "Status",
    "no_copy": 1,
-   "options": "Draft\nApproved\nPartly Paid\nPaid\nPartly Claimed\nClaimed\nCancelled",
+   "options": "Draft\nUnpaid\nPaid\nClaimed\nPartly Claimed\nCancelled",
    "read_only": 1
   },
   {
