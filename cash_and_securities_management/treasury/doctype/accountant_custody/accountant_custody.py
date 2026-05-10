@@ -221,6 +221,9 @@ class AccountantCustody(Document):
 		pr.supplier = supplier
 		pr.posting_date = nowdate()
 		pr.company = self.company
+		pr.project = self.project
+		pr.cost_center = self.cost_center
+		pr.set_warehouse = self.warehouse
 		pr.custom_accountant_custody = self.name
 		pr.custom_custodian = self.custodian
 
@@ -233,8 +236,9 @@ class AccountantCustody(Document):
 					"qty": flt(item.qty) - flt(item.accepted_qty),
 					"rate": flt(item.rate),
 					"uom": item.uom or "Nos",
-					"warehouse": item.warehouse,
-					"cost_center": item.cost_center or frappe.db.get_value(
+					"warehouse": item.warehouse or self.warehouse,
+					"project": item.project or self.project,
+					"cost_center": item.cost_center or self.cost_center or frappe.db.get_value(
 						"Company", self.company, "cost_center"
 					),
 				})
@@ -355,7 +359,8 @@ class AccountantCustody(Document):
 						"qty": flt(item.qty),
 						"rate": flt(item.rate),
 						"uom": item.uom or "Nos",
-						"cost_center": item.cost_center or frappe.db.get_value(
+						"project": item.project or self.project,
+						"cost_center": item.cost_center or self.cost_center or frappe.db.get_value(
 							"Company", self.company, "cost_center"
 						),
 					})
