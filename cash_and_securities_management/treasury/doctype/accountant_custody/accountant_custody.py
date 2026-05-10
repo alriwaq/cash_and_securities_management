@@ -234,6 +234,7 @@ class AccountantCustody(Document):
 					"rate": flt(item.rate),
 					"uom": item.uom or "Nos",
 					"warehouse": item.warehouse,
+					"project": item.project or self.project,
 					"cost_center": item.cost_center or frappe.db.get_value(
 						"Company", self.company, "cost_center"
 					),
@@ -355,6 +356,8 @@ class AccountantCustody(Document):
 						"qty": flt(item.qty),
 						"rate": flt(item.rate),
 						"uom": item.uom or "Nos",
+						"warehouse": item.warehouse,
+						"project": item.project or self.project,
 						"cost_center": item.cost_center or frappe.db.get_value(
 							"Company", self.company, "cost_center"
 						),
