@@ -73,7 +73,7 @@ def update_custodian_dashboard(custodian_name):
 		"""SELECT COALESCE(SUM(cse.advance_amount_allocated), 0)
 		   FROM `tabCustody Settlement Entry` cse
 		   JOIN `tabAccountant Custody` ac ON ac.name = cse.parent
-		   WHERE ac.custom_custodian = %s
+		   WHERE ac.custodian = %s
 		     AND ac.docstatus = 1""",
 		(custodian_name,),
 	)[0][0] or 0)

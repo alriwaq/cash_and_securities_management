@@ -27,8 +27,11 @@ frappe.ui.form.on("Custody Request", {
         frm.set_intro("");
         frm.clear_custom_buttons();
 
-        // Show Create Payment button for Unpaid submitted requests
-        if (frm.doc.docstatus === 1 && frm.doc.status === "Unpaid") {
+        // Show Create Payment button for approved/partly-paid submitted requests
+        if (
+            frm.doc.docstatus === 1
+            && ["Approved", "Partly Paid"].indexOf(frm.doc.status) !== -1
+        ) {
             frm.add_custom_button(__("Create Payment Entry"), function () {
                 frappe.confirm(
                     __("This will create a Payment Entry for {0}. Continue?", [
