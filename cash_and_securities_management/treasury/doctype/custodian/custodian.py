@@ -1,288 +1,324 @@
 """
-Custodian DocType controller.
+Custodian DocType controller — v2.1
+Manages the lifecycle of an employee custodian:
+  Draft → Active → Suspended → Closed
 
-A Custodian is a formal, submittable record that designates an employee as
-authorized to hold and spend custody funds. It serves as the central hub for
-all custody-related activity for that employee.
+On submit: auto-creates sub-ledger accounts based on accounting_mode in Treasury Settings.
 
-Lifecycle:
-    Draft → (Submit) → Active → (Suspend) → Suspended → (Reactivate) → Active
-                                Active / Suspended → (Close) → Closed
+  Consolidated (Party-Based):
+    - Assigns the shared group accounts from Treasury Settings to custody_account
+      and liability_account. No individual leaf accounts are created.
+    - All GL entries use the group account + Custodian as the Party.
+
+  Individual (Account-Based):
+    - Creates two dedicated leaf accounts per custodian:
+        E-{ID}-{Name} - Advance   (under custody_advance_group)
+        E-{ID}-{Name} - Payable   (under custodian_payable_group)
+    - These are linked to custody_account and liability_account on the Custodian.
+
+Naming: E-{attendance_device_id}-{employee_name} via autoname() method.
 """
+import re
 import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt
 
+CONSOLIDATED = "Consolidated (Party-Based)"
+INDIVIDUAL = "Individual (Account-Based)"
+
 
 class Custodian(Document):
+	# ── Naming ────────────────────────────────────────────────────────────────
+	def autoname(self):
+		"""
+		Generate the document name as: E-{attendance_device_id}-{employee_name}
+		Fallback: E-{employee_id} if attendance_device_id is not set.
+		The name is slugified (spaces → hyphens, special chars stripped) to keep
+		it URL-safe and consistent with Frappe naming conventions.
+		"""
+		employee = self.employee or ""
+		employee_name = self.employee_name or ""
 
-    # ── Frappe Lifecycle Hooks ────────────────────────────────────────────────
+		# Try to get attendance_device_id from the linked Employee record
+		attendance_device_id = None
+		if employee:
+			attendance_device_id = frappe.db.get_value(
+				"Employee", employee, "attendance_device_id"
+			)
 
-    def validate(self):
-        self._validate_unique_active_custodian()
-        self._validate_supplier_assignment()
+		if attendance_device_id:
+			raw = f"E-{attendance_device_id}-{employee_name}"
+		else:
+			raw = f"E-{employee}-{employee_name}" if employee_name else f"E-{employee}"
 
-    def on_submit(self):
-        self._create_custody_account()
-        self._set_status("Active")
-        frappe.db.commit()
+		# Slugify: replace spaces/underscores with hyphens, strip special chars
+		slug = re.sub(r"[\s_]+", "-", raw)
+		slug = re.sub(r"[^A-Za-z0-9\-]", "", slug)
+		slug = re.sub(r"-{2,}", "-", slug).strip("-")
 
-    def on_cancel(self):
-        self._validate_no_open_transactions()
+		self.name = slug
 
-    # ── Custom Action Handlers (called from JS buttons) ───────────────────────
+	# ── Lifecycle ─────────────────────────────────────────────────────────────
+	def before_submit(self):
+		self._validate_employee()
+		self._validate_supplier_if_required()
 
-    @frappe.whitelist()
-    def suspend(self):
-        """Suspend an Active custodian. Blocks new Custody Requests."""
-        if self.status != "Active":
-            frappe.throw(_("Only an Active custodian can be suspended."))
-        self._set_status("Suspended")
-        self.add_comment("Info", _("Custodian suspended by {0}.").format(
-            frappe.session.user
-        ))
-        frappe.db.commit()
+	def on_submit(self):
+		self._create_custody_accounts()
+		self._set_status("Active")
 
-    @frappe.whitelist()
-    def reactivate(self):
-        """Reactivate a Suspended custodian."""
-        if self.status != "Suspended":
-            frappe.throw(_("Only a Suspended custodian can be reactivated."))
-        self._set_status("Active")
-        self.add_comment("Info", _("Custodian reactivated by {0}.").format(
-            frappe.session.user
-        ))
-        frappe.db.commit()
+	def on_cancel(self):
+		self._validate_no_open_transactions()
+		self._set_status("Closed")
 
-    @frappe.whitelist()
-    def close(self):
-        """
-        Close a custodian permanently.
-        Requires total_outstanding == 0.
-        """
-        if self.status not in ("Active", "Suspended"):
-            frappe.throw(_("Only an Active or Suspended custodian can be closed."))
-        self.refresh_outstanding()
-        if flt(self.total_outstanding) > 0:
-            frappe.throw(
-                _("Cannot close this custodian while there is an outstanding balance of {0}. "
-                  "Please settle all open Custody Requests first.").format(
-                    frappe.utils.fmt_money(self.total_outstanding)
-                ),
-                title=_("Outstanding Balance"),
-            )
-        self._set_status("Closed")
-        self.add_comment("Info", _("Custodian closed by {0}.").format(
-            frappe.session.user
-        ))
-        frappe.db.commit()
+	def validate(self):
+		if self.employee:
+			self._sync_employee_fields()
 
-    @frappe.whitelist()
-    def change_limit(self, new_limit):
-        """Change the custody limit and record the action in the timeline."""
-        new_limit = flt(new_limit)
-        old_limit = flt(self.custody_limit)
-        if new_limit < 0:
-            frappe.throw(_("Custody limit cannot be negative."))
-        self.db_set("custody_limit", new_limit)
-        self.add_comment(
-            "Info",
-            _("Custody limit changed from {0} to {1} by {2}").format(
-                frappe.utils.fmt_money(old_limit),
-                frappe.utils.fmt_money(new_limit),
-                frappe.session.user,
-            ),
-        )
-        frappe.msgprint(
-            _("Custody limit updated to {0}").format(frappe.utils.fmt_money(new_limit))
-        )
+	# ── Private helpers ───────────────────────────────────────────────────────
+	def _sync_employee_fields(self):
+		"""Pull employee_name, department, company from the linked Employee."""
+		emp = frappe.db.get_value(
+			"Employee",
+			self.employee,
+			["employee_name", "department", "company"],
+			as_dict=True,
+		)
+		if emp:
+			self.employee_name = emp.employee_name
+			if not self.department:
+				self.department = emp.department
+			if not self.company:
+				self.company = emp.company
 
-    # ── Balance Refresh ───────────────────────────────────────────────────────
+	def _validate_employee(self):
+		"""Employee must be set before submitting."""
+		if not self.employee:
+			frappe.throw(
+				_("Employee is required before submitting a Custodian record."),
+				title=_("Missing Employee"),
+			)
 
-    @frappe.whitelist()
-    def refresh_outstanding(self):
-        """
-        Recalculate all financial summary fields based on actual payments
-        and settlements rather than request amounts.
-        """
-        # Total Disbursed: sum of all Payment Entries linked to this custodian
-        disbursed = frappe.db.sql(
-            """
-            SELECT COALESCE(SUM(pe.paid_amount), 0)
-            FROM `tabPayment Entry` pe
-            WHERE pe.custom_custodian = %s
-              AND pe.docstatus = 1
-              AND pe.payment_type = 'Pay'
-            """,
-            (self.name,),
-        )
-        self.total_disbursed = flt(disbursed[0][0]) if disbursed else 0.0
+	def _validate_supplier_if_required(self):
+		"""Validate dedicated supplier if single-dummy-supplier mode is off."""
+		settings = frappe.db.get_singles_dict("Treasury Settings")
+		use_single = int(settings.get("use_single_dummy_supplier") or 0)
+		if not use_single and not self.dedicated_supplier:
+			frappe.throw(
+				_("Dedicated Supplier is required for this custodian because "
+				  "'Use Single Dummy Supplier' is disabled in Treasury Settings."),
+				title=_("Missing Supplier"),
+			)
 
-        # Total Settled: sum of settled Accountant Custody totals
-        settled = frappe.db.sql(
-            """
-            SELECT COALESCE(SUM(ac.total_amount), 0)
-            FROM `tabAccountant Custody` ac
-            WHERE ac.custodian = %s
-              AND ac.docstatus = 1
-              AND ac.status = 'Settled'
-            """,
-            (self.name,),
-        )
-        total_settled = flt(settled[0][0]) if settled else 0.0
+	def _validate_no_open_transactions(self):
+		"""Prevent cancellation if there are linked submitted documents."""
+		open_requests = frappe.db.count(
+			"Custody Request",
+			{"custodian": self.name, "docstatus": 1},
+		)
+		if open_requests:
+			frappe.throw(
+				_("Cannot cancel this Custodian because there are {0} submitted "
+				  "Custody Request(s) linked to it. Please cancel those first.").format(
+					open_requests
+				),
+				title=_("Linked Transactions Exist"),
+			)
 
-        # Total Outstanding = Disbursed - Settled
-        self.total_outstanding = flt(self.total_disbursed) - total_settled
+	def _create_custody_accounts(self):
+		"""
+		Create or assign sub-ledger accounts based on accounting_mode in Treasury Settings.
 
-        # Pending Requests: sum of advance_amount from Custody Requests in Unpaid or Paid status
-        pending_req = frappe.db.sql(
-            """
-            SELECT COALESCE(SUM(cr.advance_amount), 0)
-            FROM `tabCustody Request` cr
-            WHERE cr.custodian = %s
-              AND cr.docstatus = 1
-              AND cr.status IN ('Unpaid', 'Paid')
-            """,
-            (self.name,),
-        )
-        self.pending_requests = flt(pending_req[0][0]) if pending_req else 0.0
+		Consolidated (Party-Based):
+		  - custody_account  ← custody_advance_group (the shared group account)
+		  - liability_account ← custodian_payable_group (the shared group account)
+		  No leaf accounts are created; the Party field isolates transactions.
 
-        # Pending Settlements: sum of unsettled Accountant Custody totals
-        pending_sett = frappe.db.sql(
-            """
-            SELECT COALESCE(SUM(ac.total_amount), 0)
-            FROM `tabAccountant Custody` ac
-            WHERE ac.custodian = %s
-              AND ac.docstatus = 1
-              AND ac.status NOT IN ('Settled', 'Cancelled')
-            """,
-            (self.name,),
-        )
-        self.pending_settlements = flt(pending_sett[0][0]) if pending_sett else 0.0
+		Individual (Account-Based):
+		  - Creates leaf accounts named "{self.name} - Advance" and "{self.name} - Payable"
+		    under the respective group accounts.
+		  - custody_account  ← the newly created advance leaf account
+		  - liability_account ← the newly created payable leaf account
+		"""
+		settings = frappe.db.get_singles_dict("Treasury Settings")
+		mode = settings.get("accounting_mode") or CONSOLIDATED
+		advance_group = settings.get("custody_advance_group")
+		payable_group = settings.get("custodian_payable_group")
 
-        self.db_update()
+		# Determine company
+		company = self.company
+		if not company and advance_group:
+			company = frappe.db.get_value("Account", advance_group, "company")
+		if not company:
+			frappe.throw(
+				_("Company is required on the Custodian record to create sub-ledger accounts."),
+				title=_("Missing Company"),
+			)
 
-    # ── Private Helpers ───────────────────────────────────────────────────────
+		if not advance_group:
+			frappe.throw(
+				_("Please configure 'Custody Advance Account Group' "
+				  "in Treasury Settings before submitting a Custodian."),
+				title=_("Configuration Missing"),
+			)
 
-    def _validate_unique_active_custodian(self):
-        """Ensure only one submitted (non-closed) Custodian exists per employee."""
-        if self.docstatus == 1:
-            return  # Already submitted — skip on re-save
-        existing = frappe.db.get_value(
-            "Custodian",
-            {
-                "employee": self.employee,
-                "docstatus": 1,
-                "status": ["in", ["Active", "Suspended"]],
-                "name": ["!=", self.name],
-            },
-            "name",
-        )
-        if existing:
-            frappe.throw(
-                _("An active Custodian record already exists for employee {0}: {1}. "
-                  "Please close the existing record before creating a new one.").format(
-                    self.employee_name or self.employee, existing
-                ),
-                title=_("Duplicate Custodian"),
-            )
+		if mode == CONSOLIDATED:
+			# ── Consolidated: assign group accounts directly ──────────────
+			self.custody_account = advance_group
+			self.db_set("custody_account", advance_group, notify=True)
 
-    def _validate_supplier_assignment(self):
-        """
-        When single dummy supplier mode is OFF, dedicated_supplier is mandatory
-        on submit.
-        """
-        use_single = frappe.db.get_single_value(
-            "Treasury Settings", "use_single_dummy_supplier"
-        )
-        if not use_single and self.docstatus == 0 and not self.dedicated_supplier:
-            # Allow saving draft without supplier; enforce on submit
-            pass
+			if payable_group:
+				self.liability_account = payable_group
+				self.db_set("liability_account", payable_group, notify=True)
+			else:
+				frappe.msgprint(
+					_("Custodian Payable Account Group is not configured in Treasury Settings. "
+					  "The liability account was not set on this Custodian."),
+					indicator="orange",
+					alert=True,
+				)
 
-    def _validate_no_open_transactions(self):
-        """Prevent cancellation if there are linked submitted documents."""
-        open_requests = frappe.db.count(
-            "Custody Request",
-            {"custodian": self.name, "docstatus": 1},
-        )
-        if open_requests:
-            frappe.throw(
-                _("Cannot cancel this Custodian because there are {0} submitted "
-                  "Custody Request(s) linked to it. Please cancel those first.").format(
-                    open_requests
-                ),
-                title=_("Linked Transactions Exist"),
-            )
+			frappe.logger().info(
+				f"Custodian {self.name} [Consolidated]: "
+				f"advance={advance_group}, payable={payable_group}"
+			)
 
-    def _create_custody_account(self):
-        """
-        Auto-create a child account under the Custody Parent Account
-        configured in Treasury Settings.
-        """
-        settings = frappe.get_single("Treasury Settings")
-        parent_account = settings.custody_parent_account
+		else:
+			# ── Individual: create dedicated leaf accounts ─────────────────
+			advance_account = self._get_or_create_leaf_account(
+				account_name=f"{self.name} - Advance",
+				parent_account=advance_group,
+				company=company,
+				account_type="",   # Plain current asset — NOT Receivable
+				root_type="Asset",
+			)
+			self.custody_account = advance_account
+			self.db_set("custody_account", advance_account, notify=True)
 
-        if not parent_account:
-            frappe.throw(
-                _("Custody Parent Account is not configured in Treasury Settings. "
-                  "Please configure it before submitting a Custodian."),
-                title=_("Configuration Missing"),
-            )
+			if payable_group:
+				payable_account = self._get_or_create_leaf_account(
+					account_name=f"{self.name} - Payable",
+					parent_account=payable_group,
+					company=company,
+					account_type="Payable",
+					root_type="Liability",
+				)
+				self.liability_account = payable_account
+				self.db_set("liability_account", payable_account, notify=True)
+			else:
+				frappe.msgprint(
+					_("Custodian Payable Account Group is not configured in Treasury Settings. "
+					  "The liability sub-ledger account was not created. "
+					  "You can configure it and re-run account creation from the Custodian record."),
+					indicator="orange",
+					alert=True,
+				)
 
-        # Validate dedicated supplier if not using single dummy supplier
-        if not settings.use_single_dummy_supplier and not self.dedicated_supplier:
-            frappe.throw(
-                _("Dedicated Supplier is required for this custodian because "
-                  "'Use Single Dummy Supplier' is disabled in Treasury Settings."),
-                title=_("Missing Supplier"),
-            )
+			frappe.logger().info(
+				f"Custodian {self.name} [Individual]: "
+				f"advance_account={self.custody_account}, "
+				f"liability_account={self.liability_account}"
+			)
 
-        # Build account name
-        account_name = "{0} - Custody".format(
-            self.employee_name or self.employee
-        )
+	def _get_or_create_leaf_account(
+		self, account_name, parent_account, company, account_type, root_type
+	):
+		"""
+		Return the full account name (e.g., 'E-1234-John - Advance - Company') of
+		an existing leaf account, or create it if it does not exist.
+		"""
+		existing = frappe.db.get_value(
+			"Account",
+			{
+				"account_name": account_name,
+				"company": company,
+				"parent_account": parent_account,
+			},
+			"name",
+		)
+		if existing:
+			return existing
 
-        # Check if account already exists (e.g., re-submit after cancel)
-        parent_account_doc = frappe.get_doc("Account", parent_account)
-        company = self.company or parent_account_doc.company
+		account = frappe.new_doc("Account")
+		account.account_name = account_name
+		account.parent_account = parent_account
+		account.company = company
+		account.account_type = account_type
+		account.root_type = root_type
+		account.report_type = "Balance Sheet"
+		account.is_group = 0
+		account.flags.ignore_permissions = True
+		account.insert()
+		return account.name
 
-        existing = frappe.db.get_value(
-            "Account",
-            {
-                "account_name": account_name,
-                "company": company,
-                "parent_account": parent_account,
-            },
-            "name",
-        )
+	def _set_status(self, new_status):
+		"""Update status field directly in the database."""
+		self.status = new_status
+		self.db_set("status", new_status, notify=True)
 
-        if existing:
-            self.custody_account = existing
-            self.db_set("custody_account", existing, notify=True)
-            return
+	# ── Public API ────────────────────────────────────────────────────────────
+	@frappe.whitelist()
+	def refresh_outstanding(self):
+		"""
+		Recalculate and persist all financial summary fields on this Custodian.
+		All figures are derived exclusively from submitted (docstatus=1) documents.
+		"""
+		from cash_and_securities_management.treasury.balances import (
+			update_custodian_dashboard,
+		)
+		update_custodian_dashboard(self.name)
+		self.reload()
 
-        # Create the account
-        account = frappe.new_doc("Account")
-        account.account_name = account_name
-        account.parent_account = parent_account
-        account.company = company
-        # Do NOT set account_type to 'Receivable' — that would require a Customer
-        # party on every transaction. Custody accounts are plain current-asset
-        # ledgers (similar to a petty-cash account) that hold the advance balance.
-        account.account_type = ""
-        account.is_group = 0
-        account.flags.ignore_permissions = True
-        account.insert()
+	@frappe.whitelist()
+	def change_limit(self, new_limit):
+		"""Update the custody limit."""
+		self.custody_limit = flt(new_limit)
+		self.db_set("custody_limit", flt(new_limit), notify=True)
+		frappe.msgprint(
+			_("Custody limit updated to {0}.").format(
+				frappe.utils.fmt_money(flt(new_limit))
+			),
+			indicator="green",
+			alert=True,
+		)
 
-        self.custody_account = account.name
-        self.db_set("custody_account", account.name, notify=True)
+	@frappe.whitelist()
+	def suspend(self):
+		"""Suspend this custodian (prevents new Custody Requests)."""
+		if self.status != "Active":
+			frappe.throw(_("Only Active custodians can be suspended."))
+		self._set_status("Suspended")
+		frappe.msgprint(_("Custodian {0} has been suspended.").format(self.name), alert=True)
 
-        frappe.logger().info(
-            f"Created custody account '{account.name}' for custodian {self.name}"
-        )
+	@frappe.whitelist()
+	def reactivate(self):
+		"""Reactivate a suspended custodian."""
+		if self.status != "Suspended":
+			frappe.throw(_("Only Suspended custodians can be reactivated."))
+		self._set_status("Active")
+		frappe.msgprint(_("Custodian {0} has been reactivated.").format(self.name), alert=True)
 
-    def _set_status(self, new_status):
-        """Update status field directly in the database."""
-        self.status = new_status
-        self.db_set("status", new_status, notify=True)
+	@frappe.whitelist()
+	def close(self):
+		"""Close this custodian permanently."""
+		if self.status == "Closed":
+			frappe.throw(_("Custodian is already Closed."))
+		self._validate_no_open_transactions()
+		self._set_status("Closed")
+		frappe.msgprint(_("Custodian {0} has been closed.").format(self.name), alert=True)
+
+	@frappe.whitelist()
+	def recreate_accounts(self):
+		"""
+		Manually trigger sub-ledger account creation/assignment.
+		Useful if Treasury Settings were configured after the Custodian was submitted,
+		or if the accounting_mode was changed.
+		"""
+		self._create_custody_accounts()
+		frappe.msgprint(
+			_("Sub-ledger accounts have been created/verified for Custodian {0}.").format(
+				self.name
+			),
+			indicator="green",
+		)

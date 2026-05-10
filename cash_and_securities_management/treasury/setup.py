@@ -1,6 +1,34 @@
 """
 Setup functions for Cash and Securities Management app.
 Called by Frappe during app installation and migration.
+
+Install sequence:
+  1. _cleanup_old_records()           — remove stale DocType / Workspace / Module Def
+  2. _ensure_module_def()             — create 'Treasury' Module Def if missing
+  3. _sync_all_doctypes()             — reload all DocType JSONs into the DB
+  4. _sync_workspace()                — reload the Treasury workspace
+  5. _install_fixtures()              — import Custom Fields, Number Cards, Charts
+  6. _initialize_settings()           — create Treasury Settings singleton
+  7. _create_custody_account_groups() — auto-create GL account groups and
+                                        populate Treasury Settings fields
+
+Account groups created (based on the ERPNext standard chart of accounts):
+
+  Application of Funds (Assets)
+    └── Current Assets
+          └── Loans and Advances (Assets)       ← existing ERPNext group
+                └── Employee Custody Advances   ← NEW  [root_type: Asset,
+                                                         account_type: Payable]
+
+  Source of Funds (Liabilities)
+    └── Current Liabilities
+          └── Accounts Payable                  ← existing ERPNext group
+                └── Custodian Payables          ← NEW  [root_type: Liability,
+                                                         account_type: Payable]
+
+The account_type "Payable" on Employee Custody Advances mirrors how ERPNext
+itself classifies "Employee Advances" — it allows the Party sub-ledger to work
+correctly in Consolidated mode so each custodian's balance is tracked individually.
 """
 import os
 import json
@@ -8,35 +36,327 @@ import frappe
 from frappe import _
 
 
+# ─── Public entry points ──────────────────────────────────────────────────────
+
 def after_install():
-    """
-    Called once after the app is installed on a site via bench install-app.
-    """
+    """Called once after the app is installed on a site via bench install-app."""
     _cleanup_old_records()
     _ensure_module_def()
     _sync_all_doctypes()
     _sync_workspace()
     _install_fixtures()
     _initialize_settings()
+    _create_custody_account_groups()
     frappe.db.commit()
 
 
 def after_migrate():
-    """
-    Called after every bench migrate.
-    """
+    """Called after every bench migrate."""
     _cleanup_old_records()
     _ensure_module_def()
     _sync_all_doctypes()
     _sync_workspace()
     _install_fixtures()
     _initialize_settings()
+    _create_custody_account_groups()
     frappe.db.commit()
 
 
+# ─── Account Group Auto-Creation ──────────────────────────────────────────────
+
+def _create_custody_account_groups():
+    """
+    Auto-create the two GL account groups required by the Treasury module and
+    populate the corresponding fields in Treasury Settings.
+
+    Runs per-company so that multi-company sites get the groups in every
+    company's chart of accounts. The function is fully idempotent — it skips
+    creation when the groups already exist and only writes Treasury Settings
+    when the fields are still blank.
+    """
+    if not frappe.db.exists("DocType", "Account"):
+        # ERPNext not installed yet — skip silently
+        return
+
+    companies = frappe.get_all("Company", pluck="name")
+    if not companies:
+        return
+
+    for company in companies:
+        advance_group = _ensure_advance_group(company)
+        payable_group = _ensure_payable_group(company)
+        _populate_treasury_settings(advance_group, payable_group)
+
+
+def _ensure_advance_group(company):
+    """
+    Ensure 'Employee Custody Advances' exists as a group account under
+    'Loans and Advances (Assets)' in the given company's chart of accounts.
+
+    This mirrors the placement of ERPNext's own 'Employee Advances' account.
+
+    account_type = "Payable" is intentional: it enables the Party sub-ledger
+    so that in Consolidated mode each custodian's advance balance is tracked
+    individually on the shared group account.
+
+    Parent search order:
+      1. 'Loans and Advances (Assets) - {abbr}'   (standard with abbreviation)
+      2. 'Loans and Advances (Assets)'             (standard without abbreviation)
+      3. Any Asset group whose name contains 'Loans and Advances'
+      4. Any Asset group whose name contains 'loan' or 'advance'
+      5. Root Current Assets group (last resort)
+
+    Returns the account name (str) or None if creation failed.
+    """
+    abbr = frappe.db.get_value("Company", company, "abbr") or ""
+    group_label = "Employee Custody Advances"
+    group_name_with_abbr = f"{group_label} - {abbr}" if abbr else group_label
+
+    # Already exists?
+    if frappe.db.exists("Account", group_name_with_abbr):
+        frappe.logger().info(
+            f"[Treasury Setup] '{group_name_with_abbr}' already exists — skipping."
+        )
+        return group_name_with_abbr
+
+    # ── Find the best parent ──────────────────────────────────────────────
+    parent = _find_account_by_candidates(
+        company=company,
+        candidates=[
+            f"Loans and Advances (Assets) - {abbr}",
+            "Loans and Advances (Assets)",
+        ],
+    )
+
+    if not parent:
+        # Fallback: any Asset group whose name contains 'Loans and Advances'
+        parent = frappe.db.get_value(
+            "Account",
+            {
+                "company": company,
+                "root_type": "Asset",
+                "is_group": 1,
+                "account_name": ["like", "%Loans and Advances%"],
+            },
+            "name",
+        )
+
+    if not parent:
+        # Fallback: any Asset group whose name contains 'loan' or 'advance'
+        parent = frappe.db.sql(
+            """SELECT name FROM `tabAccount`
+               WHERE company = %s AND root_type = 'Asset' AND is_group = 1
+                 AND (LOWER(account_name) LIKE '%%loan%%'
+                      OR LOWER(account_name) LIKE '%%advance%%')
+               LIMIT 1""",
+            (company,),
+        )
+        parent = parent[0][0] if parent else None
+
+    if not parent:
+        # Absolute fallback: root Current Assets group
+        parent = frappe.db.get_value(
+            "Account",
+            {
+                "company": company,
+                "root_type": "Asset",
+                "is_group": 1,
+                "account_name": ["like", "%Current Asset%"],
+            },
+            "name",
+        )
+
+    if not parent:
+        frappe.logger().warning(
+            f"[Treasury Setup] Could not find 'Loans and Advances (Assets)' or any "
+            f"suitable Asset parent for company '{company}'. "
+            f"Skipping Employee Custody Advances creation."
+        )
+        return None
+
+    try:
+        acc = frappe.new_doc("Account")
+        acc.account_name = group_label
+        acc.parent_account = parent
+        acc.is_group = 1
+        acc.root_type = "Asset"
+        acc.account_type = "Payable"   # Enables Party sub-ledger on this group
+        acc.company = company
+        acc.flags.ignore_permissions = True
+        acc.flags.ignore_mandatory = True
+        acc.insert()
+        frappe.logger().info(
+            f"[Treasury Setup] Created '{acc.name}' under '{parent}' "
+            f"for company '{company}'."
+        )
+        return acc.name
+    except Exception as e:
+        frappe.logger().error(
+            f"[Treasury Setup] Failed to create Employee Custody Advances "
+            f"for company '{company}': {e}"
+        )
+        return None
+
+
+def _ensure_payable_group(company):
+    """
+    Ensure 'Custodian Payables' exists as a group account under
+    'Accounts Payable' in the given company's chart of accounts.
+
+    Parent search order:
+      1. 'Accounts Payable - {abbr}'   (standard with abbreviation)
+      2. 'Accounts Payable'            (standard without abbreviation)
+      3. Any Liability group with account_type = 'Payable'
+      4. Root Current Liabilities group (last resort)
+
+    Returns the account name (str) or None if creation failed.
+    """
+    abbr = frappe.db.get_value("Company", company, "abbr") or ""
+    group_label = "Custodian Payables"
+    group_name_with_abbr = f"{group_label} - {abbr}" if abbr else group_label
+
+    # Already exists?
+    if frappe.db.exists("Account", group_name_with_abbr):
+        frappe.logger().info(
+            f"[Treasury Setup] '{group_name_with_abbr}' already exists — skipping."
+        )
+        return group_name_with_abbr
+
+    # ── Find the best parent ──────────────────────────────────────────────
+    parent = _find_account_by_candidates(
+        company=company,
+        candidates=[
+            f"Accounts Payable - {abbr}",
+            "Accounts Payable",
+        ],
+    )
+
+    if not parent:
+        # Fallback: any Liability group with account_type Payable
+        parent = frappe.db.get_value(
+            "Account",
+            {
+                "company": company,
+                "root_type": "Liability",
+                "account_type": "Payable",
+                "is_group": 1,
+            },
+            "name",
+        )
+
+    if not parent:
+        # Fallback: any Liability group whose name contains 'payable'
+        parent = frappe.db.sql(
+            """SELECT name FROM `tabAccount`
+               WHERE company = %s AND root_type = 'Liability' AND is_group = 1
+                 AND LOWER(account_name) LIKE '%%payable%%'
+               LIMIT 1""",
+            (company,),
+        )
+        parent = parent[0][0] if parent else None
+
+    if not parent:
+        # Absolute fallback: root Current Liabilities group
+        parent = frappe.db.get_value(
+            "Account",
+            {
+                "company": company,
+                "root_type": "Liability",
+                "is_group": 1,
+                "account_name": ["like", "%Current Liabilit%"],
+            },
+            "name",
+        )
+
+    if not parent:
+        frappe.logger().warning(
+            f"[Treasury Setup] Could not find 'Accounts Payable' or any suitable "
+            f"Liability parent for company '{company}'. "
+            f"Skipping Custodian Payables creation."
+        )
+        return None
+
+    try:
+        acc = frappe.new_doc("Account")
+        acc.account_name = group_label
+        acc.parent_account = parent
+        acc.is_group = 1
+        acc.root_type = "Liability"
+        acc.account_type = "Payable"
+        acc.company = company
+        acc.flags.ignore_permissions = True
+        acc.flags.ignore_mandatory = True
+        acc.insert()
+        frappe.logger().info(
+            f"[Treasury Setup] Created '{acc.name}' under '{parent}' "
+            f"for company '{company}'."
+        )
+        return acc.name
+    except Exception as e:
+        frappe.logger().error(
+            f"[Treasury Setup] Failed to create Custodian Payables "
+            f"for company '{company}': {e}"
+        )
+        return None
+
+
+def _find_account_by_candidates(company, candidates):
+    """
+    Try each name in `candidates` as an exact match in the Account table
+    for the given company. Returns the first match found, or None.
+    """
+    for candidate in candidates:
+        result = frappe.db.get_value(
+            "Account",
+            {"name": candidate, "company": company},
+            "name",
+        )
+        if result:
+            return result
+    return None
+
+
+def _populate_treasury_settings(advance_group, payable_group):
+    """
+    Write advance_group → custody_advance_group and
+    payable_group → custodian_payable_group in Treasury Settings.
+
+    Only writes when the field is currently blank — never overwrites
+    a value the user has already configured.
+    """
+    if not frappe.db.exists("DocType", "Treasury Settings"):
+        return
+
+    try:
+        current_advance = frappe.db.get_single_value(
+            "Treasury Settings", "custody_advance_group"
+        )
+        current_payable = frappe.db.get_single_value(
+            "Treasury Settings", "custodian_payable_group"
+        )
+
+        updates = {}
+        if advance_group and not current_advance:
+            updates["custody_advance_group"] = advance_group
+        if payable_group and not current_payable:
+            updates["custodian_payable_group"] = payable_group
+
+        if updates:
+            for field, value in updates.items():
+                frappe.db.set_single_value("Treasury Settings", field, value)
+            frappe.logger().info(
+                f"[Treasury Setup] Populated Treasury Settings: {updates}"
+            )
+    except Exception as e:
+        frappe.logger().error(
+            f"[Treasury Setup] Failed to populate Treasury Settings: {e}"
+        )
+
+
+# ─── Existing helpers (unchanged) ────────────────────────────────────────────
+
 def _cleanup_old_records():
     """Remove old DocType, Workspace, and Module Def records from previous module names."""
-    # ── Old DocType: Cash and Securities Settings ──
     if frappe.db.exists("DocType", "Cash and Securities Settings"):
         try:
             frappe.delete_doc(
@@ -46,7 +366,6 @@ def _cleanup_old_records():
         except Exception:
             pass
 
-    # ── Old Workspaces from previous module names ──
     old_workspaces = frappe.get_all(
         "Workspace",
         filters={"module": ["in", ["Custody Management", "Cash and Securities Management"]]},
@@ -60,7 +379,6 @@ def _cleanup_old_records():
         except Exception:
             pass
 
-    # ── Old Module Def records ──
     for old_module in ["Custody Management", "Cash and Securities Management"]:
         if frappe.db.exists("Module Def", old_module):
             try:
@@ -88,7 +406,6 @@ def _ensure_module_def():
         except Exception as e:
             frappe.logger().error(f"Could not create Module Def Treasury: {e}")
     else:
-        # Ensure app_name is correct on existing record
         try:
             frappe.db.set_value(
                 "Module Def", "Treasury", "app_name",
@@ -104,7 +421,6 @@ def _sync_all_doctypes():
     Uses frappe.reload_doc() which is the standard Frappe mechanism for syncing
     DocTypes from JSON files, even when Developer Mode is off.
     """
-    # Method 1: Use frappe.reload_doc (preferred, standard Frappe approach)
     doctypes_to_sync = [
         "treasury_settings",
         "custodian",
@@ -117,15 +433,14 @@ def _sync_all_doctypes():
     for dt_name in doctypes_to_sync:
         try:
             frappe.reload_doc(
-                "treasury",       # module name (lowercase)
-                "doctype",        # doctype category
-                dt_name,          # doctype folder name (scrubbed)
+                "treasury",
+                "doctype",
+                dt_name,
                 force=True,
             )
             frappe.logger().info(f"reload_doc succeeded for: {dt_name}")
         except Exception as e:
             frappe.logger().error(f"reload_doc failed for {dt_name}: {e}")
-            # Fallback: try import_file_by_path
             _sync_doctype_by_path(dt_name)
 
     frappe.db.commit()
@@ -149,21 +464,17 @@ def _sync_doctype_by_path(dt_name):
 
 
 def _sync_workspace():
-    """
-    Force-sync the Treasury workspace from the JSON file.
-    This ensures the workspace (module page) appears in the sidebar.
-    """
+    """Force-sync the Treasury workspace from the JSON file."""
     try:
         frappe.reload_doc(
-            "treasury",       # module name (lowercase)
-            "workspace",      # category
-            "treasury",       # workspace folder name
+            "treasury",
+            "workspace",
+            "treasury",
             force=True,
         )
         frappe.logger().info("reload_doc succeeded for Treasury workspace")
     except Exception as e:
         frappe.logger().error(f"reload_doc failed for Treasury workspace: {e}")
-        # Fallback: import by path
         try:
             from frappe.modules.import_file import import_file_by_path
 
@@ -213,7 +524,6 @@ def _install_fixtures():
                 if not doctype or not name:
                     continue
 
-                # Skip if record already exists
                 if frappe.db.exists(doctype, name):
                     continue
 
@@ -238,7 +548,6 @@ def _initialize_settings():
     """Initialize the Treasury Settings singleton if it does not exist."""
     doctype = "Treasury Settings"
 
-    # Verify the DocType is installed before trying to create a record
     if not frappe.db.exists("DocType", doctype):
         frappe.logger().warning(
             f"DocType {doctype} not found in database after sync. "
@@ -246,14 +555,13 @@ def _initialize_settings():
         )
         return
 
-    # For Single doctypes, check tabSingles for any saved value
     try:
         existing = frappe.db.sql(
             "SELECT value FROM tabSingles WHERE doctype=%s AND field='creation' LIMIT 1",
             (doctype,),
         )
         if existing:
-            return  # Already initialized
+            return
     except Exception:
         pass
 

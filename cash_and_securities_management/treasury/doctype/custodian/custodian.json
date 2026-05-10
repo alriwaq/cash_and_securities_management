@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_import": 1,
- "autoname": "naming_series:",
+ "autoname": "field:name",
  "creation": "2024-01-01 00:00:00.000000",
  "doctype": "DocType",
  "document_type": "Document",
@@ -9,7 +9,6 @@
  "field_order": [
   "details_tab",
   "employee_section",
-  "naming_series",
   "employee",
   "employee_name",
   "column_break_employee",
@@ -17,6 +16,7 @@
   "company",
   "custody_account_section",
   "custody_account",
+  "liability_account",
   "custody_limit",
   "column_break_account",
   "status",
@@ -41,16 +41,6 @@
    "fieldname": "employee_section",
    "fieldtype": "Section Break",
    "label": "Employee"
-  },
-  {
-   "fieldname": "naming_series",
-   "fieldtype": "Select",
-   "label": "Naming Series",
-   "options": "CUST-.YYYY.-.#####",
-   "default": "CUST-.YYYY.-.#####",
-   "reqd": 1,
-   "set_only_once": 1,
-   "hidden": 1
   },
   {
    "fieldname": "employee",
@@ -103,14 +93,22 @@
    "label": "Custody Account and Limits"
   },
   {
-   "description": "Dedicated sub-account auto-created under the Custody Parent Account on submit",
+   "description": "Auto-created asset sub-ledger account for this custodian. Tracks advance funds disbursed to the custodian.",
    "fieldname": "custody_account",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Custody Account",
+   "label": "Advance (Asset) Account",
    "no_copy": 1,
    "options": "Account",
    "read_only": 1
+  },
+  {
+   "fieldname": "liability_account",
+   "fieldtype": "Link",
+   "label": "Liability (Payable) Account",
+   "options": "Account",
+   "read_only": 1,
+   "description": "Auto-created liability sub-ledger account for this custodian. Used to track amounts owed to the custodian after settlement."
   },
   {
    "default": "0",
@@ -239,7 +237,7 @@
  "modified_by": "Administrator",
  "module": "Treasury",
  "name": "Custodian",
- "naming_rule": "By \"Naming Series\" field",
+ "naming_rule": "By script",
  "owner": "Administrator",
  "permissions": [
   {
