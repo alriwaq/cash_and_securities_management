@@ -523,7 +523,7 @@ class AccountantCustody(Document):
 				"advance_amount_allocated": 0,
 				"direct_payment_amount": direct_payment_amount,
 				"total_settlement_amount": direct_payment_amount,
-				"settlement_pe": pe.name,
+				"payment_entry": pe.name,
 				"settlement_date": nowdate(),
 				"settlement_notes": settlement_notes,
 			})

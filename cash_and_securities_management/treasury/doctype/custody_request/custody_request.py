@@ -163,6 +163,12 @@ class CustodyRequest(Document):
 				pass  # Non-critical; balance can be refreshed manually
 
 	# ── Public API ────────────────────────────────────────────────────────────
+	@frappe.whitelist()
+	def refresh_amounts(self):
+		"""Refresh payment/claim aggregates and dependent balances."""
+		self.update_paid_amount()
+		self.update_claimed_amount()
+
 	def update_paid_amount(self):
 		"""
 		Recalculate paid_amount from all submitted Payment Entries linked to this
