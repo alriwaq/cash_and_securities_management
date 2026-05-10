@@ -41,6 +41,21 @@ frappe.ui.form.on("Accountant Custody", {
 
 // ── Child table events ────────────────────────────────────────────────────────
 frappe.ui.form.on("Accountant Custody Item", {
+    item_code: function (frm, cdt, cdn) {
+        var row = locals[cdt][cdn];
+        if (row.item_code) {
+            if (frm.doc.project && !row.project) {
+                frappe.model.set_value(cdt, cdn, "project", frm.doc.project);
+            }
+            if (frm.doc.cost_center && !row.cost_center) {
+                frappe.model.set_value(cdt, cdn, "cost_center", frm.doc.cost_center);
+            }
+            if (frm.doc.warehouse && !row.warehouse) {
+                frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.warehouse);
+            }
+        }
+    },
+
     qty: function (frm, cdt, cdn) {
         calculate_item_amount(frm, cdt, cdn);
     },
