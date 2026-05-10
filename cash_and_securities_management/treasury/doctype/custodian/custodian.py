@@ -12,8 +12,8 @@ On submit: auto-creates sub-ledger accounts based on accounting_mode in Treasury
 
   Individual (Account-Based):
     - Creates two dedicated leaf accounts per custodian:
-        E-{ID}-{Name} - Advance   (under default_advance_group)
-        E-{ID}-{Name} - Payable   (under default_payable_group)
+        E-{ID}-{Name} - Advance   (under custody_advance_group)
+        E-{ID}-{Name} - Payable   (under custodian_payable_group)
     - These are linked to custody_account and liability_account on the Custodian.
 
 Naming: E-{attendance_device_id}-{employee_name} via autoname() method.
@@ -131,8 +131,8 @@ class Custodian(Document):
 		Create or assign sub-ledger accounts based on accounting_mode in Treasury Settings.
 
 		Consolidated (Party-Based):
-		  - custody_account  ← default_advance_group (the shared group account)
-		  - liability_account ← default_payable_group (the shared group account)
+		  - custody_account  ← custody_advance_group (the shared group account)
+		  - liability_account ← custodian_payable_group (the shared group account)
 		  No leaf accounts are created; the Party field isolates transactions.
 
 		Individual (Account-Based):
@@ -143,8 +143,8 @@ class Custodian(Document):
 		"""
 		settings = frappe.db.get_singles_dict("Treasury Settings")
 		mode = settings.get("accounting_mode") or CONSOLIDATED
-		advance_group = settings.get("default_advance_group")
-		payable_group = settings.get("default_payable_group")
+		advance_group = settings.get("custody_advance_group")
+		payable_group = settings.get("custodian_payable_group")
 
 		# Determine company
 		company = self.company
@@ -158,7 +158,7 @@ class Custodian(Document):
 
 		if not advance_group:
 			frappe.throw(
-				_("Please configure 'Default Advance Account Group' "
+				_("Please configure 'Custody Advance Account Group' "
 				  "in Treasury Settings before submitting a Custodian."),
 				title=_("Configuration Missing"),
 			)
@@ -173,7 +173,7 @@ class Custodian(Document):
 				self.db_set("liability_account", payable_group, notify=True)
 			else:
 				frappe.msgprint(
-					_("Default Payable Account Group is not configured in Treasury Settings. "
+					_("Custodian Payable Account Group is not configured in Treasury Settings. "
 					  "The liability account was not set on this Custodian."),
 					indicator="orange",
 					alert=True,
@@ -208,7 +208,7 @@ class Custodian(Document):
 				self.db_set("liability_account", payable_account, notify=True)
 			else:
 				frappe.msgprint(
-					_("Default Payable Account Group is not configured in Treasury Settings. "
+					_("Custodian Payable Account Group is not configured in Treasury Settings. "
 					  "The liability sub-ledger account was not created. "
 					  "You can configure it and re-run account creation from the Custodian record."),
 					indicator="orange",

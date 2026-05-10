@@ -43,8 +43,8 @@ frappe.ui.form.on("Treasury Settings", {
 		const isIndividual = mode === "Individual (Account-Based)";
 
 		// In Individual mode both group fields are required
-		frm.set_df_property("default_advance_group", "reqd", isIndividual ? 1 : 0);
-		frm.set_df_property("default_payable_group", "reqd", isIndividual ? 1 : 0);
+		frm.set_df_property("custody_advance_group", "reqd", isIndividual ? 1 : 0);
+		frm.set_df_property("custodian_payable_group", "reqd", isIndividual ? 1 : 0);
 
 		// Show a contextual description below the mode selector
 		const desc = isIndividual

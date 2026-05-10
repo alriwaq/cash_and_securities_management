@@ -9,7 +9,7 @@ Migrates existing data from v1 to v2 schema:
   3. Recalculates granular status on all submitted Accountant Custodies
   4. Recalculates Custodian balance summaries
   5. Creates liability sub-ledger accounts for Custodians that are missing one
-     (requires default_payable_group to be set in Treasury Settings)
+     (requires custodian_payable_group to be set in Treasury Settings)
 """
 import frappe
 from frappe import _
@@ -130,13 +130,13 @@ def _recalculate_all_custodian_balances():
 def _create_missing_liability_accounts():
 	"""
 	For each submitted Custodian that has a custody_account but no liability_account,
-	attempt to create the liability sub-ledger if default_payable_group is configured.
+	attempt to create the liability sub-ledger if custodian_payable_group is configured.
 	"""
 	settings = frappe.db.get_singles_dict("Treasury Settings")
-	payable_group = settings.get("default_payable_group")
+	payable_group = settings.get("custodian_payable_group")
 	if not payable_group:
 		frappe.logger().info(
-			"  Skipping liability account creation: default_payable_group not configured"
+			"  Skipping liability account creation: custodian_payable_group not configured"
 		)
 		return
 

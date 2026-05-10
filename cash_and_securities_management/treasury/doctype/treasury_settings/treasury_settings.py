@@ -40,8 +40,8 @@ class TreasurySettings(Document):
 
 		if mode == INDIVIDUAL:
 			for fieldname, label in [
-				("default_advance_group", _("Default Advance Account Group")),
-				("default_payable_group", _("Default Payable Account Group")),
+				("custody_advance_group", _("Custody Advance Account Group")),
+				("custodian_payable_group", _("Custodian Payable Account Group")),
 			]:
 				if not self.get(fieldname):
 					frappe.throw(
@@ -52,8 +52,8 @@ class TreasurySettings(Document):
 					)
 
 		for fieldname, label in [
-			("default_advance_group", _("Default Advance Account Group")),
-			("default_payable_group", _("Default Payable Account Group")),
+			("custody_advance_group", _("Custody Advance Account Group")),
+			("custodian_payable_group", _("Custodian Payable Account Group")),
 		]:
 			account = self.get(fieldname)
 			if account:
@@ -75,8 +75,8 @@ class TreasurySettings(Document):
 		  - 'Advances to Custodians' under Current Assets / Cash In Hand
 		  - 'Custodian Payables' under Current Liabilities / Accounts Payable
 
-		The created groups are then set as default_advance_group and
-		default_payable_group on this settings document.
+		The created groups are then set as custody_advance_group and
+		custodian_payable_group on this settings document.
 		"""
 		company = frappe.defaults.get_global_default("company")
 		if not company:
@@ -96,14 +96,14 @@ class TreasurySettings(Document):
 		if not advance_parent:
 			frappe.throw(
 				_("Could not find 'Cash In Hand' or 'Current Assets' account for company {0}. "
-				  "Please set the Default Advance Account Group manually.").format(company),
+				  "Please set the Custody Advance Account Group manually.").format(company),
 				title=_("Account Not Found"),
 			)
 
 		advance_group = self._get_or_create_group_account(
 			advance_group_name, advance_parent, company, "Asset"
 		)
-		self.default_advance_group = advance_group
+		self.custody_advance_group = advance_group
 		results.append(_("Advance group: {0}").format(advance_group))
 
 		# ── Payable group (Liability side) ────────────────────────────────
@@ -115,14 +115,14 @@ class TreasurySettings(Document):
 		if not payable_parent:
 			frappe.throw(
 				_("Could not find 'Accounts Payable' or 'Current Liabilities' account for company {0}. "
-				  "Please set the Default Payable Account Group manually.").format(company),
+				  "Please set the Custodian Payable Account Group manually.").format(company),
 				title=_("Account Not Found"),
 			)
 
 		payable_group = self._get_or_create_group_account(
 			payable_group_name, payable_parent, company, "Payable"
 		)
-		self.default_payable_group = payable_group
+		self.custodian_payable_group = payable_group
 		results.append(_("Payable group: {0}").format(payable_group))
 
 		self.save(ignore_permissions=True)

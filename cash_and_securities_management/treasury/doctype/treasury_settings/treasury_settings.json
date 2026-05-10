@@ -8,9 +8,9 @@
   "accounting_mode",
   "column_break_mode",
   "sub_ledger_section",
-  "default_advance_group",
+  "custody_advance_group",
   "column_break_sub_ledger",
-  "default_payable_group",
+  "custodian_payable_group",
   "supplier_mode_section",
   "use_single_dummy_supplier",
   "column_break_supplier",
@@ -53,9 +53,9 @@
    "label": "Sub-Ledger Account Groups"
   },
   {
-   "fieldname": "default_advance_group",
+   "fieldname": "custody_advance_group",
    "fieldtype": "Link",
-   "label": "Default Advance Account Group",
+   "label": "Custody Advance Account Group",
    "options": "Account",
    "description": "Parent group account under which the Asset advance sub-ledger is auto-created for each custodian (e.g., Advances to Employees). Must be a Group account."
   },
@@ -64,9 +64,9 @@
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "default_payable_group",
+   "fieldname": "custodian_payable_group",
    "fieldtype": "Link",
-   "label": "Default Payable Account Group",
+   "label": "Custodian Payable Account Group",
    "options": "Account",
    "description": "Parent group account under which the Liability payable sub-ledger is auto-created for each custodian (e.g., Employee Payables). Must be a Group account."
   },
