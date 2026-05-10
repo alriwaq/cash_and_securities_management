@@ -227,6 +227,10 @@ class AccountantCustody(Document):
 		pr.custom_accountant_custody = self.name
 		pr.custom_custodian = self.custodian
 
+		default_cost_center = self.cost_center or frappe.db.get_value(
+			"Company", self.company, "cost_center"
+		)
+
 		# Add stock and fixed-asset items only
 		for item in self.custody_items:
 			if item.is_stock_item or item.is_fixed_asset:
@@ -238,9 +242,7 @@ class AccountantCustody(Document):
 					"uom": item.uom or "Nos",
 					"warehouse": item.warehouse or self.warehouse,
 					"project": item.project or self.project,
-					"cost_center": item.cost_center or self.cost_center or frappe.db.get_value(
-						"Company", self.company, "cost_center"
-					),
+					"cost_center": item.cost_center or default_cost_center,
 				})
 
 		if not pr.items:
@@ -351,6 +353,10 @@ class AccountantCustody(Document):
 			# Override credit_to with the custodian's payable account
 			pi_doc.credit_to = payable_account
 
+			default_cost_center = self.cost_center or frappe.db.get_value(
+				"Company", self.company, "cost_center"
+			)
+
 			for item in self.custody_items:
 				if not (item.is_stock_item or item.is_fixed_asset):
 					pi_doc.append("items", {
@@ -360,9 +366,7 @@ class AccountantCustody(Document):
 						"rate": flt(item.rate),
 						"uom": item.uom or "Nos",
 						"project": item.project or self.project,
-						"cost_center": item.cost_center or self.cost_center or frappe.db.get_value(
-							"Company", self.company, "cost_center"
-						),
+						"cost_center": item.cost_center or default_cost_center,
 					})
 
 			if not pi_doc.items:
