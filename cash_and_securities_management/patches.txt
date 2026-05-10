@@ -3,3 +3,4 @@
 cash_and_securities_management.patches.v1_0.sync_treasury_doctypes
 cash_and_securities_management.patches.v1_1.add_custodian_doctype
 cash_and_securities_management.patches.v1_1.fix_custody_account_type
+cash_and_securities_management.patches.v2_0.migrate_to_v2

@@ -30,6 +30,7 @@
   "column_break_totals",
   "total_accepted_amount",
   "total_billed_amount",
+  "total_settled_amount",
   "settlement_tab",
   "settlement_type",
   "settlement_section",
@@ -121,7 +122,7 @@
    "in_list_view": 1,
    "label": "Status",
    "no_copy": 1,
-   "options": "Draft\nSubmitted\nReceiving\nFully Received\nInvoiced\nSettled\nCancelled",
+   "options": "Draft\nPending\nPartly Received\nFully Received\nPartly Invoiced\nFully Invoiced\nPartly Settled\nFully Settled\nClosed\nCancelled",
    "print_hide": 1,
    "read_only": 1
   },
@@ -217,6 +218,14 @@
    "allow_on_submit": 1
   },
   {
+   "fieldname": "total_settled_amount",
+   "fieldtype": "Currency",
+   "label": "Total Settled Amount",
+   "options": "Company:company:default_currency",
+   "read_only": 1,
+   "description": "Sum of all settlement amounts (advance deduction + direct payment)."
+  },
+  {
    "fieldname": "settlement_tab",
    "fieldtype": "Tab Break",
    "label": "Settlement"
@@ -226,7 +235,9 @@
    "fieldname": "settlement_type",
    "fieldtype": "Select",
    "label": "Settlement Type",
-   "options": "\nFull Advance Settlement\nFull Direct Payment\nMixed Settlement"
+   "options": "\nFull Advance Settlement\nFull Direct Payment\nMixed Settlement",
+   "hidden": 1,
+   "print_hide": 1
   },
   {
    "fieldname": "settlement_section",
