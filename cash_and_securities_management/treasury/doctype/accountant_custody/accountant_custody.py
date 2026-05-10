@@ -223,6 +223,9 @@ class AccountantCustody(Document):
 		pr.company = self.company
 		pr.custom_accountant_custody = self.name
 		pr.custom_custodian = self.custodian
+		pr.set_warehouse = self.warehouse
+		pr.project = self.project
+		pr.cost_center = self.cost_center
 
 		# Add stock and fixed-asset items only
 		for item in self.custody_items:
