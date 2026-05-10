@@ -282,6 +282,8 @@ class CustodyRequest(Document):
 		pe.paid_to = self.advance_account
 		pe.custom_custody_request = self.name
 		pe.custom_custodian = self.custodian
+		pe.reference_no = self.name
+		pe.reference_date = nowdate()
 		pe.remarks = f"Advance disbursement for Custody Request {self.name}"
 
 		# In Consolidated mode, set the Custodian as the Party so that the shared

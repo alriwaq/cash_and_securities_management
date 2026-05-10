@@ -503,6 +503,8 @@ class AccountantCustody(Document):
 			pe.paid_from = pay_from
 			pe.paid_amount = direct_payment_amount
 			pe.received_amount = direct_payment_amount
+			pe.reference_no = self.name
+			pe.reference_date = nowdate()
 			pe.custom_accountant_custody = self.name
 			pe.custom_custodian = self.custodian
 			pe.remarks = (
