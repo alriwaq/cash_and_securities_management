@@ -1,13 +1,15 @@
 """
-Document Event Hooks — v2
+Document Event Hooks — v2.1
 treasury/doctype/accountant_custody/pr_hooks.py
 
 All doc_event handlers for Purchase Receipt, Purchase Invoice, Payment Entry,
 and Journal Entry. Each handler delegates financial recalculations to the
 centralized balance engine in treasury/balances.py.
 
-Cancellation order enforced:
+Cancellation order enforced (strict hierarchy):
   Settlement JE/PE → Purchase Invoice → Purchase Receipt → Accountant Custody → Custody Request
+  Advance Payment Entry cannot be cancelled if any Accountant Custody records
+  have been submitted against the linked Custody Request.
 """
 import frappe
 from frappe import _
@@ -52,7 +54,7 @@ def on_pr_submit(doc, method):
 
 	# Cascade balance recalculation
 	if doc.get("custom_custodian"):
-		_safe_recalculate_custodian(doc.custom_custodian)
+		_safe_update_custodian_dashboard(doc.custom_custodian)
 
 
 def on_pr_cancel(doc, method):
@@ -77,7 +79,7 @@ def on_pr_cancel(doc, method):
 		frappe.log_error(str(e), f"on_pr_cancel: failed to update AC {ac_name}")
 
 	if doc.get("custom_custodian"):
-		_safe_recalculate_custodian(doc.custom_custodian)
+		_safe_update_custodian_dashboard(doc.custom_custodian)
 
 
 # ─── Purchase Invoice Hooks ───────────────────────────────────────────────────
@@ -138,7 +140,7 @@ def on_pi_submit(doc, method):
 		frappe.log_error(str(e), f"on_pi_submit: failed to update AC {ac_name}")
 
 	if doc.get("custom_custodian"):
-		_safe_recalculate_custodian(doc.custom_custodian)
+		_safe_update_custodian_dashboard(doc.custom_custodian)
 
 
 def on_pi_cancel(doc, method):
@@ -163,7 +165,7 @@ def on_pi_cancel(doc, method):
 		frappe.log_error(str(e), f"on_pi_cancel: failed to update AC {ac_name}")
 
 	if doc.get("custom_custodian"):
-		_safe_recalculate_custodian(doc.custom_custodian)
+		_safe_update_custodian_dashboard(doc.custom_custodian)
 
 
 # ─── Payment Entry Hooks ──────────────────────────────────────────────────────
@@ -172,7 +174,7 @@ def on_payment_submit(doc, method):
 	"""
 	Triggered after a Payment Entry is submitted.
 	If linked to a Custody Request, recalculates its paid_amount and status.
-	Then cascades to the Custodian balance.
+	Then cascades to the Custodian dashboard.
 	"""
 	custody_request = doc.get("custom_custody_request")
 	custodian = doc.get("custom_custodian")
@@ -180,21 +182,34 @@ def on_payment_submit(doc, method):
 	if custody_request:
 		_safe_recalculate_custody_request(custody_request)
 	elif custodian:
-		_safe_recalculate_custodian(custodian)
+		_safe_update_custodian_dashboard(custodian)
 
 
 def on_payment_cancel(doc, method):
 	"""
 	Triggered after a Payment Entry is cancelled.
-	Reverses the paid amount update on the linked Custody Request.
+
+	Strict Hierarchical Cancellation Guard:
+	  If this is an advance disbursement (Internal Transfer linked to a Custody
+	  Request), block cancellation if any Accountant Custody records have been
+	  submitted against that Custody Request.
+
+	Then reverses the paid amount update on the linked Custody Request.
 	"""
+	# ── Advance cancellation guard ────────────────────────────────────────
+	from cash_and_securities_management.treasury.balances import (
+		validate_advance_cancellation,
+	)
+	validate_advance_cancellation(doc)
+
+	# ── Recalculate balances after cancellation ───────────────────────────
 	custody_request = doc.get("custom_custody_request")
 	custodian = doc.get("custom_custodian")
 
 	if custody_request:
 		_safe_recalculate_custody_request(custody_request)
 	elif custodian:
-		_safe_recalculate_custodian(custodian)
+		_safe_update_custodian_dashboard(custodian)
 
 
 # ─── Journal Entry Hooks ──────────────────────────────────────────────────────
@@ -237,15 +252,21 @@ def on_journal_cancel(doc, method):
 
 # ─── Private helpers ──────────────────────────────────────────────────────────
 
-def _safe_recalculate_custodian(custodian_name):
-	"""Safely call the custodian balance engine, logging errors without raising."""
+def _safe_update_custodian_dashboard(custodian_name):
+	"""Safely call the custodian dashboard engine, logging errors without raising."""
 	try:
 		from cash_and_securities_management.treasury.balances import (
-			recalculate_custodian_balances,
+			update_custodian_dashboard,
 		)
-		recalculate_custodian_balances(custodian_name)
+		update_custodian_dashboard(custodian_name)
 	except Exception as e:
-		frappe.log_error(str(e), f"_safe_recalculate_custodian: {custodian_name}")
+		frappe.log_error(str(e), f"_safe_update_custodian_dashboard: {custodian_name}")
+
+
+# Backward-compatibility alias
+def _safe_recalculate_custodian(custodian_name):
+	"""Alias for _safe_update_custodian_dashboard — kept for backward compatibility."""
+	_safe_update_custodian_dashboard(custodian_name)
 
 
 def _safe_recalculate_custody_request(custody_request_name):

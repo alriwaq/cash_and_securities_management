@@ -1,7 +1,18 @@
 """
-Custody Request DocType controller — v2
+Custody Request DocType controller — v2.1
 Tracks the advance lifecycle for a custodian:
   Draft → Approved → Partly Paid → Paid → Partly Claimed → Claimed → Cancelled
+
+Stage 1 of the three-step flow:
+  Custody Request → Payment Entry (Advance disbursement)
+
+GL entry produced by the Payment Entry:
+  Debit:  Custodian Advance Account (Asset)   ← custody_account on Custodian
+  Credit: Bank/Cash Account
+
+In Consolidated mode the advance account is the shared group account and the
+Custodian is set as the Party (Party Type = Custodian) on the Payment Entry to
+isolate individual balances within the shared account.
 
 paid_amount is strictly read-only, computed from submitted Payment Entries.
 remaining_to_pay = advance_amount - paid_amount.
@@ -10,6 +21,8 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, nowdate
+
+CONSOLIDATED = "Consolidated (Party-Based)"
 
 
 class CustodyRequest(Document):
@@ -143,9 +156,9 @@ class CustodyRequest(Document):
 		if self.custodian:
 			try:
 				from cash_and_securities_management.treasury.balances import (
-					recalculate_custodian_balances,
+					update_custodian_dashboard,
 				)
-				recalculate_custodian_balances(self.custodian)
+				update_custodian_dashboard(self.custodian)
 			except Exception:
 				pass  # Non-critical; balance can be refreshed manually
 
@@ -209,8 +222,22 @@ class CustodyRequest(Document):
 	@frappe.whitelist()
 	def create_payment_entry(self):
 		"""
-		Create a DRAFT Payment Entry (Internal Transfer) to disburse the advance
-		to the custodian's asset sub-ledger account.
+		Stage 1 — Funding: Create a DRAFT Payment Entry to disburse the advance.
+
+		GL Entry:
+		  Debit:  Custodian Advance Account (Asset)   ← custody_account on Custodian
+		  Credit: Bank/Cash Account
+
+		Mode handling:
+		  Consolidated — payment_type = "Internal Transfer"
+		                 paid_to = shared advance group account
+		                 party_type = "Custodian", party = self.custodian
+		                 (Party field isolates the balance within the shared account)
+
+		  Individual   — payment_type = "Internal Transfer"
+		                 paid_to = custodian's dedicated leaf advance account
+		                 No party needed — the account itself is the isolator.
+
 		Returns the name of the created Payment Entry.
 		"""
 		if not self.advance_account:
@@ -222,11 +249,13 @@ class CustodyRequest(Document):
 
 		settings = frappe.db.get_singles_dict("Treasury Settings")
 		series = settings.get("pe_series") or "AC-PAY-.YYYY.-.#####"
+		mode = settings.get("accounting_mode") or CONSOLIDATED
 
 		# Determine the bank/cash account to pay from
-		pay_from_account = frappe.db.get_value(
-			"Company", self.company, "default_bank_account"
-		) or frappe.db.get_value("Company", self.company, "default_cash_account")
+		pay_from_account = (
+			frappe.db.get_value("Company", self.company, "default_bank_account")
+			or frappe.db.get_value("Company", self.company, "default_cash_account")
+		)
 
 		if not pay_from_account:
 			frappe.throw(
@@ -248,6 +277,13 @@ class CustodyRequest(Document):
 		pe.custom_custody_request = self.name
 		pe.custom_custodian = self.custodian
 		pe.remarks = f"Advance disbursement for Custody Request {self.name}"
+
+		# In Consolidated mode, set the Custodian as the Party so that the shared
+		# group account can carry individual balances per custodian.
+		if mode == CONSOLIDATED:
+			pe.party_type = "Custodian"
+			pe.party = self.custodian
+
 		pe.flags.ignore_permissions = True
 		pe.insert()
 		# Intentionally left as DRAFT — user must review and submit manually

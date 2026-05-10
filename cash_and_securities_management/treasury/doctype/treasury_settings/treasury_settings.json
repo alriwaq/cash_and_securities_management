@@ -4,6 +4,9 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "accounting_mode_section",
+  "accounting_mode",
+  "column_break_mode",
   "sub_ledger_section",
   "default_advance_group",
   "column_break_sub_ledger",
@@ -26,6 +29,24 @@
   "custody_manager_role"
  ],
  "fields": [
+  {
+   "fieldname": "accounting_mode_section",
+   "fieldtype": "Section Break",
+   "label": "Accounting Mode"
+  },
+  {
+   "fieldname": "accounting_mode",
+   "fieldtype": "Select",
+   "label": "Accounting Mode",
+   "options": "\nConsolidated (Party-Based)\nIndividual (Account-Based)",
+   "default": "Consolidated (Party-Based)",
+   "reqd": 1,
+   "description": "Consolidated: All custodians share the group accounts; transactions are isolated by the Custodian Party. Individual: Each custodian gets their own dedicated GL account."
+  },
+  {
+   "fieldname": "column_break_mode",
+   "fieldtype": "Column Break"
+  },
   {
    "fieldname": "sub_ledger_section",
    "fieldtype": "Section Break",

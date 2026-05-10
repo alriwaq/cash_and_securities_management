@@ -1,5 +1,5 @@
 """
-Centralized Balance Engine — v2
+Centralized Balance Engine — v2.1
 treasury/balances.py
 
 All financial recalculations for the Treasury module are consolidated here.
@@ -8,32 +8,57 @@ of performing inline calculations. This ensures a single source of truth and
 prevents synchronization lag between related documents.
 
 Public API:
-  recalculate_custodian_balances(custodian_name)
+  update_custodian_dashboard(custodian_name)
+      Recalculate and persist all financial summary fields on a Custodian.
+      (Replaces the v2.0 name recalculate_custodian_balances — old name kept
+       as an alias for backward compatibility.)
+
   recalculate_custody_request_status(custody_request_name)
+      Recalculate paid_amount, remaining_to_pay, and status for a Custody Request.
+
   recalculate_accountant_custody_status(accountant_custody_name)
+      Recalculate the granular status of an Accountant Custody.
+
+  validate_cancellation_order_for_pi(pi_doc)
+      Prevent PI cancellation if a settlement JE/PE exists.
+
+  validate_cancellation_order_for_pr(pr_doc)
+      Prevent PR cancellation if a submitted PI exists.
+
+  validate_advance_cancellation(payment_entry_doc)
+      Prevent cancellation of an advance Payment Entry if any Accountant Custody
+      records have been submitted (partially or fully settled) against it.
 """
 import frappe
 from frappe.utils import flt
 
 
-# ─── Custodian Balance Engine ─────────────────────────────────────────────────
+# ─── Custodian Dashboard Engine ───────────────────────────────────────────────
 
-def recalculate_custodian_balances(custodian_name):
+def update_custodian_dashboard(custodian_name):
 	"""
 	Recalculate and persist all financial summary fields on a Custodian.
 	All figures are derived exclusively from submitted (docstatus=1) documents
 	to ensure draft or cancelled records do not skew the financial reality.
 
 	Fields updated:
-	  total_disbursed    — sum of all submitted Payment Entry paid_amounts
-	  total_outstanding  — total_disbursed minus total settled amounts
-	  pending_requests   — sum of advance_amounts on Approved/Partly Paid CRs
-	  pending_settlements — sum of billed amounts on un-settled ACs
+	  total_disbursed      — sum of all submitted advance Payment Entry paid_amounts
+	  total_outstanding    — total_disbursed minus total advance-deduction settlements
+	  pending_requests     — sum of advance_amounts on Approved/Partly Paid CRs
+	  pending_settlements  — sum of billed amounts on un-settled ACs
+
+	This function is the canonical dashboard recalculation entry point.
+	It is called:
+	  - on_submit / on_cancel of Payment Entry (via pr_hooks)
+	  - on_submit / on_cancel of Purchase Receipt (via pr_hooks)
+	  - on_submit / on_cancel of Purchase Invoice (via pr_hooks)
+	  - on_submit / on_cancel of Journal Entry (via pr_hooks)
+	  - directly from Custodian.refresh_outstanding()
 	"""
 	if not frappe.db.exists("Custodian", custodian_name):
 		return
 
-	# ── Total disbursed (submitted Payment Entries) ───────────────────────
+	# ── Total disbursed (submitted advance Payment Entries) ───────────────
 	total_disbursed = flt(frappe.db.sql(
 		"""SELECT COALESCE(SUM(pe.paid_amount), 0)
 		   FROM `tabPayment Entry` pe
@@ -53,10 +78,10 @@ def recalculate_custodian_balances(custodian_name):
 		(custodian_name,),
 	)[0][0] or 0)
 
-	# ── Outstanding = disbursed - settled ────────────────────────────────
+	# ── Outstanding = disbursed - settled ─────────────────────────────────
 	total_outstanding = total_disbursed - total_settled
 
-	# ── Pending requests (Approved or Partly Paid CRs) ───────────────────
+	# ── Pending requests (Approved or Partly Paid CRs) ────────────────────
 	pending_requests = flt(frappe.db.sql(
 		"""SELECT COALESCE(SUM(advance_amount), 0)
 		   FROM `tabCustody Request`
@@ -66,7 +91,7 @@ def recalculate_custodian_balances(custodian_name):
 		(custodian_name,),
 	)[0][0] or 0)
 
-	# ── Pending settlements (Fully Invoiced ACs not yet settled) ─────────
+	# ── Pending settlements (Fully Invoiced ACs not yet settled) ──────────
 	pending_settlements = flt(frappe.db.sql(
 		"""SELECT COALESCE(SUM(total_billed_amount - COALESCE(total_settled_amount, 0)), 0)
 		   FROM `tabAccountant Custody`
@@ -94,6 +119,12 @@ def recalculate_custodian_balances(custodian_name):
 	)
 
 
+# Backward-compatibility alias (v2.0 name)
+def recalculate_custodian_balances(custodian_name):
+	"""Alias for update_custodian_dashboard — kept for backward compatibility."""
+	return update_custodian_dashboard(custodian_name)
+
+
 # ─── Custody Request Status Engine ───────────────────────────────────────────
 
 def recalculate_custody_request_status(custody_request_name):
@@ -105,6 +136,9 @@ def recalculate_custody_request_status(custody_request_name):
 	  paid_amount = 0                    → Approved
 	  0 < paid_amount < advance_amount   → Partly Paid
 	  paid_amount >= advance_amount      → Paid
+
+	Triggered by:
+	  - on_submit / on_cancel of Payment Entry (via pr_hooks)
 	"""
 	if not frappe.db.exists("Custody Request", custody_request_name):
 		return
@@ -148,9 +182,9 @@ def recalculate_custody_request_status(custody_request_name):
 		update_modified=False,
 	)
 
-	# Cascade to custodian
+	# Cascade to custodian dashboard
 	if cr.custodian:
-		recalculate_custodian_balances(cr.custodian)
+		update_custodian_dashboard(cr.custodian)
 
 
 # ─── Accountant Custody Status Engine ────────────────────────────────────────
@@ -164,6 +198,10 @@ def recalculate_accountant_custody_status(accountant_custody_name):
 	  Pending → Partly Received → Fully Received
 	           → Partly Invoiced → Fully Invoiced
 	           → Partly Settled → Fully Settled
+
+	Triggered by:
+	  - on_submit / on_cancel of Purchase Receipt (via pr_hooks)
+	  - on_submit / on_cancel of Purchase Invoice (via pr_hooks)
 	"""
 	if not frappe.db.exists("Accountant Custody", accountant_custody_name):
 		return
@@ -174,9 +212,9 @@ def recalculate_accountant_custody_status(accountant_custody_name):
 
 	ac.recalculate_status()
 
-	# Cascade to custodian
+	# Cascade to custodian dashboard
 	if ac.custodian:
-		recalculate_custodian_balances(ac.custodian)
+		update_custodian_dashboard(ac.custodian)
 
 
 # ─── Cancellation Order Validation ───────────────────────────────────────────
@@ -237,4 +275,49 @@ def validate_cancellation_order_for_pr(pr_doc):
 				", ".join([d.name for d in linked_pis]),
 			),
 			title=frappe._("Cancel Purchase Invoices First"),
+		)
+
+
+def validate_advance_cancellation(payment_entry_doc):
+	"""
+	Strict Hierarchical Cancellation Guard — Stage 1 (Advance).
+
+	Prevent cancellation of an advance Payment Entry (Internal Transfer linked
+	to a Custody Request) if any Accountant Custody records have been submitted
+	against the same Custody Request.
+
+	This enforces the rule:
+	  You cannot cancel the funding (advance) if spending (AC) has already
+	  been recorded against it — even if the AC is only partially settled.
+
+	Called from on_pe_cancel hook in pr_hooks.py.
+	"""
+	# Only applies to advance disbursements (Internal Transfer with a linked CR)
+	if payment_entry_doc.payment_type != "Internal Transfer":
+		return
+	custody_request = payment_entry_doc.get("custom_custody_request")
+	if not custody_request:
+		return
+
+	# Check for any submitted Accountant Custody linked to this Custody Request
+	linked_acs = frappe.get_all(
+		"Accountant Custody",
+		filters={"custody_request": custody_request, "docstatus": 1},
+		fields=["name", "status"],
+	)
+	if linked_acs:
+		frappe.throw(
+			frappe._(
+				"Cannot cancel advance Payment Entry {0} because the linked "
+				"Custody Request {1} already has submitted Accountant Custody "
+				"records: {2}. "
+				"Please cancel all Accountant Custody records (and their "
+				"Purchase Invoices, Purchase Receipts, and settlement entries) "
+				"before cancelling this advance."
+			).format(
+				payment_entry_doc.name,
+				custody_request,
+				", ".join([d.name for d in linked_acs]),
+			),
+			title=frappe._("Advance Cannot Be Cancelled"),
 		)

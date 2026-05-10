@@ -1,10 +1,19 @@
 """
 Treasury Settings controller.
 Singleton document — one record per site.
+
+accounting_mode controls how GL accounts are structured:
+  Consolidated (Party-Based) — all custodians share the group accounts;
+                                transactions are isolated by the Custodian Party.
+  Individual (Account-Based) — each custodian gets dedicated leaf accounts
+                                created automatically on Custodian submit.
 """
 import frappe
 from frappe import _
 from frappe.model.document import Document
+
+CONSOLIDATED = "Consolidated (Party-Based)"
+INDIVIDUAL = "Individual (Account-Based)"
 
 
 class TreasurySettings(Document):
@@ -23,7 +32,25 @@ class TreasurySettings(Document):
 			)
 
 	def _validate_sub_ledger_groups(self):
-		"""If sub-ledger groups are set, they must be group accounts."""
+		"""
+		Both account groups are required in Individual mode.
+		In Consolidated mode they are optional but must be group accounts if set.
+		"""
+		mode = self.accounting_mode or CONSOLIDATED
+
+		if mode == INDIVIDUAL:
+			for fieldname, label in [
+				("default_advance_group", _("Default Advance Account Group")),
+				("default_payable_group", _("Default Payable Account Group")),
+			]:
+				if not self.get(fieldname):
+					frappe.throw(
+						_("{0} is required when Accounting Mode is 'Individual (Account-Based)'.").format(
+							label
+						),
+						title=_("Missing Account Group"),
+					)
+
 		for fieldname, label in [
 			("default_advance_group", _("Default Advance Account Group")),
 			("default_payable_group", _("Default Payable Account Group")),

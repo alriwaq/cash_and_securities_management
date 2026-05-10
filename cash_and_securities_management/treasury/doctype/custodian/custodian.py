@@ -1,8 +1,21 @@
 """
-Custodian DocType controller — v2
+Custodian DocType controller — v2.1
 Manages the lifecycle of an employee custodian:
   Draft → Active → Suspended → Closed
-On submit: auto-creates TWO sub-ledger accounts (Asset advance + Liability payable).
+
+On submit: auto-creates sub-ledger accounts based on accounting_mode in Treasury Settings.
+
+  Consolidated (Party-Based):
+    - Assigns the shared group accounts from Treasury Settings to custody_account
+      and liability_account. No individual leaf accounts are created.
+    - All GL entries use the group account + Custodian as the Party.
+
+  Individual (Account-Based):
+    - Creates two dedicated leaf accounts per custodian:
+        E-{ID}-{Name} - Advance   (under default_advance_group)
+        E-{ID}-{Name} - Payable   (under default_payable_group)
+    - These are linked to custody_account and liability_account on the Custodian.
+
 Naming: E-{attendance_device_id}-{employee_name} via autoname() method.
 """
 import re
@@ -10,6 +23,9 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt
+
+CONSOLIDATED = "Consolidated (Party-Based)"
+INDIVIDUAL = "Individual (Account-Based)"
 
 
 class Custodian(Document):
@@ -112,13 +128,21 @@ class Custodian(Document):
 
 	def _create_custody_accounts(self):
 		"""
-		Auto-create TWO sub-ledger accounts on first submit:
-		  1. Asset advance account  — under default_advance_group
-		  2. Liability payable account — under default_payable_group
-		Both accounts are named after the Custodian ID for easy identification.
+		Create or assign sub-ledger accounts based on accounting_mode in Treasury Settings.
+
+		Consolidated (Party-Based):
+		  - custody_account  ← default_advance_group (the shared group account)
+		  - liability_account ← default_payable_group (the shared group account)
+		  No leaf accounts are created; the Party field isolates transactions.
+
+		Individual (Account-Based):
+		  - Creates leaf accounts named "{self.name} - Advance" and "{self.name} - Payable"
+		    under the respective group accounts.
+		  - custody_account  ← the newly created advance leaf account
+		  - liability_account ← the newly created payable leaf account
 		"""
 		settings = frappe.db.get_singles_dict("Treasury Settings")
-
+		mode = settings.get("accounting_mode") or CONSOLIDATED
 		advance_group = settings.get("default_advance_group")
 		payable_group = settings.get("default_payable_group")
 
@@ -132,7 +156,6 @@ class Custodian(Document):
 				title=_("Missing Company"),
 			)
 
-		# ── Asset advance account ─────────────────────────────────────────
 		if not advance_group:
 			frappe.throw(
 				_("Please configure 'Default Advance Account Group' "
@@ -140,41 +163,63 @@ class Custodian(Document):
 				title=_("Configuration Missing"),
 			)
 
-		advance_account = self._get_or_create_leaf_account(
-			account_name=f"{self.name} - Advance",
-			parent_account=advance_group,
-			company=company,
-			account_type="",  # Plain current asset — NOT Receivable
-			root_type="Asset",
-		)
-		self.custody_account = advance_account
-		self.db_set("custody_account", advance_account, notify=True)
+		if mode == CONSOLIDATED:
+			# ── Consolidated: assign group accounts directly ──────────────
+			self.custody_account = advance_group
+			self.db_set("custody_account", advance_group, notify=True)
 
-		# ── Liability payable account ─────────────────────────────────────
-		if payable_group:
-			payable_account = self._get_or_create_leaf_account(
-				account_name=f"{self.name} - Payable",
-				parent_account=payable_group,
-				company=company,
-				account_type="Payable",
-				root_type="Liability",
+			if payable_group:
+				self.liability_account = payable_group
+				self.db_set("liability_account", payable_group, notify=True)
+			else:
+				frappe.msgprint(
+					_("Default Payable Account Group is not configured in Treasury Settings. "
+					  "The liability account was not set on this Custodian."),
+					indicator="orange",
+					alert=True,
+				)
+
+			frappe.logger().info(
+				f"Custodian {self.name} [Consolidated]: "
+				f"advance={advance_group}, payable={payable_group}"
 			)
-			self.liability_account = payable_account
-			self.db_set("liability_account", payable_account, notify=True)
+
 		else:
-			# Payable group not configured — log a warning but do not block
-			frappe.msgprint(
-				_("Default Payable Account Group is not configured in Treasury Settings. "
-				  "The liability sub-ledger account was not created. "
-				  "You can configure it and re-run account creation from the Custodian record."),
-				indicator="orange",
-				alert=True,
+			# ── Individual: create dedicated leaf accounts ─────────────────
+			advance_account = self._get_or_create_leaf_account(
+				account_name=f"{self.name} - Advance",
+				parent_account=advance_group,
+				company=company,
+				account_type="",   # Plain current asset — NOT Receivable
+				root_type="Asset",
 			)
+			self.custody_account = advance_account
+			self.db_set("custody_account", advance_account, notify=True)
 
-		frappe.logger().info(
-			f"Custodian {self.name}: advance_account={self.custody_account}, "
-			f"liability_account={self.liability_account}"
-		)
+			if payable_group:
+				payable_account = self._get_or_create_leaf_account(
+					account_name=f"{self.name} - Payable",
+					parent_account=payable_group,
+					company=company,
+					account_type="Payable",
+					root_type="Liability",
+				)
+				self.liability_account = payable_account
+				self.db_set("liability_account", payable_account, notify=True)
+			else:
+				frappe.msgprint(
+					_("Default Payable Account Group is not configured in Treasury Settings. "
+					  "The liability sub-ledger account was not created. "
+					  "You can configure it and re-run account creation from the Custodian record."),
+					indicator="orange",
+					alert=True,
+				)
+
+			frappe.logger().info(
+				f"Custodian {self.name} [Individual]: "
+				f"advance_account={self.custody_account}, "
+				f"liability_account={self.liability_account}"
+			)
 
 	def _get_or_create_leaf_account(
 		self, account_name, parent_account, company, account_type, root_type
@@ -220,9 +265,9 @@ class Custodian(Document):
 		All figures are derived exclusively from submitted (docstatus=1) documents.
 		"""
 		from cash_and_securities_management.treasury.balances import (
-			recalculate_custodian_balances,
+			update_custodian_dashboard,
 		)
-		recalculate_custodian_balances(self.name)
+		update_custodian_dashboard(self.name)
 		self.reload()
 
 	@frappe.whitelist()
@@ -266,8 +311,9 @@ class Custodian(Document):
 	@frappe.whitelist()
 	def recreate_accounts(self):
 		"""
-		Manually trigger sub-ledger account creation.
-		Useful if Treasury Settings were configured after the Custodian was submitted.
+		Manually trigger sub-ledger account creation/assignment.
+		Useful if Treasury Settings were configured after the Custodian was submitted,
+		or if the accounting_mode was changed.
 		"""
 		self._create_custody_accounts()
 		frappe.msgprint(
