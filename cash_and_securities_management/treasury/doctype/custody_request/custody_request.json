@@ -30,7 +30,6 @@
   "accounting_section",
   "advance_account",
   "column_break_18",
-  "mode_of_payment",
   "more_info_section",
   "status",
   "column_break_kimx",
@@ -181,7 +180,7 @@
    "read_only": 1
   },
   {
-   "description": "Paid Amount minus Total Claimed \u2014 the unallocated balance remaining",
+   "description": "Paid Amount minus Total Claimed — the unallocated balance remaining",
    "fieldname": "unallocated_amount",
    "fieldtype": "Currency",
    "label": "Unallocated Amount",
@@ -206,12 +205,6 @@
   {
    "fieldname": "column_break_18",
    "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "mode_of_payment",
-   "fieldtype": "Link",
-   "label": "Mode of Payment",
-   "options": "Mode of Payment"
   },
   {
    "collapsible": 1,

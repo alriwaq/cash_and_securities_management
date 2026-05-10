@@ -373,13 +373,13 @@ class AccountantCustody(Document):
 				supplier = frappe.db.get_value("Custodian", self.custodian, "dedicated_supplier")
 
 			pay_from = (
-				settings.get("settlement_expense_account")
+				frappe.db.get_value("Company", self.company, "default_bank_account")
 				or frappe.db.get_value("Company", self.company, "default_cash_account")
 			)
 			if not pay_from:
 				frappe.throw(
-					_("Please set Settlement Expense Account in Treasury Settings "
-					  "or Default Cash Account in Company settings."),
+					_("Please set a Default Bank Account or Default Cash Account "
+					  "for company {0} in Company settings.").format(self.company),
 					title=_("Missing Account"),
 				)
 

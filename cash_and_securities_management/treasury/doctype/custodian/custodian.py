@@ -116,20 +116,16 @@ class Custodian(Document):
 		  1. Asset advance account  — under default_advance_group
 		  2. Liability payable account — under default_payable_group
 		Both accounts are named after the Custodian ID for easy identification.
-		Falls back to custody_parent_account if the new group fields are not set.
 		"""
 		settings = frappe.db.get_singles_dict("Treasury Settings")
 
 		advance_group = settings.get("default_advance_group")
 		payable_group = settings.get("default_payable_group")
-		legacy_parent = settings.get("custody_parent_account")
 
 		# Determine company
 		company = self.company
 		if not company and advance_group:
 			company = frappe.db.get_value("Account", advance_group, "company")
-		if not company and legacy_parent:
-			company = frappe.db.get_value("Account", legacy_parent, "company")
 		if not company:
 			frappe.throw(
 				_("Company is required on the Custodian record to create sub-ledger accounts."),
@@ -137,17 +133,16 @@ class Custodian(Document):
 			)
 
 		# ── Asset advance account ─────────────────────────────────────────
-		advance_parent = advance_group or legacy_parent
-		if not advance_parent:
+		if not advance_group:
 			frappe.throw(
-				_("Please configure 'Default Advance Account Group' (or 'Custody Parent Account') "
+				_("Please configure 'Default Advance Account Group' "
 				  "in Treasury Settings before submitting a Custodian."),
 				title=_("Configuration Missing"),
 			)
 
 		advance_account = self._get_or_create_leaf_account(
 			account_name=f"{self.name} - Advance",
-			parent_account=advance_parent,
+			parent_account=advance_group,
 			company=company,
 			account_type="",  # Plain current asset — NOT Receivable
 			root_type="Asset",

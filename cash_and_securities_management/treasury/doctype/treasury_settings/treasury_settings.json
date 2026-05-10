@@ -4,11 +4,6 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-  "accounts_section",
-  "custody_parent_account",
-  "column_break_accounts",
-  "settlement_expense_account",
-  "variance_account",
   "sub_ledger_section",
   "default_advance_group",
   "column_break_sub_ledger",
@@ -31,37 +26,6 @@
   "custody_manager_role"
  ],
  "fields": [
-  {
-   "fieldname": "accounts_section",
-   "fieldtype": "Section Break",
-   "label": "Default Accounts"
-  },
-  {
-   "description": "Parent account under which a dedicated sub-account is auto-created for each custodian (e.g., Advance to Employees)",
-   "fieldname": "custody_parent_account",
-   "fieldtype": "Link",
-   "label": "Custody Parent Account",
-   "options": "Account",
-   "reqd": 1
-  },
-  {
-   "fieldname": "column_break_accounts",
-   "fieldtype": "Column Break"
-  },
-  {
-   "description": "Expense account used for direct payment settlement entries",
-   "fieldname": "settlement_expense_account",
-   "fieldtype": "Link",
-   "label": "Settlement Expense Account",
-   "options": "Account"
-  },
-  {
-   "description": "Account used to post settlement variance amounts",
-   "fieldname": "variance_account",
-   "fieldtype": "Link",
-   "label": "Variance Account",
-   "options": "Account"
-  },
   {
    "fieldname": "sub_ledger_section",
    "fieldtype": "Section Break",

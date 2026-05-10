@@ -32,11 +32,9 @@
   "total_billed_amount",
   "total_settled_amount",
   "settlement_tab",
-  "settlement_type",
   "settlement_section",
   "settlements",
   "more_info_tab",
-  "purchase_invoice",
   "column_break_more",
   "amended_from"
  ],
@@ -231,15 +229,6 @@
    "label": "Settlement"
   },
   {
-   "description": "Select the settlement method for this custody record.",
-   "fieldname": "settlement_type",
-   "fieldtype": "Select",
-   "label": "Settlement Type",
-   "options": "\nFull Advance Settlement\nFull Direct Payment\nMixed Settlement",
-   "hidden": 1,
-   "print_hide": 1
-  },
-  {
    "fieldname": "settlement_section",
    "fieldtype": "Section Break",
    "label": "Settlement Entries"
@@ -255,15 +244,6 @@
    "fieldname": "more_info_tab",
    "fieldtype": "Tab Break",
    "label": "More Info"
-  },
-  {
-   "description": "Purchase Invoice generated from this custody record",
-   "fieldname": "purchase_invoice",
-   "fieldtype": "Link",
-   "label": "Purchase Invoice",
-   "no_copy": 1,
-   "options": "Purchase Invoice",
-   "read_only": 1
   },
   {
    "fieldname": "column_break_more",
