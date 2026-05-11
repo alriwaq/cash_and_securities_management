@@ -38,9 +38,6 @@ def on_pr_validate(doc, method):
 			if custodian:
 				doc.custom_custodian = custodian
 
-		if not doc.get("supplier"):
-			ac_doc = frappe.get_doc("Accountant Custody", doc.custom_accountant_custody)
-			doc.supplier = ac_doc._get_or_create_supplier_party()
 
 
 def on_pr_before_submit(doc, method):
@@ -61,9 +58,6 @@ def on_pr_before_submit(doc, method):
 	doc.custom_source_document_type = "Custody"
 	if custodian and not doc.get("custom_custodian"):
 		doc.custom_custodian = custodian
-
-	if not doc.get("supplier"):
-		doc.supplier = ac_doc._get_or_create_supplier_party()
 
 	_advance_account, payable_account = ac_doc._get_custodian_accounts()
 	if doc.meta.has_field("credit_to"):
@@ -159,10 +153,6 @@ def on_pi_validate(doc, method):
 	if not doc.get("custom_source_document_type"):
 		doc.custom_source_document_type = "Custody"
 
-	if not doc.get("supplier"):
-		ac_doc = frappe.get_doc("Accountant Custody", doc.custom_accountant_custody)
-		doc.supplier = ac_doc._get_or_create_supplier_party()
-
 	ac_name = doc.custom_accountant_custody
 	ac_doc = frappe.get_doc("Accountant Custody", ac_name)
 
@@ -192,9 +182,6 @@ def on_pi_before_submit(doc, method):
 	doc.custom_source_document_type = "Custody"
 	if custodian and not doc.get("custom_custodian"):
 		doc.custom_custodian = custodian
-
-	if not doc.get("supplier"):
-		doc.supplier = ac_doc._get_or_create_supplier_party()
 
 	_advance_account, payable_account = ac_doc._get_custodian_accounts()
 	doc.credit_to = payable_account

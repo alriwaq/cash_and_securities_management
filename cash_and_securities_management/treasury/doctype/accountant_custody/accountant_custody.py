@@ -156,12 +156,13 @@ class AccountantCustody(Document):
 
 	def _get_or_create_supplier_party(self):
 		"""
-		Return a Supplier record that standard ERPNext Purchase documents can use.
+		Return a shared compliance Supplier for standard ERPNext Purchase docs.
 
 		This keeps PR/PI in the same list and standard doctype while custody
 		behavior is differentiated using custom_source_document_type = "Custody".
+		A single shared Supplier avoids creating one Supplier per Custodian.
 		"""
-		supplier_name = self.custodian
+		supplier_name = "Custody Procurement Supplier"
 		if frappe.db.exists("Supplier", supplier_name):
 			return supplier_name
 
@@ -177,7 +178,7 @@ class AccountantCustody(Document):
 
 		supplier = frappe.new_doc("Supplier")
 		supplier.supplier_name = supplier_name
-		supplier.supplier_type = "Individual"
+		supplier.supplier_type = "Company"
 		supplier.supplier_group = supplier_group
 		supplier.flags.ignore_permissions = True
 		supplier.insert()
@@ -192,8 +193,13 @@ class AccountantCustody(Document):
 		if self.docstatus != 1:
 			return
 
-		total_qty = sum(flt(i.qty) for i in self.custody_items)
-		received_qty = sum(flt(i.accepted_qty) for i in self.custody_items)
+		# Only stock/fixed-asset items require a Purchase Receipt. Service rows are
+		# invoice-only and must not block progression to "Fully Received".
+		receiptable_items = [
+			i for i in self.custody_items if i.is_stock_item or i.is_fixed_asset
+		]
+		total_receiptable_qty = sum(flt(i.qty) for i in receiptable_items)
+		received_receiptable_qty = sum(flt(i.accepted_qty) for i in receiptable_items)
 		billed_qty = sum(flt(i.billed_qty) for i in self.custody_items)
 		total_amount = flt(self.total_amount or 0)
 		billed_amount = flt(self.total_billed_amount or 0)
@@ -207,9 +213,11 @@ class AccountantCustody(Document):
 			new_status = "Fully Invoiced"
 		elif billed_amount > 0:
 			new_status = "Partly Invoiced"
-		elif received_qty >= total_qty and total_qty > 0:
+		elif total_receiptable_qty <= 0:
 			new_status = "Fully Received"
-		elif received_qty > 0:
+		elif received_receiptable_qty >= total_receiptable_qty:
+			new_status = "Fully Received"
+		elif received_receiptable_qty > 0:
 			new_status = "Partly Received"
 		else:
 			new_status = "Pending"
@@ -231,13 +239,11 @@ class AccountantCustody(Document):
 		"""
 		settings = frappe.db.get_singles_dict("Treasury Settings")
 		series = settings.get("pr_series") or "AC-PRE-.YYYY.-.#####"
-		supplier = self._get_or_create_supplier_party()
 
 		pr = frappe.new_doc("Purchase Receipt")
 		pr.naming_series = series
 		pr.posting_date = nowdate()
 		pr.company = self.company
-		pr.supplier = supplier
 		pr.custom_source_document_type = "Custody"
 		pr.custom_accountant_custody = self.name
 		pr.custom_custodian = self.custodian
@@ -299,7 +305,6 @@ class AccountantCustody(Document):
 		settings = frappe.db.get_singles_dict("Treasury Settings")
 		mode = settings.get("accounting_mode") or CONSOLIDATED
 		series = settings.get("pi_series") or "AC-PINV-.YYYY.-.#####"
-		supplier = self._get_or_create_supplier_party()
 
 		# Fetch the custodian's payable account (mode-aware)
 		_advance_account, payable_account = self._get_custodian_accounts()
@@ -324,7 +329,6 @@ class AccountantCustody(Document):
 			pi_doc.naming_series = series
 			pi_doc.posting_date = nowdate()
 			pi_doc.company = self.company
-			pi_doc.supplier = supplier
 			pi_doc.custom_source_document_type = "Custody"
 			pi_doc.custom_accountant_custody = self.name
 			pi_doc.custom_custodian = self.custodian
@@ -350,7 +354,6 @@ class AccountantCustody(Document):
 			pi_doc.naming_series = series
 			pi_doc.posting_date = nowdate()
 			pi_doc.company = self.company
-			pi_doc.supplier = supplier
 			pi_doc.custom_source_document_type = "Custody"
 			pi_doc.custom_accountant_custody = self.name
 			pi_doc.custom_custodian = self.custodian

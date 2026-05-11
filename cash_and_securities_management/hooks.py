@@ -102,6 +102,13 @@ doctype_js = {
     "Purchase Invoice": "public/js/purchase_invoice_custody.js",
 }
 
+# ─── Doctype Class Overrides ────────────────────────────────────────────────
+# Custody mode uses standard PR/PI doctypes with conditional server behavior.
+override_doctype_class = {
+    "Purchase Receipt": "cash_and_securities_management.treasury.overrides.purchase_receipt.CustodyPurchaseReceipt",
+    "Purchase Invoice": "cash_and_securities_management.treasury.overrides.purchase_invoice.CustodyPurchaseInvoice",
+}
+
 # ─── Document Events ──────────────────────────────────────────────────────────
 # Hook into Purchase Receipt, Purchase Invoice, Payment Entry, and Journal Entry
 # to keep Accountant Custody, Custody Request, and Custodian balances in sync.
