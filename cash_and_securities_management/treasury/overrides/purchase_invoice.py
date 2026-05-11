@@ -11,6 +11,25 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
             or bool(self.get("custom_accountant_custody"))
         )
 
+    def _normalize_custody_totals(self):
+        if not self._is_custody_mode():
+            return
+
+        if self.get("grand_total") is None:
+            self.grand_total = 0
+        if self.get("base_grand_total") is None:
+            self.base_grand_total = 0
+        if self.get("rounded_total") is None:
+            self.rounded_total = 0
+        if self.get("base_rounded_total") is None:
+            self.base_rounded_total = 0
+        if self.get("write_off_amount") is None:
+            self.write_off_amount = 0
+        if self.get("base_write_off_amount") is None:
+            self.base_write_off_amount = 0
+        if self.get("total_advance") is None:
+            self.total_advance = 0
+
     def _get_custody_payable_account(self):
         ac_name = self.get("custom_accountant_custody")
         if not ac_name:
@@ -25,6 +44,7 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
 
     def before_validate(self):
         if self._is_custody_mode():
+            self._normalize_custody_totals()
             self.flags.ignore_mandatory = True
             # Keep supplier empty string (falsy) instead of None to avoid
             # frappe.get_doc("Supplier", None) errors in the parent validate chain.
@@ -109,6 +129,20 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
         if self._is_custody_mode():
             return
         return super().validate_supplier_invoice()
+
+    def set_payment_schedule(self):
+        if not self._is_custody_mode():
+            return super().set_payment_schedule()
+
+        self._normalize_custody_totals()
+        return super().set_payment_schedule()
+
+    def validate_payment_schedule_amount(self):
+        if not self._is_custody_mode():
+            return super().validate_payment_schedule_amount()
+
+        self._normalize_custody_totals()
+        return super().validate_payment_schedule_amount()
 
     def validate_credit_to_acc(self):
         if not self._is_custody_mode():
