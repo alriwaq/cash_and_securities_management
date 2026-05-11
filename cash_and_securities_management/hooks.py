@@ -95,17 +95,26 @@ fixtures = [
     },
 ]
 
+# ─── Client Scripts on Standard Doctypes ────────────────────────────────────
+# Keep PR/PI in standard lists; custody mode changes only the form behavior.
+doctype_js = {
+    "Purchase Receipt": "public/js/purchase_receipt_custody.js",
+    "Purchase Invoice": "public/js/purchase_invoice_custody.js",
+}
+
 # ─── Document Events ──────────────────────────────────────────────────────────
 # Hook into Purchase Receipt, Purchase Invoice, Payment Entry, and Journal Entry
 # to keep Accountant Custody, Custody Request, and Custodian balances in sync.
 doc_events = {
     "Purchase Receipt": {
         "validate": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_pr_validate",
+        "before_submit": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_pr_before_submit",
         "on_submit": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_pr_submit",
         "on_cancel": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_pr_cancel",
     },
     "Purchase Invoice": {
         "validate": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_pi_validate",
+        "before_submit": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_pi_before_submit",
         "on_submit": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_pi_submit",
         "on_cancel": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_pi_cancel",
     },

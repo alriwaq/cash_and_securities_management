@@ -154,6 +154,35 @@ class AccountantCustody(Document):
 			)
 		return advance_account, payable_account
 
+	def _get_or_create_supplier_party(self):
+		"""
+		Return a Supplier record that standard ERPNext Purchase documents can use.
+
+		This keeps PR/PI in the same list and standard doctype while custody
+		behavior is differentiated using custom_source_document_type = "Custody".
+		"""
+		supplier_name = self.custodian
+		if frappe.db.exists("Supplier", supplier_name):
+			return supplier_name
+
+		supplier_group = (
+			frappe.db.get_value("Supplier Group", {"is_group": 0}, "name")
+			or frappe.db.get_value("Supplier Group", "All Supplier Groups", "name")
+		)
+		if not supplier_group:
+			frappe.throw(
+				_("Please create at least one Supplier Group before generating Purchase documents."),
+				title=_("Missing Supplier Group"),
+			)
+
+		supplier = frappe.new_doc("Supplier")
+		supplier.supplier_name = supplier_name
+		supplier.supplier_type = "Individual"
+		supplier.supplier_group = supplier_group
+		supplier.flags.ignore_permissions = True
+		supplier.insert()
+		return supplier.name
+
 	# ── Status Engine ─────────────────────────────────────────────────────────
 	def recalculate_status(self):
 		"""
@@ -202,11 +231,14 @@ class AccountantCustody(Document):
 		"""
 		settings = frappe.db.get_singles_dict("Treasury Settings")
 		series = settings.get("pr_series") or "AC-PRE-.YYYY.-.#####"
+		supplier = self._get_or_create_supplier_party()
 
 		pr = frappe.new_doc("Purchase Receipt")
 		pr.naming_series = series
 		pr.posting_date = nowdate()
 		pr.company = self.company
+		pr.supplier = supplier
+		pr.custom_source_document_type = "Custody"
 		pr.custom_accountant_custody = self.name
 		pr.custom_custodian = self.custodian
 		pr.set_warehouse = self.warehouse
@@ -267,6 +299,7 @@ class AccountantCustody(Document):
 		settings = frappe.db.get_singles_dict("Treasury Settings")
 		mode = settings.get("accounting_mode") or CONSOLIDATED
 		series = settings.get("pi_series") or "AC-PINV-.YYYY.-.#####"
+		supplier = self._get_or_create_supplier_party()
 
 		# Fetch the custodian's payable account (mode-aware)
 		_advance_account, payable_account = self._get_custodian_accounts()
@@ -291,6 +324,8 @@ class AccountantCustody(Document):
 			pi_doc.naming_series = series
 			pi_doc.posting_date = nowdate()
 			pi_doc.company = self.company
+			pi_doc.supplier = supplier
+			pi_doc.custom_source_document_type = "Custody"
 			pi_doc.custom_accountant_custody = self.name
 			pi_doc.custom_custodian = self.custodian
 			if self.custody_request:
@@ -315,6 +350,8 @@ class AccountantCustody(Document):
 			pi_doc.naming_series = series
 			pi_doc.posting_date = nowdate()
 			pi_doc.company = self.company
+			pi_doc.supplier = supplier
+			pi_doc.custom_source_document_type = "Custody"
 			pi_doc.custom_accountant_custody = self.name
 			pi_doc.custom_custodian = self.custodian
 			if self.custody_request:

@@ -25,6 +25,9 @@ def on_pr_validate(doc, method):
 	if not already set (handles the case where PR is created via the AC button).
 	"""
 	if doc.get("custom_accountant_custody"):
+		if not doc.get("custom_source_document_type"):
+			doc.custom_source_document_type = "Custody"
+
 		# Ensure custodian is also set
 		if not doc.get("custom_custodian"):
 			custodian = frappe.db.get_value(
@@ -34,6 +37,39 @@ def on_pr_validate(doc, method):
 			)
 			if custodian:
 				doc.custom_custodian = custodian
+
+		if not doc.get("supplier"):
+			ac_doc = frappe.get_doc("Accountant Custody", doc.custom_accountant_custody)
+			doc.supplier = ac_doc._get_or_create_supplier_party()
+
+
+def on_pr_before_submit(doc, method):
+	"""
+	Submit-time custody swap for Purchase Receipt.
+
+	For custody-tagged PRs we keep standard ERPNext compliance (supplier present),
+	while redirecting payable-side mapping to the Custodian account just before
+	submission.
+	"""
+	if not _is_custody_purchase_doc(doc):
+		return
+
+	ac_doc, custodian = _resolve_custody_context(doc)
+	if not ac_doc:
+		return
+
+	doc.custom_source_document_type = "Custody"
+	if custodian and not doc.get("custom_custodian"):
+		doc.custom_custodian = custodian
+
+	if not doc.get("supplier"):
+		doc.supplier = ac_doc._get_or_create_supplier_party()
+
+	_advance_account, payable_account = ac_doc._get_custodian_accounts()
+	if doc.meta.has_field("credit_to"):
+		doc.credit_to = payable_account
+	if doc.meta.has_field("stock_received_but_not_billed"):
+		doc.stock_received_but_not_billed = payable_account
 
 
 def on_pr_submit(doc, method):
@@ -104,14 +140,28 @@ def on_pi_validate(doc, method):
 					pi_item.purchase_receipt,
 					"custom_custodian",
 				)
+				pr_source_type = frappe.db.get_value(
+					"Purchase Receipt",
+					pi_item.purchase_receipt,
+					"custom_source_document_type",
+				)
 				if pr_ac:
 					doc.custom_accountant_custody = pr_ac
 				if pr_custodian:
 					doc.custom_custodian = pr_custodian
+				if pr_source_type and not doc.get("custom_source_document_type"):
+					doc.custom_source_document_type = pr_source_type
 				break
 
 	if not doc.get("custom_accountant_custody"):
 		return
+
+	if not doc.get("custom_source_document_type"):
+		doc.custom_source_document_type = "Custody"
+
+	if not doc.get("supplier"):
+		ac_doc = frappe.get_doc("Accountant Custody", doc.custom_accountant_custody)
+		doc.supplier = ac_doc._get_or_create_supplier_party()
 
 	ac_name = doc.custom_accountant_custody
 	ac_doc = frappe.get_doc("Accountant Custody", ac_name)
@@ -122,6 +172,37 @@ def on_pi_validate(doc, method):
 				ac_doc.status, ac_name
 			)
 		)
+
+
+def on_pi_before_submit(doc, method):
+	"""
+	Submit-time custody swap for Purchase Invoice.
+
+	For custody-tagged PIs we keep the shadow Supplier for ERPNext mandatory
+	validation, then enforce Custodian party/account mapping immediately before
+	GL posting.
+	"""
+	if not _is_custody_purchase_doc(doc):
+		return
+
+	ac_doc, custodian = _resolve_custody_context(doc)
+	if not ac_doc:
+		return
+
+	doc.custom_source_document_type = "Custody"
+	if custodian and not doc.get("custom_custodian"):
+		doc.custom_custodian = custodian
+
+	if not doc.get("supplier"):
+		doc.supplier = ac_doc._get_or_create_supplier_party()
+
+	_advance_account, payable_account = ac_doc._get_custodian_accounts()
+	doc.credit_to = payable_account
+	doc.party_type = "Custodian"
+	doc.party = doc.custom_custodian or custodian
+	doc.party_account_currency = frappe.db.get_value(
+		"Account", payable_account, "account_currency"
+	)
 
 
 def on_pi_submit(doc, method):
@@ -278,3 +359,36 @@ def _safe_recalculate_custody_request(custody_request_name):
 		recalculate_custody_request_status(custody_request_name)
 	except Exception as e:
 		frappe.log_error(str(e), f"_safe_recalculate_custody_request: {custody_request_name}")
+
+
+def _is_custody_purchase_doc(doc):
+	"""Return True when the PR/PI should follow custody-specific behavior."""
+	return (
+		doc.get("custom_source_document_type") == "Custody"
+		or bool(doc.get("custom_accountant_custody"))
+	)
+
+
+def _resolve_custody_context(doc):
+	"""
+	Resolve (Accountant Custody doc, custodian) from the purchase document.
+	Returns (None, custodian) when no AC can be resolved.
+	"""
+	ac_name = doc.get("custom_accountant_custody")
+	custodian = doc.get("custom_custodian")
+
+	if ac_name and frappe.db.exists("Accountant Custody", ac_name):
+		ac_doc = frappe.get_doc("Accountant Custody", ac_name)
+		custodian = custodian or ac_doc.custodian
+		return ac_doc, custodian
+
+	if custodian:
+		linked_ac = frappe.db.get_value(
+			"Accountant Custody",
+			{"custodian": custodian, "docstatus": ["in", [0, 1]]},
+			"name",
+		)
+		if linked_ac:
+			return frappe.get_doc("Accountant Custody", linked_ac), custodian
+
+	return None, custodian
