@@ -309,6 +309,28 @@ class AccountantCustody(Document):
 		# Fetch the custodian's payable account (mode-aware)
 		_advance_account, payable_account = self._get_custodian_accounts()
 
+		def apply_custody_item_defaults(pi_doc):
+			custody_items_by_code = {}
+			for custody_item in self.custody_items:
+				custody_items_by_code.setdefault(custody_item.item_code, []).append(custody_item)
+
+			for pi_item in pi_doc.get("items"):
+				custody_item = None
+				if custody_items_by_code.get(pi_item.item_code):
+					custody_item = custody_items_by_code[pi_item.item_code].pop(0)
+
+				if not custody_item:
+					continue
+
+				if not pi_item.get("warehouse") and custody_item.get("warehouse"):
+					pi_item.warehouse = custody_item.warehouse
+
+				if not pi_item.get("project") and custody_item.get("project"):
+					pi_item.project = custody_item.project
+
+				if not pi_item.get("cost_center") and custody_item.get("cost_center"):
+					pi_item.cost_center = custody_item.cost_center
+
 		# Check for submitted PRs to use native make_purchase_invoice
 		linked_prs = frappe.get_all(
 			"Purchase Receipt",
@@ -332,6 +354,9 @@ class AccountantCustody(Document):
 			pi_doc.custom_source_document_type = "Custody"
 			pi_doc.custom_accountant_custody = self.name
 			pi_doc.custom_custodian = self.custodian
+			pi_doc.project = self.project
+			pi_doc.cost_center = self.cost_center
+			pi_doc.set_warehouse = self.warehouse
 			if self.custody_request:
 				pi_doc.custom_custody_request = self.custody_request
 
@@ -346,6 +371,8 @@ class AccountantCustody(Document):
 					"Account", payable_account, "account_currency"
 				)
 
+			apply_custody_item_defaults(pi_doc)
+
 			pi_doc.flags.ignore_permissions = True
 			pi_doc.insert()
 		else:
@@ -357,6 +384,9 @@ class AccountantCustody(Document):
 			pi_doc.custom_source_document_type = "Custody"
 			pi_doc.custom_accountant_custody = self.name
 			pi_doc.custom_custodian = self.custodian
+			pi_doc.project = self.project
+			pi_doc.cost_center = self.cost_center
+			pi_doc.set_warehouse = self.warehouse
 			if self.custody_request:
 				pi_doc.custom_custody_request = self.custody_request
 
@@ -385,6 +415,8 @@ class AccountantCustody(Document):
 							"Company", self.company, "cost_center"
 						),
 					})
+
+			apply_custody_item_defaults(pi_doc)
 
 			if not pi_doc.items:
 				frappe.throw(
