@@ -113,6 +113,18 @@ def make_purchase_invoice(source_name, target_doc=None, args=None):
         accounts_party.get_payment_terms_template = original_get_payment_terms_template
 
 
+@frappe.whitelist()
+def create_custody_purchase_receipt(accountant_custody):
+    doc = frappe.get_doc("Accountant Custody", accountant_custody)
+    return doc.create_purchase_receipt()
+
+
+@frappe.whitelist()
+def generate_custody_purchase_invoice(accountant_custody):
+    doc = frappe.get_doc("Accountant Custody", accountant_custody)
+    return doc.generate_purchase_invoice()
+
+
 def _resolve_pr_doc(doc=None, purchase_receipt=None):
     if purchase_receipt:
         return frappe.get_doc("Purchase Receipt", purchase_receipt)

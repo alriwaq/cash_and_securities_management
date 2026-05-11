@@ -97,8 +97,10 @@ function setup_action_buttons(frm) {
     if (["Pending", "Partly Received"].indexOf(status) !== -1) {
         frm.add_custom_button(__("Create Purchase Receipt"), function () {
             frappe.call({
-                method: "create_purchase_receipt",
-                doc: frm.doc,
+                method: "cash_and_securities_management.api.create_custody_purchase_receipt",
+                args: {
+                    accountant_custody: frm.doc.name,
+                },
                 freeze: true,
                 freeze_message: __("Creating Purchase Receipt..."),
                 callback: function (r) {
@@ -115,8 +117,10 @@ function setup_action_buttons(frm) {
     if (["Fully Received", "Partly Invoiced"].indexOf(status) !== -1) {
         frm.add_custom_button(__("Generate Purchase Invoice"), function () {
             frappe.call({
-                method: "generate_purchase_invoice",
-                doc: frm.doc,
+                method: "cash_and_securities_management.api.generate_custody_purchase_invoice",
+                args: {
+                    accountant_custody: frm.doc.name,
+                },
                 freeze: true,
                 freeze_message: __("Generating Purchase Invoice..."),
                 callback: function (r) {
