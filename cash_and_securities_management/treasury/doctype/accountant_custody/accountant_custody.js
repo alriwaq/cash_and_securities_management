@@ -141,6 +141,55 @@ function setup_action_buttons(frm) {
     }
 }
 
+function run_custody_settlement(frm, payload) {
+    function on_success(r) {
+        if (!r || r.exc) {
+            return;
+        }
+
+        frm.reload_doc();
+        frappe.show_alert({
+            message: __("Settlement complete. Document {0} created.", [r.message]),
+            indicator: "green"
+        });
+    }
+
+    function fallback_to_doc_method() {
+        frappe.call({
+            method: "create_settlement",
+            doc: frm.doc,
+            args: payload,
+            freeze: true,
+            freeze_message: __("Processing Settlement..."),
+            callback: on_success,
+            error: function (err) {
+                frappe.msgprint({
+                    title: __("Settlement Failed"),
+                    indicator: "red",
+                    message: (err && err.message) || __("Unable to process settlement."),
+                });
+            }
+        });
+    }
+
+    frappe.call({
+        method: "cash_and_securities_management.api.settle_accountant_custody",
+        args: Object.assign({ accountant_custody: frm.doc.name }, payload),
+        freeze: true,
+        freeze_message: __("Processing Settlement..."),
+        callback: function (r) {
+            if (r && r.exc) {
+                fallback_to_doc_method();
+                return;
+            }
+            on_success(r);
+        },
+        error: function () {
+            fallback_to_doc_method();
+        }
+    });
+}
+
 // ── Settlement Dialog (v2 — dynamic, no static settlement_type) ──────────────
 function open_settlement_dialog(frm) {
     var billed_amount = flt(frm.doc.total_billed_amount || 0);
@@ -267,25 +316,10 @@ function open_settlement_dialog(frm) {
             }
 
             d.hide();
-            frappe.call({
-                method: "cash_and_securities_management.api.settle_accountant_custody",
-                args: {
-                    accountant_custody: frm.doc.name,
-                    advance_amount_allocated: adv,
-                    direct_payment_amount: direct,
-                    settlement_notes: values.settlement_notes || ""
-                },
-                freeze: true,
-                freeze_message: __("Processing Settlement..."),
-                callback: function (r) {
-                    if (!r.exc) {
-                        frm.reload_doc();
-                        frappe.show_alert({
-                            message: __("Settlement complete. Document {0} created.", [r.message]),
-                            indicator: "green"
-                        });
-                    }
-                }
+            run_custody_settlement(frm, {
+                advance_amount_allocated: adv,
+                direct_payment_amount: direct,
+                settlement_notes: values.settlement_notes || ""
             });
         }
     });
