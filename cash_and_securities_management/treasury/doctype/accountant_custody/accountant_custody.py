@@ -305,7 +305,6 @@ class AccountantCustody(Document):
 		settings = frappe.db.get_singles_dict("Treasury Settings")
 		mode = settings.get("accounting_mode") or CONSOLIDATED
 		series = settings.get("pi_series") or "AC-PINV-.YYYY.-.#####"
-		supplier = self._get_or_create_supplier_party()
 
 		# Fetch the custodian's payable account (mode-aware)
 		_advance_account, payable_account = self._get_custodian_accounts()
@@ -376,13 +375,42 @@ class AccountantCustody(Document):
 					make_purchase_invoice as make_pi_from_pr,
 				)
 				pi_doc = make_pi_from_pr(linked_prs[0].name)
+				existing_pr_details = {
+					d.get("pr_detail") for d in pi_doc.get("items") if d.get("pr_detail")
+				}
+
+				for linked_pr in linked_prs[1:]:
+					extra_pi = make_pi_from_pr(linked_pr.name)
+					for extra_item in extra_pi.get("items"):
+						if extra_item.get("pr_detail") and extra_item.pr_detail in existing_pr_details:
+							continue
+
+						if extra_item.get("pr_detail"):
+							existing_pr_details.add(extra_item.pr_detail)
+
+						extra_row = extra_item.as_dict()
+						for key in (
+							"name",
+							"parent",
+							"parentfield",
+							"parenttype",
+							"doctype",
+							"idx",
+							"docstatus",
+							"owner",
+							"creation",
+							"modified",
+							"modified_by",
+						):
+							extra_row.pop(key, None)
+
+						pi_doc.append("items", extra_row)
 			except Exception:
 				pi_doc = frappe.new_doc("Purchase Invoice")
 
 			pi_doc.naming_series = series
 			pi_doc.posting_date = nowdate()
 			pi_doc.company = self.company
-			pi_doc.supplier = supplier
 			pi_doc.custom_source_document_type = "Custody"
 			pi_doc.custom_accountant_custody = self.name
 			pi_doc.custom_custodian = self.custodian
@@ -413,7 +441,6 @@ class AccountantCustody(Document):
 			pi_doc.naming_series = series
 			pi_doc.posting_date = nowdate()
 			pi_doc.company = self.company
-			pi_doc.supplier = supplier
 			pi_doc.custom_source_document_type = "Custody"
 			pi_doc.custom_accountant_custody = self.name
 			pi_doc.custom_custodian = self.custodian
