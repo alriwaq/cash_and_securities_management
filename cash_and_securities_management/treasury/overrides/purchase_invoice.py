@@ -42,9 +42,36 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
         _advance_account, payable_account = ac_doc._get_custodian_accounts()
         return payable_account
 
+    def _apply_custody_item_defaults(self):
+        if not self._is_custody_mode() or not self.get("custom_accountant_custody"):
+            return
+
+        ac_doc = frappe.get_doc("Accountant Custody", self.custom_accountant_custody)
+        custody_items_by_code = {}
+        for custody_item in ac_doc.get("custody_items"):
+            custody_items_by_code.setdefault(custody_item.item_code, []).append(custody_item)
+
+        for item in self.get("items"):
+            custody_item = None
+            if custody_items_by_code.get(item.item_code):
+                custody_item = custody_items_by_code[item.item_code].pop(0)
+
+            if not custody_item:
+                continue
+
+            if not item.get("warehouse") and custody_item.get("warehouse"):
+                item.warehouse = custody_item.warehouse
+
+            if not item.get("project") and custody_item.get("project"):
+                item.project = custody_item.project
+
+            if not item.get("cost_center") and custody_item.get("cost_center"):
+                item.cost_center = custody_item.cost_center
+
     def before_validate(self):
         if self._is_custody_mode():
             self._normalize_custody_totals()
+            self._apply_custody_item_defaults()
             self.flags.ignore_mandatory = True
             # Keep supplier empty string (falsy) instead of None to avoid
             # frappe.get_doc("Supplier", None) errors in the parent validate chain.
@@ -63,6 +90,11 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
                 )
 
         return super().before_validate()
+
+    def set_supplier_from_item_default(self):
+        if self._is_custody_mode():
+            return
+        return super().set_supplier_from_item_default()
 
     # ---------------------------------------------------------------------------
     # Override AccountsController methods that unconditionally try to load
@@ -94,8 +126,10 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
         if not self.due_date:
             self.due_date = self.posting_date
 
+        self._apply_custody_item_defaults()
+
         # Keep stock/tax defaults from parent where possible without supplier dependency.
-        super(PurchaseInvoice, self).set_missing_values(for_validate)
+        super().set_missing_values(for_validate)
 
     def validate_with_previous_doc(self):
         if not self._is_custody_mode():
