@@ -361,6 +361,24 @@ class AccountantCustody(Document):
 				if custody_item.get("cost_center"):
 					pi_item.cost_center = custody_item.cost_center
 
+		def append_service_items(pi_doc):
+			for item in self.custody_items:
+				if item.is_stock_item or item.is_fixed_asset:
+					continue
+
+				pi_doc.append("items", {
+					"item_code": item.item_code,
+					"item_name": item.item_name,
+					"qty": flt(item.qty),
+					"rate": flt(item.rate),
+					"uom": item.uom or "Nos",
+					"warehouse": item.warehouse,
+					"project": item.project or self.project,
+					"cost_center": item.cost_center or frappe.db.get_value(
+						"Company", self.company, "cost_center"
+					),
+				})
+
 		# Check for submitted PRs to use native make_purchase_invoice
 		linked_prs = frappe.get_all(
 			"Purchase Receipt",
@@ -431,7 +449,14 @@ class AccountantCustody(Document):
 					"Account", payable_account, "account_currency"
 				)
 
+			append_service_items(pi_doc)
 			apply_custody_item_defaults(pi_doc)
+
+			if not pi_doc.items:
+				frappe.throw(
+					_("No purchase receipt or service items found to invoice directly."),
+					title=_("Nothing to Invoice"),
+				)
 
 			pi_doc.flags.ignore_permissions = True
 			pi_doc.insert()
@@ -461,26 +486,12 @@ class AccountantCustody(Document):
 					"Account", payable_account, "account_currency"
 				)
 
-			for item in self.custody_items:
-				if not (item.is_stock_item or item.is_fixed_asset):
-					pi_doc.append("items", {
-						"item_code": item.item_code,
-						"item_name": item.item_name,
-						"qty": flt(item.qty),
-						"rate": flt(item.rate),
-						"uom": item.uom or "Nos",
-						"warehouse": item.warehouse,
-						"project": item.project or self.project,
-						"cost_center": item.cost_center or frappe.db.get_value(
-							"Company", self.company, "cost_center"
-						),
-					})
-
+			append_service_items(pi_doc)
 			apply_custody_item_defaults(pi_doc)
 
 			if not pi_doc.items:
 				frappe.throw(
-					_("No service items found to invoice directly."),
+					_("No purchase receipt or service items found to invoice directly."),
 					title=_("Nothing to Invoice"),
 				)
 
