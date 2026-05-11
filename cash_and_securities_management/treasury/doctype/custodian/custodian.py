@@ -62,7 +62,6 @@ class Custodian(Document):
 	# ── Lifecycle ─────────────────────────────────────────────────────────────
 	def before_submit(self):
 		self._validate_employee()
-		self._validate_supplier_if_required()
 
 	def on_submit(self):
 		self._create_custody_accounts()
@@ -98,17 +97,6 @@ class Custodian(Document):
 			frappe.throw(
 				_("Employee is required before submitting a Custodian record."),
 				title=_("Missing Employee"),
-			)
-
-	def _validate_supplier_if_required(self):
-		"""Validate dedicated supplier if single-dummy-supplier mode is off."""
-		settings = frappe.db.get_singles_dict("Treasury Settings")
-		use_single = int(settings.get("use_single_dummy_supplier") or 0)
-		if not use_single and not self.dedicated_supplier:
-			frappe.throw(
-				_("Dedicated Supplier is required for this custodian because "
-				  "'Use Single Dummy Supplier' is disabled in Treasury Settings."),
-				title=_("Missing Supplier"),
 			)
 
 	def _validate_no_open_transactions(self):

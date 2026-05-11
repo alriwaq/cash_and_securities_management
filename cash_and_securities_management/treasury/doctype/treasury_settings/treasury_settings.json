@@ -11,10 +11,6 @@
   "custody_advance_group",
   "column_break_sub_ledger",
   "custodian_payable_group",
-  "supplier_mode_section",
-  "use_single_dummy_supplier",
-  "column_break_supplier",
-  "default_cash_purchases_supplier",
   "naming_section",
   "custody_request_series",
   "column_break_naming",
@@ -69,31 +65,6 @@
    "label": "Custodian Payable Account Group",
    "options": "Account",
    "description": "Parent group account under which the Liability payable sub-ledger is auto-created for each custodian (e.g., Employee Payables). Must be a Group account."
-  },
-  {
-   "fieldname": "supplier_mode_section",
-   "fieldtype": "Section Break",
-   "label": "Supplier Mode"
-  },
-  {
-   "default": "0",
-   "description": "If enabled, all custodians share one dummy supplier for Purchase Invoices. If disabled, each custodian must have a dedicated supplier assigned on their Custodian record.",
-   "fieldname": "use_single_dummy_supplier",
-   "fieldtype": "Check",
-   "label": "Use Single Dummy Supplier"
-  },
-  {
-   "fieldname": "column_break_supplier",
-   "fieldtype": "Column Break"
-  },
-  {
-   "depends_on": "eval:doc.use_single_dummy_supplier == 1",
-   "description": "The shared dummy supplier used for all custody Purchase Invoices when single-supplier mode is active",
-   "fieldname": "default_cash_purchases_supplier",
-   "fieldtype": "Link",
-   "label": "Default Cash Purchases Supplier",
-   "mandatory_depends_on": "eval:doc.use_single_dummy_supplier == 1",
-   "options": "Supplier"
   },
   {
    "fieldname": "naming_section",

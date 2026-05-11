@@ -20,8 +20,6 @@
   "custody_limit",
   "column_break_account",
   "status",
-  "supplier_section",
-  "dedicated_supplier",
   "financials_tab",
   "financials_section",
   "total_disbursed",
@@ -133,19 +131,6 @@
    "no_copy": 1,
    "options": "Active\nSuspended\nClosed",
    "read_only": 1
-  },
-  {
-   "fieldname": "supplier_section",
-   "fieldtype": "Section Break",
-   "label": "Supplier Assignment"
-  },
-  {
-   "description": "Dedicated supplier for this custodian's Purchase Invoices. Required when single dummy supplier mode is disabled in Treasury Settings.",
-   "fieldname": "dedicated_supplier",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Dedicated Supplier",
-   "options": "Supplier"
   },
   {
    "fieldname": "financials_tab",

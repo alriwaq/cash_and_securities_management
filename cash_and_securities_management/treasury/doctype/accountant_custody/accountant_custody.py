@@ -27,8 +27,8 @@ Mode handling:
                  field is needed on the GL entries.
 
 Settlement pathways (via dynamic JS dialog):
-  1. Advance Deduction  — Journal Entry debiting the custodian's payable account
-  2. Direct Payment     — Payment Entry paying the supplier directly
+  1. Advance Deduction  — Journal Entry: Debit Payable / Credit Advance
+  2. Direct Payment     — Journal Entry: Debit Payable / Credit Bank/Cash
   3. Mixed              — Combination of both
 """
 import frappe
@@ -70,11 +70,10 @@ class AccountantCustody(Document):
 	def _validate_cancellation_order(self):
 		"""
 		Enforce strict cancellation order:
-		  Settlement JE/PE must be cancelled before PI,
+		  Settlement JE must be cancelled before PI,
 		  PI must be cancelled before PR,
 		  PR must be cancelled before Accountant Custody.
 		"""
-		# Check for submitted Purchase Invoices
 		linked_pis = frappe.get_all(
 			"Purchase Invoice",
 			filters={"custom_accountant_custody": self.name, "docstatus": 1},
@@ -90,7 +89,6 @@ class AccountantCustody(Document):
 				title=_("Cancel Purchase Invoices First"),
 			)
 
-		# Check for submitted Purchase Receipts
 		linked_prs = frappe.get_all(
 			"Purchase Receipt",
 			filters={"custom_accountant_custody": self.name, "docstatus": 1},
@@ -148,7 +146,7 @@ class AccountantCustody(Document):
 		if not payable_account:
 			frappe.throw(
 				_("Custodian {0} does not have a Payable Account configured. "
-				  "Please configure the Default Payable Account Group in Treasury Settings "
+				  "Please configure the Custodian Payable Account Group in Treasury Settings "
 				  "and run 'Recreate Accounts' on the Custodian.").format(
 					self.custodian
 				),
@@ -195,30 +193,18 @@ class AccountantCustody(Document):
 	def create_purchase_receipt(self):
 		"""
 		Stage 2 — Spending: Create a Purchase Receipt for stock/fixed-asset items.
-		Maps the Custodian's Shadow Supplier as the vendor to allow the PR to bypass
-		the standard vendor list while keeping the Custodian as the GL party.
+
+		The PR is created as an internal document. No supplier is required because
+		the Custodian Party handles GL isolation. The PR records the physical receipt
+		of goods into the warehouse.
+
 		Returns the name of the created PR.
 		"""
 		settings = frappe.db.get_singles_dict("Treasury Settings")
-		use_single = int(settings.get("use_single_dummy_supplier") or 0)
-
-		if use_single:
-			supplier = settings.get("default_cash_purchases_supplier")
-		else:
-			supplier = frappe.db.get_value("Custodian", self.custodian, "dedicated_supplier")
-
-		if not supplier:
-			frappe.throw(
-				_("No supplier configured. Please set a Dedicated Supplier on the "
-				  "Custodian record or enable Single Dummy Supplier in Treasury Settings."),
-				title=_("Missing Supplier"),
-			)
-
 		series = settings.get("pr_series") or "AC-PRE-.YYYY.-.#####"
 
 		pr = frappe.new_doc("Purchase Receipt")
 		pr.naming_series = series
-		pr.supplier = supplier
 		pr.posting_date = nowdate()
 		pr.company = self.company
 		pr.custom_accountant_custody = self.name
@@ -280,23 +266,10 @@ class AccountantCustody(Document):
 		"""
 		settings = frappe.db.get_singles_dict("Treasury Settings")
 		mode = settings.get("accounting_mode") or CONSOLIDATED
-		use_single = int(settings.get("use_single_dummy_supplier") or 0)
-
-		if use_single:
-			supplier = settings.get("default_cash_purchases_supplier")
-		else:
-			supplier = frappe.db.get_value("Custodian", self.custodian, "dedicated_supplier")
-
-		if not supplier:
-			frappe.throw(
-				_("No supplier configured for invoice generation."),
-				title=_("Missing Supplier"),
-			)
+		series = settings.get("pi_series") or "AC-PINV-.YYYY.-.#####"
 
 		# Fetch the custodian's payable account (mode-aware)
 		_advance_account, payable_account = self._get_custodian_accounts()
-
-		series = settings.get("pi_series") or "AC-PINV-.YYYY.-.#####"
 
 		# Check for submitted PRs to use native make_purchase_invoice
 		linked_prs = frappe.get_all(
@@ -313,9 +286,7 @@ class AccountantCustody(Document):
 				)
 				pi_doc = make_pi_from_pr(linked_prs[0].name)
 			except Exception:
-				# Fallback: create PI directly
 				pi_doc = frappe.new_doc("Purchase Invoice")
-				pi_doc.supplier = supplier
 
 			pi_doc.naming_series = series
 			pi_doc.posting_date = nowdate()
@@ -330,6 +301,8 @@ class AccountantCustody(Document):
 
 			# In Consolidated mode, set the Custodian as the Party on the PI
 			if mode == CONSOLIDATED:
+				pi_doc.party_type = "Custodian"
+				pi_doc.party = self.custodian
 				pi_doc.party_account_currency = frappe.db.get_value(
 					"Account", payable_account, "account_currency"
 				)
@@ -340,7 +313,6 @@ class AccountantCustody(Document):
 			# No PR — direct PI for service items
 			pi_doc = frappe.new_doc("Purchase Invoice")
 			pi_doc.naming_series = series
-			pi_doc.supplier = supplier
 			pi_doc.posting_date = nowdate()
 			pi_doc.company = self.company
 			pi_doc.custom_accountant_custody = self.name
@@ -350,6 +322,14 @@ class AccountantCustody(Document):
 
 			# Override credit_to with the custodian's payable account
 			pi_doc.credit_to = payable_account
+
+			# In Consolidated mode, set the Custodian as the Party on the PI
+			if mode == CONSOLIDATED:
+				pi_doc.party_type = "Custodian"
+				pi_doc.party = self.custodian
+				pi_doc.party_account_currency = frappe.db.get_value(
+					"Account", payable_account, "account_currency"
+				)
 
 			for item in self.custody_items:
 				if not (item.is_stock_item or item.is_fixed_asset):
@@ -395,21 +375,15 @@ class AccountantCustody(Document):
 		Stage 3 — Settlement: Process settlement via the dynamic dialog.
 
 		Supports three pathways:
-		  1. Advance Deduction only  — creates a Journal Entry
-		  2. Direct Payment only     — creates a Payment Entry
-		  3. Mixed                   — creates both
+		  1. Advance Deduction only  — Journal Entry: Debit Payable / Credit Advance
+		  2. Direct Payment only     — Journal Entry: Debit Payable / Credit Bank/Cash
+		  3. Mixed                   — Combination of both
 
-		GL Entry (JE — Advance Deduction):
-		  Debit:  Custodian Payable Account  ↓  (reduce liability)
-		  Credit: Custodian Advance Account  ↓  (reduce asset)
-
+		All GL entries use the Custodian Party (not Supplier) for isolation.
 		Both accounts are fetched from the Custodian record and already reflect
 		the correct mode (shared group account or dedicated leaf account).
 
-		In Consolidated mode, the Custodian is set as the Party on both JE lines
-		so that the shared accounts carry per-custodian sub-balances.
-
-		Returns the name of the primary document created (JE or PE).
+		Returns the name of the primary document created (JE).
 		"""
 		advance_amount_allocated = flt(advance_amount_allocated)
 		direct_payment_amount = flt(direct_payment_amount)
@@ -423,12 +397,13 @@ class AccountantCustody(Document):
 
 		settings = frappe.db.get_singles_dict("Treasury Settings")
 		mode = settings.get("accounting_mode") or CONSOLIDATED
+		advance_account, payable_account = self._get_custodian_accounts()
 		primary_doc_name = None
 
-		# ── Advance Deduction via Journal Entry ───────────────────────────
-		if advance_amount_allocated > 0:
-			advance_account, payable_account = self._get_custodian_accounts()
+		cost_center = frappe.db.get_value("Company", self.company, "cost_center")
 
+		# ── Advance Deduction via Journal Entry ───────────────────────────────
+		if advance_amount_allocated > 0:
 			je = frappe.new_doc("Journal Entry")
 			je.voucher_type = "Journal Entry"
 			je.posting_date = nowdate()
@@ -438,8 +413,6 @@ class AccountantCustody(Document):
 				f"{settlement_notes}"
 			).strip()
 			je.custom_accountant_custody = self.name
-
-			cost_center = frappe.db.get_value("Company", self.company, "cost_center")
 
 			# Debit payable account (reduce liability)
 			payable_row = {
@@ -451,6 +424,7 @@ class AccountantCustody(Document):
 			advance_row = {
 				"account": advance_account,
 				"credit_in_account_currency": advance_amount_allocated,
+				"cost_center": cost_center,
 			}
 
 			# In Consolidated mode, set the Custodian as the Party on both lines
@@ -481,14 +455,8 @@ class AccountantCustody(Document):
 				"settlement_notes": settlement_notes,
 			})
 
-		# ── Direct Payment via Payment Entry ──────────────────────────────
+		# ── Direct Payment via Journal Entry (Payable → Bank/Cash) ───────────
 		if direct_payment_amount > 0:
-			use_single = int(settings.get("use_single_dummy_supplier") or 0)
-			if use_single:
-				supplier = settings.get("default_cash_purchases_supplier")
-			else:
-				supplier = frappe.db.get_value("Custodian", self.custodian, "dedicated_supplier")
-
 			pay_from = (
 				frappe.db.get_value("Company", self.company, "default_bank_account")
 				or frappe.db.get_value("Company", self.company, "default_cash_account")
@@ -500,28 +468,42 @@ class AccountantCustody(Document):
 					title=_("Missing Account"),
 				)
 
-			pe = frappe.new_doc("Payment Entry")
-			pe.payment_type = "Pay"
-			pe.posting_date = nowdate()
-			pe.company = self.company
-			pe.party_type = "Supplier"
-			pe.party = supplier
-			pe.paid_from = pay_from
-			pe.paid_amount = direct_payment_amount
-			pe.received_amount = direct_payment_amount
-			pe.reference_no = self.name
-			pe.reference_date = nowdate()
-			pe.custom_accountant_custody = self.name
-			pe.custom_custodian = self.custodian
-			pe.remarks = (
+			je = frappe.new_doc("Journal Entry")
+			je.voucher_type = "Journal Entry"
+			je.posting_date = nowdate()
+			je.company = self.company
+			je.user_remark = (
 				f"Direct payment settlement for Accountant Custody {self.name}. "
 				f"{settlement_notes}"
 			).strip()
-			pe.flags.ignore_permissions = True
-			pe.insert()
+			je.custom_accountant_custody = self.name
+
+			# Debit payable account (reduce liability)
+			payable_row = {
+				"account": payable_account,
+				"debit_in_account_currency": direct_payment_amount,
+				"cost_center": cost_center,
+			}
+			# Credit bank/cash account
+			bank_row = {
+				"account": pay_from,
+				"credit_in_account_currency": direct_payment_amount,
+				"cost_center": cost_center,
+			}
+
+			# In Consolidated mode, set the Custodian as the Party on the payable line
+			if mode == CONSOLIDATED:
+				payable_row["party_type"] = "Custodian"
+				payable_row["party"] = self.custodian
+
+			je.append("accounts", payable_row)
+			je.append("accounts", bank_row)
+
+			je.flags.ignore_permissions = True
+			je.insert()
 			# Leave as DRAFT — user must review and submit
 			if not primary_doc_name:
-				primary_doc_name = pe.name
+				primary_doc_name = je.name
 
 			# Record in settlements child table
 			self.append("settlements", {
@@ -531,12 +513,12 @@ class AccountantCustody(Document):
 				"advance_amount_allocated": 0,
 				"direct_payment_amount": direct_payment_amount,
 				"total_settlement_amount": direct_payment_amount,
-				"payment_entry": pe.name,
+				"settlement_je": je.name,
 				"settlement_date": nowdate(),
 				"settlement_notes": settlement_notes,
 			})
 
-		# ── Update totals and status ──────────────────────────────────────
+		# ── Update totals and status ──────────────────────────────────────────
 		new_settled = flt(self.total_settled_amount or 0) + total_settlement
 		self.db_set("total_settled_amount", new_settled)
 		self.save(ignore_permissions=True)

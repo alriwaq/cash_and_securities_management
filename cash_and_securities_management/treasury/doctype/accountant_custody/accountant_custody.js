@@ -28,7 +28,7 @@ frappe.ui.form.on("Accountant Custody", {
             frappe.db.get_value(
                 "Custodian",
                 frm.doc.custodian,
-                ["employee", "employee_name", "company", "dedicated_supplier"],
+                ["employee", "employee_name", "company"],
                 function (r) {
                     if (r) {
                         if (!frm.doc.company) frm.set_value("company", r.company);
@@ -180,7 +180,7 @@ function open_settlement_dialog(frm) {
                 options: [
                     "",
                     __("Advance Deduction (Journal Entry)"),
-                    __("Direct Payment (Payment Entry)"),
+                    __("Direct Payment (Bank/Cash Journal Entry)"),
                     __("Mixed Settlement"),
                 ].join("\n"),
                 reqd: 1,
@@ -193,7 +193,7 @@ function open_settlement_dialog(frm) {
                         d.set_value("direct_payment_amount", 0);
                         d.toggle_display("advance_amount_allocated", true);
                         d.toggle_display("direct_payment_amount", false);
-                    } else if (method === __("Direct Payment (Payment Entry)")) {
+                    } else if (method === __("Direct Payment (Bank/Cash Journal Entry)")) {
                         d.set_value("advance_amount_allocated", 0);
                         d.set_value("direct_payment_amount", remaining_to_settle);
                         d.toggle_display("advance_amount_allocated", false);
@@ -232,7 +232,7 @@ function open_settlement_dialog(frm) {
                 label: __("Direct Payment Amount"),
                 default: 0,
                 hidden: 1,
-                description: __("Amount paid directly to the supplier (generates Payment Entry).")
+                description: __('Amount paid directly from Bank/Cash to clear the custodian payable (generates Journal Entry).')
             },
             {
                 fieldname: "settlement_notes",

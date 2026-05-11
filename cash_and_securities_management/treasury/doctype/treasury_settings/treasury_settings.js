@@ -1,39 +1,11 @@
 // Treasury Settings — v2.1
 // Client-side controller for the Treasury Settings singleton.
 //
-// Provides:
-//   1. "Create Account Groups" button — calls server action to auto-create
-//      the Advances and Payables group accounts.
-//   2. accounting_mode toggle — shows/hides helper text and adjusts field
-//      requirements based on Consolidated vs Individual mode.
+// Account groups are auto-created by the install/migrate hook in setup.py.
+// This controller only handles the accounting_mode UI toggle.
 
 frappe.ui.form.on("Treasury Settings", {
 	refresh(frm) {
-		frm.add_custom_button(
-			__("Create Account Groups"),
-			() => {
-				frappe.confirm(
-					__(
-						"This will auto-create 'Advances to Custodians' and 'Custodian Payables' " +
-						"group accounts under your chart of accounts. Continue?"
-					),
-					() => {
-						frm.call({
-							method: "create_account_groups",
-							freeze: true,
-							freeze_message: __("Creating account groups…"),
-							callback(r) {
-								if (!r.exc) {
-									frm.reload_doc();
-								}
-							},
-						});
-					}
-				);
-			},
-			__("Actions")
-		);
-
 		// Reflect current mode on load
 		frm.trigger("accounting_mode");
 	},

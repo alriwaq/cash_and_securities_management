@@ -3,7 +3,6 @@
 frappe.ui.form.on("Custodian", {
     // ── Form lifecycle ────────────────────────────────────────────────────
     refresh: function (frm) {
-        refresh_supplier_visibility(frm);
         setup_dashboard_indicators(frm);
 
         if (frm.doc.docstatus === 1) {
@@ -98,20 +97,6 @@ function setup_action_buttons(frm) {
             frm.call("recreate_accounts").then(function () { frm.reload_doc(); });
         }, __("Actions"));
     }
-}
-
-// ── Supplier Section Visibility ───────────────────────────────────────────────
-function refresh_supplier_visibility(frm) {
-    frappe.db.get_single_value("Treasury Settings", "use_single_dummy_supplier")
-        .then(function (val) {
-            var show = !val;
-            frm.toggle_display("supplier_section", show);
-            frm.toggle_display("dedicated_supplier", show);
-        })
-        .catch(function () {
-            frm.toggle_display("supplier_section", true);
-            frm.toggle_display("dedicated_supplier", true);
-        });
 }
 
 // ── Dashboard Indicators ──────────────────────────────────────────────────────
