@@ -125,6 +125,21 @@ def generate_custody_purchase_invoice(accountant_custody):
     return doc.generate_purchase_invoice()
 
 
+@frappe.whitelist()
+def settle_accountant_custody(
+    accountant_custody,
+    advance_amount_allocated=0,
+    direct_payment_amount=0,
+    settlement_notes="",
+):
+    doc = frappe.get_doc("Accountant Custody", accountant_custody)
+    return doc.create_settlement(
+        advance_amount_allocated=advance_amount_allocated,
+        direct_payment_amount=direct_payment_amount,
+        settlement_notes=settlement_notes,
+    )
+
+
 def _resolve_pr_doc(doc=None, purchase_receipt=None):
     if purchase_receipt:
         return frappe.get_doc("Purchase Receipt", purchase_receipt)

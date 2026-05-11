@@ -268,9 +268,9 @@ function open_settlement_dialog(frm) {
 
             d.hide();
             frappe.call({
-                method: "create_settlement",
-                doc: frm.doc,
+                method: "cash_and_securities_management.api.settle_accountant_custody",
                 args: {
+                    accountant_custody: frm.doc.name,
                     advance_amount_allocated: adv,
                     direct_payment_amount: direct,
                     settlement_notes: values.settlement_notes || ""
