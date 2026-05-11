@@ -305,6 +305,7 @@ class AccountantCustody(Document):
 		settings = frappe.db.get_singles_dict("Treasury Settings")
 		mode = settings.get("accounting_mode") or CONSOLIDATED
 		series = settings.get("pi_series") or "AC-PINV-.YYYY.-.#####"
+		supplier = self._get_or_create_supplier_party()
 
 		# Fetch the custodian's payable account (mode-aware)
 		_advance_account, payable_account = self._get_custodian_accounts()
@@ -356,6 +357,7 @@ class AccountantCustody(Document):
 			pi_doc.naming_series = series
 			pi_doc.posting_date = nowdate()
 			pi_doc.company = self.company
+			pi_doc.supplier = supplier
 			pi_doc.custom_source_document_type = "Custody"
 			pi_doc.custom_accountant_custody = self.name
 			pi_doc.custom_custodian = self.custodian
@@ -386,6 +388,7 @@ class AccountantCustody(Document):
 			pi_doc.naming_series = series
 			pi_doc.posting_date = nowdate()
 			pi_doc.company = self.company
+			pi_doc.supplier = supplier
 			pi_doc.custom_source_document_type = "Custody"
 			pi_doc.custom_accountant_custody = self.name
 			pi_doc.custom_custodian = self.custodian
