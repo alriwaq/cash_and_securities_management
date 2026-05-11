@@ -101,29 +101,58 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
         if not self._is_custody_mode():
             return super().validate_with_previous_doc()
 
-        return super().validate_with_previous_doc(
-            {
-                "Purchase Order": {
-                    "ref_dn_field": "purchase_order",
-                    "compare_fields": [["company", "="], ["currency", "="]],
-                },
-                "Purchase Order Item": {
-                    "ref_dn_field": "po_detail",
-                    "compare_fields": [["project", "="], ["item_code", "="], ["uom", "="]],
-                    "is_child_table": True,
-                    "allow_duplicate_prev_row_id": True,
-                },
-                "Purchase Receipt": {
-                    "ref_dn_field": "purchase_receipt",
-                    "compare_fields": [["company", "="], ["currency", "="]],
-                },
-                "Purchase Receipt Item": {
-                    "ref_dn_field": "pr_detail",
-                    "compare_fields": [["project", "="], ["item_code", "="], ["uom", "="]],
-                    "is_child_table": True,
-                },
-            }
-        )
+        self._validate_custody_previous_documents()
+
+        if (
+            frappe.db.get_single_value("Buying Settings", "maintain_same_rate")
+            and not self.is_return
+            and not self.is_internal_supplier
+        ):
+            self.validate_rate_with_reference_doc(
+                [
+                    ["Purchase Order", "purchase_order", "po_detail"],
+                    ["Purchase Receipt", "purchase_receipt", "pr_detail"],
+                ]
+            )
+
+        return None
+
+    def _validate_custody_previous_documents(self):
+        seen_purchase_orders = set()
+        seen_purchase_receipts = set()
+
+        for row in self.get("items"):
+            if row.purchase_order and row.purchase_order not in seen_purchase_orders:
+                seen_purchase_orders.add(row.purchase_order)
+                purchase_order = frappe.get_doc("Purchase Order", row.purchase_order)
+                if purchase_order.company != self.company:
+                    frappe.throw(
+                        _("Purchase Order {0} does not belong to Company {1}").format(
+                            frappe.bold(row.purchase_order), frappe.bold(self.company)
+                        )
+                    )
+                if purchase_order.currency != self.currency:
+                    frappe.throw(
+                        _("Purchase Order {0} currency must match the invoice currency").format(
+                            frappe.bold(row.purchase_order)
+                        )
+                    )
+
+            if row.purchase_receipt and row.purchase_receipt not in seen_purchase_receipts:
+                seen_purchase_receipts.add(row.purchase_receipt)
+                purchase_receipt = frappe.get_doc("Purchase Receipt", row.purchase_receipt)
+                if purchase_receipt.company != self.company:
+                    frappe.throw(
+                        _("Purchase Receipt {0} does not belong to Company {1}").format(
+                            frappe.bold(row.purchase_receipt), frappe.bold(self.company)
+                        )
+                    )
+                if purchase_receipt.currency != self.currency:
+                    frappe.throw(
+                        _("Purchase Receipt {0} currency must match the invoice currency").format(
+                            frappe.bold(row.purchase_receipt)
+                        )
+                    )
 
     def validate_supplier_invoice(self):
         if self._is_custody_mode():
