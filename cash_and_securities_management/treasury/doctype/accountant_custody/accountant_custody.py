@@ -311,15 +311,40 @@ class AccountantCustody(Document):
 		_advance_account, payable_account = self._get_custodian_accounts()
 
 		def apply_custody_item_defaults(pi_doc):
+			def _composite_key(item):
+				return (
+					item.get("item_code"),
+					item.get("warehouse") or "",
+					item.get("project") or "",
+					item.get("cost_center") or "",
+					item.get("uom") or "",
+					flt(item.get("rate") or 0),
+				)
+
+			custody_items_by_key = {}
 			custody_items_by_code = {}
 			for custody_item in self.custody_items:
+				custody_items_by_key.setdefault(_composite_key(custody_item), []).append(custody_item)
 				custody_items_by_code.setdefault(custody_item.item_code, []).append(custody_item)
 			custody_items_in_order = list(self.custody_items)
 			ordered_index = 0
 
+			pr_item_map = {}
+			pr_detail_names = [d.get("pr_detail") for d in pi_doc.get("items") if d.get("pr_detail")]
+			if pr_detail_names:
+				for pr_item in frappe.get_all(
+					"Purchase Receipt Item",
+					filters={"name": ["in", pr_detail_names]},
+					fields=["name", "item_code", "warehouse", "project", "cost_center", "uom", "rate"],
+				):
+					pr_item_map[pr_item.name] = pr_item
+
 			for pi_item in pi_doc.get("items"):
 				custody_item = None
-				if custody_items_by_code.get(pi_item.item_code):
+				pr_item = pr_item_map.get(pi_item.get("pr_detail"))
+				if pr_item and custody_items_by_key.get(_composite_key(pr_item)):
+					custody_item = custody_items_by_key[_composite_key(pr_item)].pop(0)
+				elif custody_items_by_code.get(pi_item.item_code):
 					custody_item = custody_items_by_code[pi_item.item_code].pop(0)
 				elif ordered_index < len(custody_items_in_order):
 					custody_item = custody_items_in_order[ordered_index]
