@@ -26,7 +26,10 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
     def before_validate(self):
         if self._is_custody_mode():
             self.flags.ignore_mandatory = True
-            self.supplier = None
+            # Keep supplier empty string (falsy) instead of None to avoid
+            # frappe.get_doc("Supplier", None) errors in the parent validate chain.
+            if not self.supplier:
+                self.supplier = ""
             if self.get("custom_custodian") and not self.get("supplier_name"):
                 self.supplier_name = self.custom_custodian
 
@@ -40,6 +43,29 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
                 )
 
         return super().before_validate()
+
+    # ---------------------------------------------------------------------------
+    # Override AccountsController methods that unconditionally try to load
+    # self.supplier as a Supplier document even when it is empty/None.
+    # ---------------------------------------------------------------------------
+
+    def ensure_supplier_is_not_blocked(self):
+        """Skip supplier-block check for custody invoices (no supplier)."""
+        if self._is_custody_mode():
+            return
+        return super().ensure_supplier_is_not_blocked()
+
+    def po_required(self):
+        """Skip PO-required check for custody invoices."""
+        if self._is_custody_mode():
+            return
+        return super().po_required()
+
+    def pr_required(self):
+        """Skip PR-required check for custody invoices."""
+        if self._is_custody_mode():
+            return
+        return super().pr_required()
 
     def set_missing_values(self, for_validate=False):
         if not self._is_custody_mode():
@@ -110,3 +136,63 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
             )
 
         self.party_account_currency = account.account_currency
+
+    # ---------------------------------------------------------------------------
+    # GL entry overrides — custody PI uses Custodian party, not Supplier.
+    # ---------------------------------------------------------------------------
+
+    def add_supplier_gl_entry(
+        self, gl_entries, base_grand_total, grand_total, against_account=None, remarks=None, skip_merge=False
+    ):
+        if not self._is_custody_mode():
+            return super().add_supplier_gl_entry(
+                gl_entries, base_grand_total, grand_total,
+                against_account=against_account, remarks=remarks, skip_merge=skip_merge
+            )
+
+        # Custody mode: book against Custodian, not Supplier.
+        against_voucher = self.name
+        if self.is_return and self.return_against and not self.update_outstanding_for_self:
+            against_voucher = self.return_against
+
+        gl = {
+            "account": self.credit_to,
+            "party_type": "Custodian",
+            "party": self.get("custom_custodian") or self.party,
+            "due_date": self.due_date,
+            "against": against_account or self.against_expense_account,
+            "credit": base_grand_total,
+            "credit_in_account_currency": (
+                base_grand_total
+                if self.party_account_currency == self.company_currency
+                else grand_total
+            ),
+            "credit_in_transaction_currency": grand_total,
+            "against_voucher": against_voucher,
+            "against_voucher_type": self.doctype,
+            "project": self.project,
+            "cost_center": self.cost_center,
+            "_skip_merge": skip_merge,
+        }
+        if remarks:
+            gl["remarks"] = remarks
+
+        gl_entries.append(self.get_gl_dict(gl, self.party_account_currency, item=self))
+
+    def update_supplier_outstanding(self, update_outstanding):
+        if not self._is_custody_mode():
+            return super().update_supplier_outstanding(update_outstanding)
+
+        if update_outstanding == "No":
+            from erpnext.accounts.utils import update_voucher_outstanding
+            update_voucher_outstanding(
+                voucher_type=self.doctype,
+                voucher_no=(
+                    self.return_against
+                    if self.get("is_return") and self.return_against
+                    else self.name
+                ),
+                account=self.credit_to,
+                party_type="Custodian",
+                party=self.get("custom_custodian") or self.party,
+            )
