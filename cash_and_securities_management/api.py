@@ -5,6 +5,14 @@ from frappe import _
 from frappe.utils import flt
 
 
+def _is_custody_purchase_receipt(pr_doc):
+    return bool(
+        pr_doc
+        and pr_doc.get("custom_source_document_type") == "Custody"
+        and pr_doc.get("custom_accountant_custody")
+    )
+
+
 @frappe.whitelist()
 def validate_custody_receipt_qty(doc=None, purchase_receipt=None, accountant_custody=None):
     """
@@ -59,6 +67,50 @@ def validate_custody_receipt_qty(doc=None, purchase_receipt=None, accountant_cus
             )
 
     return {"ok": True}
+
+
+@frappe.whitelist()
+def make_purchase_invoice(source_name, target_doc=None, args=None):
+    """Custody-safe wrapper around ERPNext's PR -> PI mapper.
+
+    ERPNext's native mapper fetches supplier payment terms during postprocess.
+    Custody PRs intentionally do not use Supplier, so we temporarily neutralize
+    that lookup only for custody documents and then restore the original helper.
+    """
+    pr_doc = frappe.get_doc("Purchase Receipt", source_name)
+
+    if not _is_custody_purchase_receipt(pr_doc):
+        from erpnext.stock.doctype.purchase_receipt.purchase_receipt import (
+            make_purchase_invoice as erpnext_make_purchase_invoice,
+        )
+
+        return erpnext_make_purchase_invoice(source_name, target_doc=target_doc, args=args)
+
+    import erpnext.accounts.party as accounts_party
+    from erpnext.stock.doctype.purchase_receipt.purchase_receipt import (
+        make_purchase_invoice as erpnext_make_purchase_invoice,
+    )
+
+    original_get_payment_terms_template = accounts_party.get_payment_terms_template
+
+    def _skip_payment_terms_template(*_args, **_kwargs):
+        return None
+
+    accounts_party.get_payment_terms_template = _skip_payment_terms_template
+    try:
+        pi_doc = erpnext_make_purchase_invoice(source_name, target_doc=target_doc, args=args)
+
+        if pi_doc and getattr(pi_doc, "doctype", None) == "Purchase Invoice":
+            if not pi_doc.get("custom_source_document_type"):
+                pi_doc.custom_source_document_type = "Custody"
+            if not pi_doc.get("custom_accountant_custody"):
+                pi_doc.custom_accountant_custody = pr_doc.custom_accountant_custody
+            if not pi_doc.get("custom_custodian"):
+                pi_doc.custom_custodian = pr_doc.custom_custodian
+
+        return pi_doc
+    finally:
+        accounts_party.get_payment_terms_template = original_get_payment_terms_template
 
 
 def _resolve_pr_doc(doc=None, purchase_receipt=None):

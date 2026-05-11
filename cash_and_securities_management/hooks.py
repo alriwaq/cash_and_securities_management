@@ -102,6 +102,12 @@ doctype_js = {
     "Purchase Invoice": "public/js/purchase_invoice_custody.js",
 }
 
+# ─── Whitelisted Method Overrides ────────────────────────────────────────────
+override_whitelisted_methods = {
+    "erpnext.stock.doctype.purchase_receipt.purchase_receipt.make_purchase_invoice":
+        "cash_and_securities_management.api.make_purchase_invoice",
+}
+
 # ─── Doctype Class Overrides ────────────────────────────────────────────────
 # Custody mode uses standard PR/PI doctypes with conditional server behavior.
 override_doctype_class = {
