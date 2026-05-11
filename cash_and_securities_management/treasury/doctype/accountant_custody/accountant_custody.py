@@ -313,22 +313,27 @@ class AccountantCustody(Document):
 			custody_items_by_code = {}
 			for custody_item in self.custody_items:
 				custody_items_by_code.setdefault(custody_item.item_code, []).append(custody_item)
+			custody_items_in_order = list(self.custody_items)
+			ordered_index = 0
 
 			for pi_item in pi_doc.get("items"):
 				custody_item = None
 				if custody_items_by_code.get(pi_item.item_code):
 					custody_item = custody_items_by_code[pi_item.item_code].pop(0)
+				elif ordered_index < len(custody_items_in_order):
+					custody_item = custody_items_in_order[ordered_index]
+					ordered_index += 1
 
 				if not custody_item:
 					continue
 
-				if not pi_item.get("warehouse") and custody_item.get("warehouse"):
+				if custody_item.get("warehouse"):
 					pi_item.warehouse = custody_item.warehouse
 
-				if not pi_item.get("project") and custody_item.get("project"):
+				if custody_item.get("project"):
 					pi_item.project = custody_item.project
 
-				if not pi_item.get("cost_center") and custody_item.get("cost_center"):
+				if custody_item.get("cost_center"):
 					pi_item.cost_center = custody_item.cost_center
 
 		# Check for submitted PRs to use native make_purchase_invoice
