@@ -389,7 +389,7 @@ class AccountantCustody(Document):
 		if linked_prs:
 			# Use ERPNext native make_purchase_invoice for correct GL mapping
 			try:
-				from erpnext.stock.doctype.purchase_receipt.purchase_receipt import (
+				from cash_and_securities_management.api import (
 					make_purchase_invoice as make_pi_from_pr,
 				)
 				pi_doc = make_pi_from_pr(linked_prs[0].name)
