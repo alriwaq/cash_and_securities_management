@@ -175,6 +175,10 @@ function run_custody_settlement(frm, payload) {
 
 // ── Settlement Dialog ─────────────────────────────────────────────────────────
 function open_settlement_dialog(frm) {
+    var METHOD_ADVANCE = "Advance Deduction (Journal Entry)";
+    var METHOD_DIRECT = "Direct Payment (Bank/Cash Journal Entry)";
+    var METHOD_MIXED = "Mixed Settlement";
+
     var billed_amount = flt(frm.doc.total_billed_amount || 0);
     var settled_amount = flt(frm.doc.total_settled_amount || 0);
     var remaining_to_settle = billed_amount - settled_amount;
@@ -215,26 +219,26 @@ function open_settlement_dialog(frm) {
                 label: __("Settlement Method"),
                 options: [
                     "",
-                    __("Advance Deduction (Journal Entry)"),
-                    __("Direct Payment (Bank/Cash Journal Entry)"),
-                    __("Mixed Settlement"),
+                    METHOD_ADVANCE,
+                    METHOD_DIRECT,
+                    METHOD_MIXED,
                 ].join("\n"),
                 reqd: 1,
                 onchange: function () {
                     var method = d.get_value("settlement_method");
                     var adv_max = Math.min(remaining_to_settle, request_balance);
 
-                    if (method === __("Advance Deduction (Journal Entry)")) {
+                    if (method === METHOD_ADVANCE) {
                         d.set_value("advance_amount_allocated", adv_max);
                         d.set_value("direct_payment_amount", 0);
                         d.toggle_display("advance_amount_allocated", true);
                         d.toggle_display("direct_payment_amount", false);
-                    } else if (method === __("Direct Payment (Bank/Cash Journal Entry)")) {
+                    } else if (method === METHOD_DIRECT) {
                         d.set_value("advance_amount_allocated", 0);
                         d.set_value("direct_payment_amount", remaining_to_settle);
                         d.toggle_display("advance_amount_allocated", false);
                         d.toggle_display("direct_payment_amount", true);
-                    } else if (method === __("Mixed Settlement")) {
+                    } else if (method === METHOD_MIXED) {
                         d.set_value("advance_amount_allocated", adv_max);
                         d.set_value("direct_payment_amount", remaining_to_settle - adv_max);
                         d.toggle_display("advance_amount_allocated", true);
@@ -256,7 +260,7 @@ function open_settlement_dialog(frm) {
                 onchange: function () {
                     var adv = flt(d.get_value("advance_amount_allocated") || 0);
                     var method = d.get_value("settlement_method");
-                    if (method === __("Mixed Settlement")) {
+                    if (method === METHOD_MIXED) {
                         var direct = remaining_to_settle - adv;
                         d.set_value("direct_payment_amount", direct > 0 ? direct : 0);
                     }

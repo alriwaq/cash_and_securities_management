@@ -37,7 +37,7 @@ Settlement pathways (via dynamic JS dialog):
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt, nowdate
+from frappe.utils import flt, now, nowdate
 
 CONSOLIDATED = "Consolidated (Party-Based)"
 
@@ -508,6 +508,60 @@ class AccountantCustody(Document):
 		direct_payment_amount = flt(direct_payment_amount)
 		total_settlement = advance_amount_allocated + direct_payment_amount
 
+		def insert_settlement_row(
+			claimed_amount,
+			advance_allocated,
+			direct_paid,
+			total_amount,
+			je_name,
+			notes,
+		):
+			idx = (
+				frappe.db.sql(
+					"""
+					select ifnull(max(idx), 0) + 1
+					from `tabCustody Settlement Entry`
+					where parent = %s and parenttype = 'Accountant Custody' and parentfield = 'settlements'
+					""",
+					(self.name,),
+				)[0][0]
+				or 1
+			)
+
+			row_name = frappe.generate_hash(length=10)
+			ts = now()
+			frappe.db.sql(
+				"""
+				insert into `tabCustody Settlement Entry`
+				(
+					name, creation, modified, modified_by, owner, docstatus, idx,
+					parent, parentfield, parenttype,
+					custody_request, custody_request_balance,
+					claimed_amount, advance_amount_allocated, direct_payment_amount,
+					total_settlement_amount, settlement_je, settlement_date, settlement_notes
+				)
+				values (%s, %s, %s, %s, %s, 0, %s, %s, 'settlements', 'Accountant Custody', %s, %s, %s, %s, %s, %s, %s, %s, %s)
+				""",
+				(
+					row_name,
+					ts,
+					ts,
+					frappe.session.user,
+					frappe.session.user,
+					idx,
+					self.name,
+					self.custody_request or "",
+					flt(self.custody_request_balance or 0),
+					flt(claimed_amount),
+					flt(advance_allocated),
+					flt(direct_paid),
+					flt(total_amount),
+					je_name,
+					nowdate(),
+					notes or "",
+				),
+			)
+
 		if total_settlement <= 0:
 			frappe.throw(
 				_("Settlement amount must be greater than zero."),
@@ -561,22 +615,14 @@ class AccountantCustody(Document):
 			je.submit()
 			primary_doc_name = je.name
 
-			# Append settlement record directly to the database (doc is submitted)
-			settlement_row = frappe.new_doc("Custody Settlement Entry")
-			settlement_row.parent = self.name
-			settlement_row.parenttype = "Accountant Custody"
-			settlement_row.parentfield = "settlements"
-			settlement_row.custody_request = self.custody_request or ""
-			settlement_row.custody_request_balance = flt(self.custody_request_balance or 0)
-			settlement_row.claimed_amount = advance_amount_allocated
-			settlement_row.advance_amount_allocated = advance_amount_allocated
-			settlement_row.direct_payment_amount = 0
-			settlement_row.total_settlement_amount = advance_amount_allocated
-			settlement_row.settlement_je = je.name
-			settlement_row.settlement_date = nowdate()
-			settlement_row.settlement_notes = settlement_notes or ""
-			settlement_row.flags.ignore_permissions = True
-			settlement_row.insert()
+			insert_settlement_row(
+				claimed_amount=advance_amount_allocated,
+				advance_allocated=advance_amount_allocated,
+				direct_paid=0,
+				total_amount=advance_amount_allocated,
+				je_name=je.name,
+				notes=settlement_notes,
+			)
 
 		# ── Direct Payment via Journal Entry (Payable → Bank/Cash) ───────────
 		if direct_payment_amount > 0:
@@ -628,22 +674,14 @@ class AccountantCustody(Document):
 			if not primary_doc_name:
 				primary_doc_name = je.name
 
-			# Append settlement record directly to the database (doc is submitted)
-			settlement_row = frappe.new_doc("Custody Settlement Entry")
-			settlement_row.parent = self.name
-			settlement_row.parenttype = "Accountant Custody"
-			settlement_row.parentfield = "settlements"
-			settlement_row.custody_request = self.custody_request or ""
-			settlement_row.custody_request_balance = flt(self.custody_request_balance or 0)
-			settlement_row.claimed_amount = 0
-			settlement_row.advance_amount_allocated = 0
-			settlement_row.direct_payment_amount = direct_payment_amount
-			settlement_row.total_settlement_amount = direct_payment_amount
-			settlement_row.settlement_je = je.name
-			settlement_row.settlement_date = nowdate()
-			settlement_row.settlement_notes = settlement_notes or ""
-			settlement_row.flags.ignore_permissions = True
-			settlement_row.insert()
+			insert_settlement_row(
+				claimed_amount=0,
+				advance_allocated=0,
+				direct_paid=direct_payment_amount,
+				total_amount=direct_payment_amount,
+				je_name=je.name,
+				notes=settlement_notes,
+			)
 
 		# ── Update totals and status via db_set (doc is submitted) ───────────
 		new_settled = flt(
