@@ -540,7 +540,7 @@ class AccountantCustody(Document):
 					claimed_amount, advance_amount_allocated, direct_payment_amount,
 					total_settlement_amount, payment_entry, settlement_date, settlement_notes
 				)
-				values (%s, %s, %s, %s, %s, 0, %s, %s, 'settlements', 'Accountant Custody', %s, %s, %s, %s, %s, %s, %s, %s)
+				values (%s, %s, %s, %s, %s, 0, %s, %s, 'settlements', 'Accountant Custody', %s, %s, %s, %s, %s, %s, %s, %s, %s)
 				""",
 				(
 					row_name,
@@ -630,30 +630,8 @@ class AccountantCustody(Document):
 			allocate_open_purchase_invoices(pe, amount)
 
 			pe.flags.ignore_permissions = True
-			
-			# Try to insert and submit; suppress party validation errors for custody PEs
-			try:
-				pe.insert()
-			except frappe.ValidationError as e:
-				if "Supplier is required" in str(e):
-					frappe.logger().warning(f"Suppressed Supplier validation for custody PE: {str(e)}")
-					# Force insert with validation disabled
-					pe.flags.skip_validate = True
-					pe.insert()
-				else:
-					raise
-			
-			try:
-				pe.submit()
-			except frappe.ValidationError as e:
-				if "Supplier is required" in str(e):
-					frappe.logger().warning(f"Suppressed Supplier validation during submit for custody PE: {str(e)}")
-					# Try to complete submit despite validation error
-					pe.docstatus = 1
-					pe.db_update()
-				else:
-					raise
-			
+			pe.insert()
+			pe.submit()
 			return pe.name
 
 		if total_settlement <= 0:
