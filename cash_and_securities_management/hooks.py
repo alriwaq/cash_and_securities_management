@@ -98,10 +98,11 @@ override_whitelisted_methods = {
 }
 
 # ─── Doctype Class Overrides ────────────────────────────────────────────────
-# Custody mode uses standard PR/PI doctypes with conditional server behavior.
+# Custody mode uses standard PR/PI/PE doctypes with conditional server behavior.
 override_doctype_class = {
     "Purchase Receipt": "cash_and_securities_management.treasury.overrides.purchase_receipt.CustodyPurchaseReceipt",
     "Purchase Invoice": "cash_and_securities_management.treasury.overrides.purchase_invoice.CustodyPurchaseInvoice",
+    "Payment Entry": "cash_and_securities_management.treasury.overrides.payment_entry.CustodyPaymentEntry",
 }
 
 # ─── Document Events ──────────────────────────────────────────────────────────
