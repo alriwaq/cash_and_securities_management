@@ -568,10 +568,14 @@ class AccountantCustody(Document):
 				title=_("Invalid Amount"),
 			)
 
-		settings = frappe.db.get_singles_dict("Treasury Settings")
-		mode = settings.get("accounting_mode") or CONSOLIDATED
 		advance_account, payable_account = self._get_custodian_accounts()
 		primary_doc_name = None
+
+		def set_party_if_required(gl_row):
+			account_type = frappe.db.get_value("Account", gl_row.get("account"), "account_type")
+			if account_type in ("Payable", "Receivable"):
+				gl_row["party_type"] = "Custodian"
+				gl_row["party"] = self.custodian
 
 		cost_center = frappe.db.get_value("Company", self.company, "cost_center")
 
@@ -600,12 +604,8 @@ class AccountantCustody(Document):
 				"cost_center": cost_center,
 			}
 
-			# In Consolidated mode, set the Custodian as the Party on both lines
-			if mode == CONSOLIDATED:
-				payable_row["party_type"] = "Custodian"
-				payable_row["party"] = self.custodian
-				advance_row["party_type"] = "Custodian"
-				advance_row["party"] = self.custodian
+			set_party_if_required(payable_row)
+			set_party_if_required(advance_row)
 
 			je.append("accounts", payable_row)
 			je.append("accounts", advance_row)
@@ -660,10 +660,8 @@ class AccountantCustody(Document):
 				"cost_center": cost_center,
 			}
 
-			# In Consolidated mode, set the Custodian as the Party on the payable line
-			if mode == CONSOLIDATED:
-				payable_row["party_type"] = "Custodian"
-				payable_row["party"] = self.custodian
+			set_party_if_required(payable_row)
+			set_party_if_required(bank_row)
 
 			je.append("accounts", payable_row)
 			je.append("accounts", bank_row)
