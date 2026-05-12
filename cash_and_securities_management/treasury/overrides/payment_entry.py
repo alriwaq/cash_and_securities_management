@@ -27,6 +27,49 @@ class CustodyPaymentEntry(PaymentEntry):
 		if self._is_custody_mode():
 			self.flags.ignore_mandatory = True
 
+	def set_missing_values(self):
+		"""
+		Preserve custody references for Internal Transfer mode.
+
+		ERPNext clears party and references in set_missing_values() when
+		payment_type is Internal Transfer. Custody settlement intentionally uses
+		Internal Transfer while still linking Purchase Invoices in references.
+		"""
+		preserved_party = self.get("party")
+		preserved_references = []
+
+		if self._is_custody_mode() and self.payment_type == "Internal Transfer":
+			for row in self.get("references") or []:
+				preserved_references.append(
+					{
+						"reference_doctype": row.get("reference_doctype"),
+						"reference_name": row.get("reference_name"),
+						"due_date": row.get("due_date"),
+						"bill_no": row.get("bill_no"),
+						"payment_term": row.get("payment_term"),
+						"payment_term_outstanding": row.get("payment_term_outstanding"),
+						"account_type": row.get("account_type"),
+						"payment_type": row.get("payment_type"),
+						"reconcile_effect_on": row.get("reconcile_effect_on"),
+						"total_amount": row.get("total_amount"),
+						"outstanding_amount": row.get("outstanding_amount"),
+						"allocated_amount": row.get("allocated_amount"),
+						"exchange_rate": row.get("exchange_rate"),
+						"payment_request": row.get("payment_request"),
+					}
+				)
+
+		super().set_missing_values()
+
+		if self._is_custody_mode() and self.payment_type == "Internal Transfer":
+			if preserved_party and not self.get("party"):
+				self.party = preserved_party
+
+			if preserved_references and not self.get("references"):
+				self.set("references", [])
+				for ref in preserved_references:
+					self.append("references", ref)
+
 	def validate_party_accounts(self):
 		"""Skip party-type/account-type matching check for custody PEs."""
 		if self._is_custody_mode():
