@@ -32,6 +32,8 @@
   "total_billed_amount",
   "total_settled_amount",
   "settlement_tab",
+    "settlements_dashboard_section",
+    "settlements_dashboard_html",
   "settlement_section",
   "settlements",
   "more_info_tab",
@@ -228,6 +230,16 @@
    "fieldtype": "Tab Break",
    "label": "Settlement"
   },
+    {
+     "fieldname": "settlements_dashboard_section",
+     "fieldtype": "Section Break",
+     "label": "Settlements Dashboard"
+    },
+    {
+     "fieldname": "settlements_dashboard_html",
+     "fieldtype": "HTML",
+     "label": "Settlements Dashboard"
+    },
   {
    "fieldname": "settlement_section",
    "fieldtype": "Section Break",

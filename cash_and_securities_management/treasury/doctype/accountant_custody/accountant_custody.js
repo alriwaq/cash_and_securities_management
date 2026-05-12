@@ -6,6 +6,7 @@ frappe.ui.form.on("Accountant Custody", {
     refresh: function (frm) {
         setup_form_intro(frm);
         setup_action_buttons(frm);
+        render_settlements_dashboard(frm);
     },
 
     custody_request: function (frm) {
@@ -174,6 +175,7 @@ function run_custody_settlement(frm, payload) {
                         : __("Settlement complete."),
                     indicator: "green"
                 });
+                render_settlements_dashboard(frm);
             }
         },
         error: function (err) {
@@ -188,8 +190,8 @@ function run_custody_settlement(frm, payload) {
 
 // ── Settlement Dialog ─────────────────────────────────────────────────────────
 function open_settlement_dialog(frm) {
-    var METHOD_ADVANCE = "Advance Deduction (Journal Entry)";
-    var METHOD_DIRECT = "Direct Payment (Bank/Cash Journal Entry)";
+    var METHOD_ADVANCE = "Advance Deduction (Payment Entry)";
+    var METHOD_DIRECT = "Direct Payment (Bank/Cash Payment Entry)";
     var METHOD_MIXED = "Mixed Settlement";
 
     function set_dialog_field_display(dialog, fieldname, show) {
@@ -273,7 +275,7 @@ function open_settlement_dialog(frm) {
                 label: __("Advance Amount Allocated"),
                 default: 0,
                 hidden: 1,
-                description: __("Amount deducted from the custodian advance (generates Journal Entry)."),
+                description: __("Amount deducted from the custodian advance (generates Payment Entry)."),
                 onchange: function () {
                     var adv = flt(d.get_value("advance_amount_allocated") || 0);
                     var method = d.get_value("settlement_method");
@@ -289,7 +291,7 @@ function open_settlement_dialog(frm) {
                 label: __("Direct Payment Amount"),
                 default: 0,
                 hidden: 1,
-                description: __("Amount paid directly from Bank/Cash to clear the custodian payable (generates Journal Entry).")
+                description: __("Amount paid directly from Bank/Cash to clear the custodian payable (generates Payment Entry).")
             },
             {
                 fieldname: "settlement_notes",
@@ -332,6 +334,63 @@ function open_settlement_dialog(frm) {
     set_dialog_field_display(d, "advance_amount_allocated", false);
     set_dialog_field_display(d, "direct_payment_amount", false);
     d.show();
+}
+
+function render_settlements_dashboard(frm) {
+    if (!frm.fields_dict.settlements_dashboard_html) {
+        return;
+    }
+
+    if (!frm.doc.name || frm.doc.docstatus !== 1) {
+        frm.fields_dict.settlements_dashboard_html.$wrapper.html("");
+        return;
+    }
+
+    frappe.call({
+        method: "cash_and_securities_management.api.get_accountant_custody_settlements_dashboard",
+        args: { accountant_custody: frm.doc.name },
+        callback: function (r) {
+            var rows = (r && r.message && r.message.rows) || [];
+            if (!rows.length) {
+                frm.fields_dict.settlements_dashboard_html.$wrapper.html(
+                    '<div class="text-muted small">' + __("No linked Purchase Invoices or Payment Entries yet.") + "</div>"
+                );
+                return;
+            }
+
+            var html = '<div class="table-responsive"><table class="table table-bordered table-condensed">';
+            html += '<thead><tr>' +
+                '<th>' + __("Purchase Invoice") + '</th>' +
+                '<th>' + __("PI Outstanding") + '</th>' +
+                '<th>' + __("PI Status") + '</th>' +
+                '<th>' + __("Linked Payment Entries") + '</th>' +
+                '</tr></thead><tbody>';
+
+            rows.forEach(function (row) {
+                var payments = row.payments || [];
+                var paymentHtml = payments.length
+                    ? payments.map(function (p) {
+                        return [
+                            '<div>',
+                            '<a href="/app/payment-entry/' + p.payment_entry + '">' + p.payment_entry + '</a>',
+                            ' - ' + format_currency(p.paid_amount),
+                            '</div>'
+                        ].join("");
+                    }).join("")
+                    : '<span class="text-muted">' + __("None") + '</span>';
+
+                html += '<tr>' +
+                    '<td><a href="/app/purchase-invoice/' + row.purchase_invoice + '">' + row.purchase_invoice + '</a></td>' +
+                    '<td>' + format_currency(row.pi_outstanding) + '</td>' +
+                    '<td>' + (row.pi_status || "") + '</td>' +
+                    '<td>' + paymentHtml + '</td>' +
+                    '</tr>';
+            });
+
+            html += '</tbody></table></div>';
+            frm.fields_dict.settlements_dashboard_html.$wrapper.html(html);
+        }
+    });
 }
 
 // ── Helper Functions ──────────────────────────────────────────────────────────

@@ -20,7 +20,7 @@ Public API:
       Recalculate the granular status of an Accountant Custody.
 
   validate_cancellation_order_for_pi(pi_doc)
-      Prevent PI cancellation if a settlement JE/PE exists.
+	  Prevent PI cancellation if a settlement Payment Entry exists.
 
   validate_cancellation_order_for_pr(pr_doc)
       Prevent PR cancellation if a submitted PI exists.
@@ -52,7 +52,6 @@ def update_custodian_dashboard(custodian_name):
 	  - on_submit / on_cancel of Payment Entry (via pr_hooks)
 	  - on_submit / on_cancel of Purchase Receipt (via pr_hooks)
 	  - on_submit / on_cancel of Purchase Invoice (via pr_hooks)
-	  - on_submit / on_cancel of Journal Entry (via pr_hooks)
 	  - directly from Custodian.refresh_outstanding()
 	"""
 	if not frappe.db.exists("Custodian", custodian_name):
@@ -64,7 +63,8 @@ def update_custodian_dashboard(custodian_name):
 		   FROM `tabPayment Entry` pe
 		   WHERE pe.custom_custodian = %s
 		     AND pe.docstatus = 1
-		     AND pe.payment_type = 'Internal Transfer'""",
+		     AND pe.payment_type = 'Internal Transfer'
+		     AND COALESCE(pe.custom_accountant_custody, '') = ''""",
 		(custodian_name,),
 	)[0][0] or 0)
 
@@ -156,7 +156,9 @@ def recalculate_custody_request_status(custody_request_name):
 	total_paid = flt(frappe.db.sql(
 		"""SELECT COALESCE(SUM(paid_amount), 0)
 		   FROM `tabPayment Entry`
-		   WHERE custom_custody_request = %s AND docstatus = 1""",
+		   WHERE custom_custody_request = %s
+		     AND docstatus = 1
+		     AND COALESCE(custom_accountant_custody, '') = ''""",
 		(custody_request_name,),
 	)[0][0] or 0)
 
@@ -210,6 +212,29 @@ def recalculate_accountant_custody_status(accountant_custody_name):
 	if ac.docstatus != 1:
 		return
 
+	total_settled = flt(
+		frappe.db.sql(
+			"""
+			select coalesce(sum(per.allocated_amount), 0)
+			from `tabPayment Entry Reference` per
+			inner join `tabPayment Entry` pe on pe.name = per.parent
+			where pe.custom_accountant_custody = %s
+			  and pe.docstatus = 1
+			  and per.reference_doctype = 'Purchase Invoice'
+			""",
+			(accountant_custody_name,),
+		)[0][0]
+		or 0
+	)
+	frappe.db.set_value(
+		"Accountant Custody",
+		accountant_custody_name,
+		"total_settled_amount",
+		total_settled,
+		update_modified=False,
+	)
+	ac.total_settled_amount = total_settled
+
 	ac.recalculate_status()
 
 	# Cascade to custodian dashboard
@@ -221,32 +246,91 @@ def recalculate_accountant_custody_status(accountant_custody_name):
 
 def validate_cancellation_order_for_pi(pi_doc):
 	"""
-	Prevent cancellation of a Purchase Invoice if a submitted Journal Entry
-	or Payment Entry settlement exists for the linked Accountant Custody.
+	Prevent cancellation of a Purchase Invoice if a submitted settlement Payment Entry exists.
 	Called from on_pi_cancel hook.
 	"""
-	ac_name = pi_doc.get("custom_accountant_custody")
-	if not ac_name:
+	if not pi_doc.get("name"):
 		return
 
-	# Check for submitted settlement JEs
-	linked_jes = frappe.db.sql(
+	linked_pes = frappe.db.sql(
 		"""SELECT je.name
-		   FROM `tabJournal Entry` je
-		   WHERE je.custom_accountant_custody = %s AND je.docstatus = 1""",
-		(ac_name,),
+		   FROM `tabPayment Entry Reference` per
+		   INNER JOIN `tabPayment Entry` je ON je.name = per.parent
+		   WHERE per.reference_doctype = 'Purchase Invoice'
+		     AND per.reference_name = %s
+		     AND je.docstatus = 1""",
+		(pi_doc.name,),
 		as_dict=True,
 	)
-	if linked_jes:
+	if linked_pes:
 		frappe.throw(
 			frappe._(
 				"Cannot cancel Purchase Invoice {0}. Please cancel the linked "
-				"settlement Journal Entry/Entries first: {1}"
+				"settlement Payment Entry/Entries first: {1}"
 			).format(
 				pi_doc.name,
-				", ".join([d.name for d in linked_jes]),
+				", ".join([d.name for d in linked_pes]),
 			),
 			title=frappe._("Cancel Settlement Documents First"),
+		)
+
+
+def sync_custody_request_payment_entries(custody_request_name):
+	"""
+	Synchronize Custody Request child table with all submitted advance Payment Entries.
+	"""
+	if not frappe.db.exists("Custody Request", custody_request_name):
+		return
+
+	frappe.db.sql(
+		"""
+		delete from `tabCustody Request Payment Entry`
+		where parent = %s and parenttype = 'Custody Request' and parentfield = 'payment_entries'
+		""",
+		(custody_request_name,),
+	)
+
+	rows = frappe.db.sql(
+		"""
+		select name, posting_date, paid_amount, paid_from, paid_to
+		from `tabPayment Entry`
+		where custom_custody_request = %s
+		  and docstatus = 1
+		  and payment_type = 'Internal Transfer'
+		  and COALESCE(custom_accountant_custody, '') = ''
+		order by posting_date asc, name asc
+		""",
+		(custody_request_name,),
+		as_dict=True,
+	)
+
+	ts = frappe.utils.now()
+	for idx, row in enumerate(rows, start=1):
+		child_name = frappe.generate_hash(length=10)
+		frappe.db.sql(
+			"""
+			insert into `tabCustody Request Payment Entry`
+			(
+				name, creation, modified, modified_by, owner, docstatus, idx,
+				parent, parentfield, parenttype,
+				payment_entry, posting_date, paid_amount, paid_from, paid_to
+			)
+			values (%s, %s, %s, %s, %s, 0, %s, %s, 'payment_entries', 'Custody Request', %s, %s, %s, %s, %s)
+			""",
+			(
+				child_name,
+				ts,
+				ts,
+				frappe.session.user,
+				frappe.session.user,
+				idx,
+				custody_request_name,
+				row.name,
+				row.posting_date,
+				flt(row.paid_amount),
+				row.paid_from,
+				row.paid_to,
+			),
 		)
 
 

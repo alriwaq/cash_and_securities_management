@@ -16,7 +16,6 @@
   "direct_payment_amount",
   "total_settlement_amount",
   "notes_section",
-  "settlement_je",
   "column_break_3",
   "settlement_date",
   "settlement_notes"
@@ -50,11 +49,11 @@
    "options": "Company:company:default_currency"
   },
   {
-   "description": "Payment Entry created for direct payment portion",
+    "description": "Settlement Payment Entry created for this settlement row",
    "fieldname": "payment_entry",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Payment Entry",
+    "label": "Settlement Payment Entry",
    "options": "Payment Entry",
    "read_only": 1
   },
@@ -93,13 +92,6 @@
    "fieldname": "notes_section",
    "fieldtype": "Section Break",
    "label": "Reference"
-  },
-  {
-   "fieldname": "settlement_je",
-   "fieldtype": "Link",
-   "label": "Settlement Journal Entry",
-   "options": "Journal Entry",
-   "read_only": 1
   },
   {
    "fieldname": "column_break_3",

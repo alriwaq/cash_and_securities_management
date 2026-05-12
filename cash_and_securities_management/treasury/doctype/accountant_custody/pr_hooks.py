@@ -3,11 +3,11 @@ Document Event Hooks — v2.1
 treasury/doctype/accountant_custody/pr_hooks.py
 
 All doc_event handlers for Purchase Receipt, Purchase Invoice, Payment Entry,
-and Journal Entry. Each handler delegates financial recalculations to the
+and settlement linkage. Each handler delegates financial recalculations to the
 centralized balance engine in treasury/balances.py.
 
 Cancellation order enforced (strict hierarchy):
-  Settlement JE/PE → Purchase Invoice → Purchase Receipt → Accountant Custody → Custody Request
+	Settlement Payment Entry → Purchase Invoice → Purchase Receipt → Accountant Custody → Custody Request
   Advance Payment Entry cannot be cancelled if any Accountant Custody records
   have been submitted against the linked Custody Request.
 """
@@ -219,7 +219,7 @@ def on_pi_cancel(doc, method):
 	if not doc.get("custom_accountant_custody"):
 		return
 
-	# Enforce order: Settlement JE must be cancelled before PI
+	# Enforce order: Settlement Payment Entry must be cancelled before PI
 	from cash_and_securities_management.treasury.balances import (
 		validate_cancellation_order_for_pi,
 	)
@@ -238,6 +238,76 @@ def on_pi_cancel(doc, method):
 
 # ─── Payment Entry Hooks ──────────────────────────────────────────────────────
 
+def on_payment_before_save(doc, method):
+	"""
+	Normalize custody Payment Entries before save.
+	For PE rows linked to custody Purchase Invoices, force Custodian party and
+	propagate custom_accountant_custody/custom_custodian/source type.
+	"""
+	if not doc.get("references"):
+		return
+
+	custody_pi_ref = None
+	for ref in doc.references:
+		if ref.reference_doctype != "Purchase Invoice" or not ref.reference_name:
+			continue
+
+		pi_meta = frappe.db.get_value(
+			"Purchase Invoice",
+			ref.reference_name,
+			["custom_source_document_type", "custom_accountant_custody", "custom_custodian"],
+			as_dict=True,
+		)
+		if pi_meta and pi_meta.custom_source_document_type == "Custody" and pi_meta.custom_accountant_custody:
+			custody_pi_ref = pi_meta
+			break
+
+	if not custody_pi_ref:
+		return
+
+	ac_doc = frappe.get_doc("Accountant Custody", custody_pi_ref.custom_accountant_custody)
+	advance_account, payable_account = ac_doc._get_custodian_accounts()
+
+	doc.custom_source_document_type = "Custody"
+	doc.custom_accountant_custody = custody_pi_ref.custom_accountant_custody
+	doc.custom_custodian = custody_pi_ref.custom_custodian or ac_doc.custodian
+	doc.custom_custody_request = ac_doc.custody_request
+
+	doc.party_type = "Custodian"
+	doc.party = doc.custom_custodian
+	doc.payment_type = "Internal Transfer"
+
+	if not doc.paid_from:
+		doc.paid_from = advance_account
+	if not doc.paid_to:
+		doc.paid_to = payable_account
+
+	# Bypass supplier-only assumptions for custody settlement transactions.
+	doc.flags.ignore_mandatory = True
+
+
+def on_payment_before_submit(doc, method):
+	"""
+	Enforce custody party/account mapping before submit for custody-linked PE.
+	"""
+	if doc.get("custom_source_document_type") != "Custody" or not doc.get("custom_accountant_custody"):
+		return
+
+	ac_doc = frappe.get_doc("Accountant Custody", doc.custom_accountant_custody)
+	advance_account, payable_account = ac_doc._get_custodian_accounts()
+
+	doc.party_type = "Custodian"
+	doc.party = doc.get("custom_custodian") or ac_doc.custodian
+	if not doc.get("payment_type"):
+		doc.payment_type = "Internal Transfer"
+
+	if not doc.get("paid_from"):
+		doc.paid_from = advance_account
+	if not doc.get("paid_to"):
+		doc.paid_to = payable_account
+
+	doc.flags.ignore_mandatory = True
+
 def on_payment_submit(doc, method):
 	"""
 	Triggered after a Payment Entry is submitted.
@@ -246,11 +316,17 @@ def on_payment_submit(doc, method):
 	"""
 	custody_request = doc.get("custom_custody_request")
 	custodian = doc.get("custom_custodian")
+	accountant_custody = doc.get("custom_accountant_custody")
 
 	if custody_request:
 		_safe_recalculate_custody_request(custody_request)
-	elif custodian:
+	if accountant_custody:
+		_safe_recalculate_accountant_custody(accountant_custody)
+	if custodian:
 		_safe_update_custodian_dashboard(custodian)
+
+	if custody_request:
+		_safe_sync_custody_request_payment_table(custody_request)
 
 
 def on_payment_cancel(doc, method):
@@ -273,50 +349,17 @@ def on_payment_cancel(doc, method):
 	# ── Recalculate balances after cancellation ───────────────────────────
 	custody_request = doc.get("custom_custody_request")
 	custodian = doc.get("custom_custodian")
+	accountant_custody = doc.get("custom_accountant_custody")
 
 	if custody_request:
 		_safe_recalculate_custody_request(custody_request)
-	elif custodian:
+	if accountant_custody:
+		_safe_recalculate_accountant_custody(accountant_custody)
+	if custodian:
 		_safe_update_custodian_dashboard(custodian)
 
-
-# ─── Journal Entry Hooks ──────────────────────────────────────────────────────
-
-def on_journal_submit(doc, method):
-	"""
-	Triggered after a Journal Entry is submitted.
-	If linked to an Accountant Custody (settlement JE), recalculates its status.
-	"""
-	ac_name = doc.get("custom_accountant_custody")
-	if not ac_name:
-		return
-
-	try:
-		from cash_and_securities_management.treasury.balances import (
-			recalculate_accountant_custody_status,
-		)
-		recalculate_accountant_custody_status(ac_name)
-	except Exception as e:
-		frappe.log_error(str(e), f"on_journal_submit: failed to update AC {ac_name}")
-
-
-def on_journal_cancel(doc, method):
-	"""
-	Triggered after a Journal Entry is cancelled.
-	Recalculates the linked Accountant Custody status.
-	"""
-	ac_name = doc.get("custom_accountant_custody")
-	if not ac_name:
-		return
-
-	try:
-		from cash_and_securities_management.treasury.balances import (
-			recalculate_accountant_custody_status,
-		)
-		recalculate_accountant_custody_status(ac_name)
-	except Exception as e:
-		frappe.log_error(str(e), f"on_journal_cancel: failed to update AC {ac_name}")
-
+	if custody_request:
+		_safe_sync_custody_request_payment_table(custody_request)
 
 # ─── Private helpers ──────────────────────────────────────────────────────────
 
@@ -346,6 +389,28 @@ def _safe_recalculate_custody_request(custody_request_name):
 		recalculate_custody_request_status(custody_request_name)
 	except Exception as e:
 		frappe.log_error(str(e), f"_safe_recalculate_custody_request: {custody_request_name}")
+
+
+def _safe_recalculate_accountant_custody(accountant_custody_name):
+	"""Safely recalculate Accountant Custody status and totals."""
+	try:
+		from cash_and_securities_management.treasury.balances import (
+			recalculate_accountant_custody_status,
+		)
+		recalculate_accountant_custody_status(accountant_custody_name)
+	except Exception as e:
+		frappe.log_error(str(e), f"_safe_recalculate_accountant_custody: {accountant_custody_name}")
+
+
+def _safe_sync_custody_request_payment_table(custody_request_name):
+	"""Safely sync submitted advance Payment Entries into CR child table."""
+	try:
+		from cash_and_securities_management.treasury.balances import (
+			sync_custody_request_payment_entries,
+		)
+		sync_custody_request_payment_entries(custody_request_name)
+	except Exception as e:
+		frappe.log_error(str(e), f"_safe_sync_custody_request_payment_table: {custody_request_name}")
 
 
 def _is_custody_purchase_doc(doc):

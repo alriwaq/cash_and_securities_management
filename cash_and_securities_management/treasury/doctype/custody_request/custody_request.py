@@ -177,7 +177,9 @@ class CustodyRequest(Document):
 		total_paid = frappe.db.sql(
 			"""SELECT COALESCE(SUM(paid_amount), 0)
 			   FROM `tabPayment Entry`
-			   WHERE custom_custody_request = %s AND docstatus = 1""",
+			   WHERE custom_custody_request = %s
+			     AND docstatus = 1
+			     AND COALESCE(custom_accountant_custody, '') = ''""",
 			(self.name,),
 		)[0][0] or 0
 		total_paid = flt(total_paid)
@@ -193,6 +195,14 @@ class CustodyRequest(Document):
 		else:
 			new_status = "Paid"
 		self.db_set("status", new_status)
+
+		try:
+			from cash_and_securities_management.treasury.balances import (
+				sync_custody_request_payment_entries,
+			)
+			sync_custody_request_payment_entries(self.name)
+		except Exception:
+			pass
 
 		self._refresh_custodian_balance()
 

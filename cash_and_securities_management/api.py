@@ -140,6 +140,153 @@ def create_custody_settlement(
     )
 
 
+@frappe.whitelist()
+def create_custody_payment_entry_from_pi(purchase_invoice):
+    pi = frappe.get_doc("Purchase Invoice", purchase_invoice)
+
+    if pi.docstatus != 1:
+        frappe.throw(_("Purchase Invoice {0} must be submitted before payment.").format(pi.name))
+
+    if pi.get("custom_source_document_type") != "Custody" or not pi.get("custom_accountant_custody"):
+        frappe.throw(
+            _("Purchase Invoice {0} is not a custody invoice.").format(pi.name),
+            title=_("Invalid Purchase Invoice"),
+        )
+
+    outstanding = flt(pi.get("outstanding_amount"))
+    if outstanding <= 0:
+        frappe.throw(_("Purchase Invoice {0} has no outstanding amount.").format(pi.name))
+
+    ac_doc = frappe.get_doc("Accountant Custody", pi.custom_accountant_custody)
+    advance_account, payable_account = ac_doc._get_custodian_accounts()
+
+    pe = frappe.new_doc("Payment Entry")
+    pe.payment_type = "Internal Transfer"
+    pe.posting_date = frappe.utils.nowdate()
+    pe.company = pi.company
+    pe.party_type = "Custodian"
+    pe.party = pi.custom_custodian or ac_doc.custodian
+    pe.paid_from = advance_account
+    pe.paid_to = payable_account
+    pe.paid_amount = outstanding
+    pe.received_amount = outstanding
+    pe.reference_no = pi.name
+    pe.reference_date = frappe.utils.nowdate()
+    pe.remarks = _("Custody settlement payment for Purchase Invoice {0}").format(pi.name)
+
+    pe.custom_source_document_type = "Custody"
+    pe.custom_accountant_custody = pi.custom_accountant_custody
+    pe.custom_custodian = pi.custom_custodian or ac_doc.custodian
+    pe.custom_custody_request = ac_doc.custody_request
+
+    pe.append(
+        "references",
+        {
+            "reference_doctype": "Purchase Invoice",
+            "reference_name": pi.name,
+            "total_amount": flt(pi.get("grand_total")),
+            "outstanding_amount": outstanding,
+            "allocated_amount": outstanding,
+        },
+    )
+
+    pe.flags.ignore_permissions = True
+    pe.insert()
+    pe.submit()
+    return pe.name
+
+
+@frappe.whitelist()
+def get_payment_entry(dt, dn, party_amount=None, bank_account=None, bank_amount=None):
+    if dt != "Purchase Invoice":
+        from erpnext.accounts.doctype.payment_entry.payment_entry import (
+            get_payment_entry as erpnext_get_payment_entry,
+        )
+
+        return erpnext_get_payment_entry(
+            dt,
+            dn,
+            party_amount=party_amount,
+            bank_account=bank_account,
+            bank_amount=bank_amount,
+        )
+
+    pi_doc = frappe.get_doc("Purchase Invoice", dn)
+    is_custody_pi = (
+        pi_doc.get("custom_source_document_type") == "Custody"
+        and bool(pi_doc.get("custom_accountant_custody"))
+    )
+    if not is_custody_pi:
+        from erpnext.accounts.doctype.payment_entry.payment_entry import (
+            get_payment_entry as erpnext_get_payment_entry,
+        )
+
+        return erpnext_get_payment_entry(
+            dt,
+            dn,
+            party_amount=party_amount,
+            bank_account=bank_account,
+            bank_amount=bank_amount,
+        )
+
+    pe_name = create_custody_payment_entry_from_pi(dn)
+    return frappe.get_doc("Payment Entry", pe_name)
+
+
+@frappe.whitelist()
+def get_accountant_custody_settlements_dashboard(accountant_custody):
+    if not accountant_custody:
+        return {"rows": []}
+
+    pi_rows = frappe.get_all(
+        "Purchase Invoice",
+        filters={"custom_accountant_custody": accountant_custody},
+        fields=["name", "posting_date", "grand_total", "outstanding_amount", "status", "docstatus"],
+        order_by="posting_date asc, name asc",
+    )
+
+    pe_map = {}
+    pe_refs = frappe.db.sql(
+        """
+        select per.reference_name as purchase_invoice, pe.name as payment_entry,
+               pe.posting_date, pe.paid_amount, pe.docstatus
+        from `tabPayment Entry Reference` per
+        inner join `tabPayment Entry` pe on pe.name = per.parent
+        where per.reference_doctype = 'Purchase Invoice'
+          and pe.custom_accountant_custody = %s
+        order by pe.posting_date asc, pe.name asc
+        """,
+        (accountant_custody,),
+        as_dict=True,
+    )
+
+    for ref in pe_refs:
+        pe_map.setdefault(ref.purchase_invoice, []).append(
+            {
+                "payment_entry": ref.payment_entry,
+                "posting_date": ref.posting_date,
+                "paid_amount": flt(ref.paid_amount),
+                "docstatus": ref.docstatus,
+            }
+        )
+
+    rows = []
+    for pi in pi_rows:
+        rows.append(
+            {
+                "purchase_invoice": pi.name,
+                "pi_posting_date": pi.posting_date,
+                "pi_total": flt(pi.grand_total),
+                "pi_outstanding": flt(pi.outstanding_amount),
+                "pi_status": pi.status,
+                "pi_docstatus": pi.docstatus,
+                "payments": pe_map.get(pi.name, []),
+            }
+        )
+
+    return {"rows": rows}
+
+
 def _resolve_pr_doc(doc=None, purchase_receipt=None):
     if purchase_receipt:
         return frappe.get_doc("Purchase Receipt", purchase_receipt)

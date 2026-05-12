@@ -16,7 +16,7 @@ Three-step flow:
 
   Stage 3 — Settlement:
     Settle Button → JS Dialog → API → create_settlement()
-    GL (JE):
+		GL (Payment Entry):
       Debit:  Custodian Payable Account  ↓  (reduce liability)
       Credit: Custodian Advance Account  ↓  (reduce asset)
 
@@ -25,13 +25,13 @@ Architecture:
 
 Mode handling:
   Consolidated — accounts are the shared group accounts; Custodian is set as
-                 Party on both the PI and the JE to isolate individual balances.
+								 Party on both the PI and the settlement PE to isolate individual balances.
   Individual   — accounts are the custodian's dedicated leaf accounts; no Party
                  field is needed on the GL entries.
 
 Settlement pathways (via dynamic JS dialog):
-  1. Advance Deduction  — Journal Entry: Debit Payable / Credit Advance
-  2. Direct Payment     — Journal Entry: Debit Payable / Credit Bank/Cash
+	1. Advance Deduction  — Payment Entry: Debit Payable / Credit Advance
+	2. Direct Payment     — Payment Entry: Debit Payable / Credit Bank/Cash
   3. Mixed              — Combination of both
 """
 import frappe
@@ -73,7 +73,7 @@ class AccountantCustody(Document):
 	def _validate_cancellation_order(self):
 		"""
 		Enforce strict cancellation order:
-		  Settlement JE must be cancelled before PI,
+		  Settlement Payment Entry must be cancelled before PI,
 		  PI must be cancelled before PR,
 		  PR must be cancelled before Accountant Custody.
 		"""
@@ -494,15 +494,15 @@ class AccountantCustody(Document):
 		  JS (UI) → api.create_custody_settlement() → doc.create_settlement()
 
 		Supports three pathways:
-		  1. Advance Deduction only  — Journal Entry: Debit Payable / Credit Advance
-		  2. Direct Payment only     — Journal Entry: Debit Payable / Credit Bank/Cash
+		  1. Advance Deduction only  — Payment Entry: Debit Payable / Credit Advance
+		  2. Direct Payment only     — Payment Entry: Debit Payable / Credit Bank/Cash
 		  3. Mixed                   — Combination of both
 
 		All GL entries use the Custodian Party (not Supplier) for isolation.
 		Both accounts are fetched from the Custodian record and already reflect
 		the correct mode (shared group account or dedicated leaf account).
 
-		Returns the name of the primary document created (JE).
+		Returns the name of the primary document created (Payment Entry).
 		"""
 		advance_amount_allocated = flt(advance_amount_allocated)
 		direct_payment_amount = flt(direct_payment_amount)
@@ -513,7 +513,7 @@ class AccountantCustody(Document):
 			advance_allocated,
 			direct_paid,
 			total_amount,
-			je_name,
+			payment_entry,
 			notes,
 		):
 			idx = (
@@ -538,9 +538,9 @@ class AccountantCustody(Document):
 					parent, parentfield, parenttype,
 					custody_request, custody_request_balance,
 					claimed_amount, advance_amount_allocated, direct_payment_amount,
-					total_settlement_amount, settlement_je, settlement_date, settlement_notes
+					total_settlement_amount, payment_entry, settlement_date, settlement_notes
 				)
-				values (%s, %s, %s, %s, %s, 0, %s, %s, 'settlements', 'Accountant Custody', %s, %s, %s, %s, %s, %s, %s, %s, %s)
+				values (%s, %s, %s, %s, %s, 0, %s, %s, 'settlements', 'Accountant Custody', %s, %s, %s, %s, %s, %s, %s, %s)
 				""",
 				(
 					row_name,
@@ -556,11 +556,83 @@ class AccountantCustody(Document):
 					flt(advance_allocated),
 					flt(direct_paid),
 					flt(total_amount),
-					je_name,
+					payment_entry,
 					nowdate(),
 					notes or "",
 				),
 			)
+
+		def allocate_open_purchase_invoices(pe_doc, allocation_amount):
+			remaining = flt(allocation_amount)
+			if remaining <= 0:
+				return
+
+			open_pis = frappe.get_all(
+				"Purchase Invoice",
+				filters={
+					"custom_accountant_custody": self.name,
+					"docstatus": 1,
+					"outstanding_amount": [">", 0],
+				},
+				fields=["name", "grand_total", "outstanding_amount", "due_date"],
+				order_by="posting_date asc, name asc",
+			)
+
+			for pi in open_pis:
+				if remaining <= 0:
+					break
+
+				outstanding = flt(pi.outstanding_amount)
+				if outstanding <= 0:
+					continue
+
+				allocated = min(remaining, outstanding)
+				pe_doc.append(
+					"references",
+					{
+						"reference_doctype": "Purchase Invoice",
+						"reference_name": pi.name,
+						"due_date": pi.due_date,
+						"total_amount": flt(pi.grand_total),
+						"outstanding_amount": outstanding,
+						"allocated_amount": allocated,
+					},
+				)
+				remaining = flt(remaining) - flt(allocated)
+
+			if remaining > 0.01:
+				frappe.throw(
+					_("Unable to allocate settlement amount {0}; outstanding Purchase Invoices are lower.").format(
+						remaining
+					),
+					title=_("Allocation Error"),
+				)
+
+		def create_settlement_payment_entry(amount, paid_from_account, remark):
+			pe = frappe.new_doc("Payment Entry")
+			pe.payment_type = "Internal Transfer"
+			pe.posting_date = nowdate()
+			pe.company = self.company
+			pe.party_type = "Custodian"
+			pe.party = self.custodian
+			pe.paid_from = paid_from_account
+			pe.paid_to = payable_account
+			pe.paid_amount = flt(amount)
+			pe.received_amount = flt(amount)
+			pe.reference_no = self.name
+			pe.reference_date = nowdate()
+			pe.remarks = remark
+			pe.custom_source_document_type = "Custody"
+			pe.custom_accountant_custody = self.name
+			pe.custom_custodian = self.custodian
+			pe.custom_custody_request = self.custody_request
+
+			allocate_open_purchase_invoices(pe, amount)
+
+			pe.flags.ignore_permissions = True
+			pe.insert()
+			pe.submit()
+			return pe.name
 
 		if total_settlement <= 0:
 			frappe.throw(
@@ -571,60 +643,28 @@ class AccountantCustody(Document):
 		advance_account, payable_account = self._get_custodian_accounts()
 		primary_doc_name = None
 
-		def set_party_if_required(gl_row):
-			account_type = frappe.db.get_value("Account", gl_row.get("account"), "account_type")
-			if account_type in ("Payable", "Receivable"):
-				gl_row["party_type"] = "Custodian"
-				gl_row["party"] = self.custodian
-
-		cost_center = frappe.db.get_value("Company", self.company, "cost_center")
-
-		# ── Advance Deduction via Journal Entry ───────────────────────────────
+		# ── Advance Deduction via Payment Entry (Advance -> Payable) ──────────
 		if advance_amount_allocated > 0:
-			je = frappe.new_doc("Journal Entry")
-			je.voucher_type = "Journal Entry"
-			je.posting_date = nowdate()
-			je.company = self.company
-			je.user_remark = (
-				f"Advance deduction settlement for Accountant Custody {self.name}. "
-				f"{settlement_notes}"
-			).strip()
-			je.custom_accountant_custody = self.name
-
-			# Debit payable account (reduce liability)
-			payable_row = {
-				"account": payable_account,
-				"debit_in_account_currency": advance_amount_allocated,
-				"cost_center": cost_center,
-			}
-			# Credit advance account (reduce asset)
-			advance_row = {
-				"account": advance_account,
-				"credit_in_account_currency": advance_amount_allocated,
-				"cost_center": cost_center,
-			}
-
-			set_party_if_required(payable_row)
-			set_party_if_required(advance_row)
-
-			je.append("accounts", payable_row)
-			je.append("accounts", advance_row)
-
-			je.flags.ignore_permissions = True
-			je.insert()
-			je.submit()
-			primary_doc_name = je.name
+			pe_name = create_settlement_payment_entry(
+				amount=advance_amount_allocated,
+				paid_from_account=advance_account,
+				remark=(
+					f"Advance deduction settlement for Accountant Custody {self.name}. "
+					f"{settlement_notes}"
+				).strip(),
+			)
+			primary_doc_name = pe_name
 
 			insert_settlement_row(
 				claimed_amount=advance_amount_allocated,
 				advance_allocated=advance_amount_allocated,
 				direct_paid=0,
 				total_amount=advance_amount_allocated,
-				je_name=je.name,
+				payment_entry=pe_name,
 				notes=settlement_notes,
 			)
 
-		# ── Direct Payment via Journal Entry (Payable → Bank/Cash) ───────────
+		# ── Direct Payment via Payment Entry (Bank/Cash -> Payable) ───────────
 		if direct_payment_amount > 0:
 			pay_from = (
 				frappe.db.get_value("Company", self.company, "default_bank_account")
@@ -637,47 +677,23 @@ class AccountantCustody(Document):
 					title=_("Missing Account"),
 				)
 
-			je = frappe.new_doc("Journal Entry")
-			je.voucher_type = "Journal Entry"
-			je.posting_date = nowdate()
-			je.company = self.company
-			je.user_remark = (
-				f"Direct payment settlement for Accountant Custody {self.name}. "
-				f"{settlement_notes}"
-			).strip()
-			je.custom_accountant_custody = self.name
-
-			# Debit payable account (reduce liability)
-			payable_row = {
-				"account": payable_account,
-				"debit_in_account_currency": direct_payment_amount,
-				"cost_center": cost_center,
-			}
-			# Credit bank/cash account
-			bank_row = {
-				"account": pay_from,
-				"credit_in_account_currency": direct_payment_amount,
-				"cost_center": cost_center,
-			}
-
-			set_party_if_required(payable_row)
-			set_party_if_required(bank_row)
-
-			je.append("accounts", payable_row)
-			je.append("accounts", bank_row)
-
-			je.flags.ignore_permissions = True
-			je.insert()
-			# Leave as DRAFT — user must review and submit
+			pe_name = create_settlement_payment_entry(
+				amount=direct_payment_amount,
+				paid_from_account=pay_from,
+				remark=(
+					f"Direct payment settlement for Accountant Custody {self.name}. "
+					f"{settlement_notes}"
+				).strip(),
+			)
 			if not primary_doc_name:
-				primary_doc_name = je.name
+				primary_doc_name = pe_name
 
 			insert_settlement_row(
 				claimed_amount=0,
 				advance_allocated=0,
 				direct_paid=direct_payment_amount,
 				total_amount=direct_payment_amount,
-				je_name=je.name,
+				payment_entry=pe_name,
 				notes=settlement_notes,
 			)
 

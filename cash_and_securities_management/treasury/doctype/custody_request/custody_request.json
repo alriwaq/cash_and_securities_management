@@ -30,6 +30,8 @@
   "accounting_section",
   "advance_account",
   "column_break_18",
+    "payments_section",
+    "payment_entries",
   "more_info_section",
   "status",
   "column_break_kimx",
@@ -206,6 +208,19 @@
    "fieldname": "column_break_18",
    "fieldtype": "Column Break"
   },
+    {
+     "fieldname": "payments_section",
+     "fieldtype": "Section Break",
+     "label": "Linked Advance Payments"
+    },
+    {
+     "allow_on_submit": 1,
+     "fieldname": "payment_entries",
+     "fieldtype": "Table",
+     "label": "Payment Entries",
+     "options": "Custody Request Payment Entry",
+     "read_only": 1
+    },
   {
    "collapsible": 1,
    "fieldname": "more_info_section",
