@@ -25,13 +25,29 @@ class CustodyPaymentEntry(PaymentEntry):
 		if self._is_custody_mode():
 			self.flags.ignore_mandatory = True
 
+	def validate(self):
+		"""
+		Override validate to suppress party-type-account validation for custody PEs.
+		ERPNext validates that Payable accounts must have Supplier party,
+		but custody PEs use Custodian party instead.
+		"""
+		if self._is_custody_mode():
+			# For custody PEs, skip party-type-account validation
+			# by temporarily disabling the validate_party_type_account method
+			self.validate_party_type_account = lambda: None
+		
+		try:
+			super().validate()
+		finally:
+			# Restore the method for non-custody operations
+			if self._is_custody_mode():
+				# Restore to the parent class method
+				self.validate_party_type_account = PaymentEntry.validate_party_type_account.__get__(self, type(self))
+
 	def validate_party_type_account(self):
 		"""
 		Override ERPNext's party type validation to allow Custodian party
 		on Payable accounts for custody settlement PEs.
-		
-		For custody-linked PEs, skip the supplier-only requirement.
-		For regular PEs, call the parent validation.
 		"""
 		if self._is_custody_mode():
 			# Custody PEs use Custodian party on Payable accounts
