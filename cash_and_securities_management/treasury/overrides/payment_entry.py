@@ -24,8 +24,6 @@ class CustodyPaymentEntry(PaymentEntry):
 		"""
 		if self._is_custody_mode():
 			self.flags.ignore_mandatory = True
-		
-		return super().before_validate()
 
 	def validate_party_type_account(self):
 		"""
@@ -42,21 +40,3 @@ class CustodyPaymentEntry(PaymentEntry):
 
 		# For non-custody PEs, run the standard validation
 		super().validate_party_type_account()
-
-	def validate(self):
-		"""
-		Override validate to skip party_type_account check for custody PEs.
-		"""
-		# For custody PEs, replace the party_type_account validation temporarily
-		original_method = self.validate_party_type_account if hasattr(self, 'validate_party_type_account') else None
-		
-		if self._is_custody_mode():
-			# Replace the method temporarily with a no-op
-			self.validate_party_type_account = lambda: None
-		
-		try:
-			super().validate()
-		finally:
-			# Restore original method if it existed
-			if original_method:
-				self.validate_party_type_account = original_method
