@@ -93,6 +93,9 @@ function setup_action_buttons(frm) {
     if (frm.doc.docstatus !== 1) return;
 
     var status = frm.doc.status;
+    var billed = flt(frm.doc.total_billed_amount || 0);
+    var settled = flt(frm.doc.total_settled_amount || 0);
+    var has_remaining_settlement = billed > settled + 0.01;
 
     // ── Create Purchase Receipt ───────────────────────────────────────────
     if (["Pending", "Partly Received"].indexOf(status) !== -1) {
@@ -135,10 +138,18 @@ function setup_action_buttons(frm) {
     }
 
     // ── Settle ────────────────────────────────────────────────────────────
-    if (["Fully Invoiced", "Partly Settled"].indexOf(status) !== -1) {
+    if (["Fully Invoiced", "Partly Settled", "Partly Invoiced"].indexOf(status) !== -1 || has_remaining_settlement) {
         frm.add_custom_button(__("Settle"), function () {
-            open_settlement_dialog(frm);
-        }).addClass("btn-primary");
+            try {
+                open_settlement_dialog(frm);
+            } catch (e) {
+                frappe.msgprint({
+                    title: __("Settlement Dialog Error"),
+                    indicator: "red",
+                    message: (e && e.message) || __("Unable to open settlement dialog."),
+                });
+            }
+        }, __("Settlement")).addClass("btn-primary");
     }
 }
 
@@ -155,10 +166,12 @@ function run_custody_settlement(frm, payload) {
         freeze: true,
         freeze_message: __("Processing Settlement..."),
         callback: function (r) {
-            if (r && !r.exc && r.message) {
+            if (r && !r.exc) {
                 frm.reload_doc();
                 frappe.show_alert({
-                    message: __("Settlement complete. Document {0} created.", [r.message]),
+                    message: r.message
+                        ? __("Settlement complete. Document {0} created.", [r.message])
+                        : __("Settlement complete."),
                     indicator: "green"
                 });
             }
@@ -178,6 +191,10 @@ function open_settlement_dialog(frm) {
     var METHOD_ADVANCE = "Advance Deduction (Journal Entry)";
     var METHOD_DIRECT = "Direct Payment (Bank/Cash Journal Entry)";
     var METHOD_MIXED = "Mixed Settlement";
+
+    function set_dialog_field_display(dialog, fieldname, show) {
+        dialog.set_df_property(fieldname, "hidden", show ? 0 : 1);
+    }
 
     var billed_amount = flt(frm.doc.total_billed_amount || 0);
     var settled_amount = flt(frm.doc.total_settled_amount || 0);
@@ -231,21 +248,21 @@ function open_settlement_dialog(frm) {
                     if (method === METHOD_ADVANCE) {
                         d.set_value("advance_amount_allocated", adv_max);
                         d.set_value("direct_payment_amount", 0);
-                        d.toggle_display("advance_amount_allocated", true);
-                        d.toggle_display("direct_payment_amount", false);
+                        set_dialog_field_display(d, "advance_amount_allocated", true);
+                        set_dialog_field_display(d, "direct_payment_amount", false);
                     } else if (method === METHOD_DIRECT) {
                         d.set_value("advance_amount_allocated", 0);
                         d.set_value("direct_payment_amount", remaining_to_settle);
-                        d.toggle_display("advance_amount_allocated", false);
-                        d.toggle_display("direct_payment_amount", true);
+                        set_dialog_field_display(d, "advance_amount_allocated", false);
+                        set_dialog_field_display(d, "direct_payment_amount", true);
                     } else if (method === METHOD_MIXED) {
                         d.set_value("advance_amount_allocated", adv_max);
                         d.set_value("direct_payment_amount", remaining_to_settle - adv_max);
-                        d.toggle_display("advance_amount_allocated", true);
-                        d.toggle_display("direct_payment_amount", true);
+                        set_dialog_field_display(d, "advance_amount_allocated", true);
+                        set_dialog_field_display(d, "direct_payment_amount", true);
                     } else {
-                        d.toggle_display("advance_amount_allocated", false);
-                        d.toggle_display("direct_payment_amount", false);
+                        set_dialog_field_display(d, "advance_amount_allocated", false);
+                        set_dialog_field_display(d, "direct_payment_amount", false);
                     }
                 }
             },
@@ -312,8 +329,8 @@ function open_settlement_dialog(frm) {
     });
 
     // Hide amount fields initially until method is selected
-    d.toggle_display("advance_amount_allocated", false);
-    d.toggle_display("direct_payment_amount", false);
+    set_dialog_field_display(d, "advance_amount_allocated", false);
+    set_dialog_field_display(d, "direct_payment_amount", false);
     d.show();
 }
 
