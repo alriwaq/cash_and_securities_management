@@ -93,8 +93,6 @@ doctype_js = {
 override_whitelisted_methods = {
     "erpnext.stock.doctype.purchase_receipt.purchase_receipt.make_purchase_invoice":
         "cash_and_securities_management.api.make_purchase_invoice",
-    "erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry":
-        "cash_and_securities_management.api.get_payment_entry",
 }
 
 # ─── Doctype Class Overrides ────────────────────────────────────────────────
@@ -106,7 +104,7 @@ override_doctype_class = {
 }
 
 # ─── Document Events ──────────────────────────────────────────────────────────
-# Hook into Purchase Receipt, Purchase Invoice, and Payment Entry
+# Hook into Purchase Receipt, Purchase Invoice, Payment Entry, and Journal Entry
 # to keep Accountant Custody, Custody Request, and Custodian balances in sync.
 doc_events = {
     "Purchase Receipt": {
@@ -122,10 +120,12 @@ doc_events = {
         "on_cancel": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_pi_cancel",
     },
     "Payment Entry": {
-        "before_save": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_payment_before_save",
-        "before_submit": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_payment_before_submit",
         "on_submit": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_payment_submit",
         "on_cancel": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_payment_cancel",
+    },
+    "Journal Entry": {
+        "on_submit": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_journal_submit",
+        "on_cancel": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_journal_cancel",
     },
 }
 
