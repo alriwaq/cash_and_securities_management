@@ -1,5 +1,6 @@
-// Accountant Custody DocType — Client-side controller (v2)
-// Dynamic settlement dialog with three pathways: Advance Deduction, Direct Payment, Mixed.
+// Accountant Custody DocType — Client-side controller (v3)
+// Architecture: JS (UI) → api.py (service boundary) → DocType method (engine)
+// Settlement dialog: three pathways — Advance Deduction, Direct Payment, Mixed.
 frappe.ui.form.on("Accountant Custody", {
     // ── Form lifecycle ────────────────────────────────────────────────────
     refresh: function (frm) {
@@ -141,56 +142,38 @@ function setup_action_buttons(frm) {
     }
 }
 
+// ── Settlement API call (JS → api.py → DocType engine) ───────────────────────
 function run_custody_settlement(frm, payload) {
-    function on_success(r) {
-        if (!r || r.exc) {
-            return;
-        }
-
-        frm.reload_doc();
-        frappe.show_alert({
-            message: __("Settlement complete. Document {0} created.", [r.message]),
-            indicator: "green"
-        });
-    }
-
-    function fallback_to_doc_method() {
-        frappe.call({
-            method: "create_settlement",
-            doc: frm.doc,
-            args: payload,
-            freeze: true,
-            freeze_message: __("Processing Settlement..."),
-            callback: on_success,
-            error: function (err) {
-                frappe.msgprint({
-                    title: __("Settlement Failed"),
-                    indicator: "red",
-                    message: (err && err.message) || __("Unable to process settlement."),
-                });
-            }
-        });
-    }
-
     frappe.call({
         method: "cash_and_securities_management.api.create_custody_settlement",
-        args: Object.assign({ accountant_custody: frm.doc.name }, payload),
+        args: {
+            accountant_custody: frm.doc.name,
+            advance_amount_allocated: payload.advance_amount_allocated || 0,
+            direct_payment_amount: payload.direct_payment_amount || 0,
+            settlement_notes: payload.settlement_notes || "",
+        },
         freeze: true,
         freeze_message: __("Processing Settlement..."),
         callback: function (r) {
-            if (r && r.exc) {
-                fallback_to_doc_method();
-                return;
+            if (r && !r.exc && r.message) {
+                frm.reload_doc();
+                frappe.show_alert({
+                    message: __("Settlement complete. Document {0} created.", [r.message]),
+                    indicator: "green"
+                });
             }
-            on_success(r);
         },
-        error: function () {
-            fallback_to_doc_method();
+        error: function (err) {
+            frappe.msgprint({
+                title: __("Settlement Failed"),
+                indicator: "red",
+                message: (err && err.message) || __("Unable to process settlement. Please check the error log."),
+            });
         }
     });
 }
 
-// ── Settlement Dialog (v2 — dynamic, no static settlement_type) ──────────────
+// ── Settlement Dialog ─────────────────────────────────────────────────────────
 function open_settlement_dialog(frm) {
     var billed_amount = flt(frm.doc.total_billed_amount || 0);
     var settled_amount = flt(frm.doc.total_settled_amount || 0);
@@ -285,7 +268,7 @@ function open_settlement_dialog(frm) {
                 label: __("Direct Payment Amount"),
                 default: 0,
                 hidden: 1,
-                description: __('Amount paid directly from Bank/Cash to clear the custodian payable (generates Journal Entry).')
+                description: __("Amount paid directly from Bank/Cash to clear the custodian payable (generates Journal Entry).")
             },
             {
                 fieldname: "settlement_notes",

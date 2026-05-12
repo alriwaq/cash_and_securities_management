@@ -1,5 +1,5 @@
 """
-Accountant Custody DocType controller — v2.1
+Accountant Custody DocType controller — v3
 Manages the full procurement and settlement lifecycle for a custodian's cash purchases.
 
 Status lifecycle:
@@ -15,10 +15,13 @@ Three-step flow:
       Credit: Custodian Payable Account  ← liability_account on Custodian
 
   Stage 3 — Settlement:
-    Settle Button → JS Dialog → Journal Entry
+    Settle Button → JS Dialog → API → create_settlement()
     GL (JE):
       Debit:  Custodian Payable Account  ↓  (reduce liability)
       Credit: Custodian Advance Account  ↓  (reduce asset)
+
+Architecture:
+  JS (UI) → api.py (service boundary) → DocType method (business/accounting engine)
 
 Mode handling:
   Consolidated — accounts are the shared group accounts; Custodian is set as
@@ -153,36 +156,6 @@ class AccountantCustody(Document):
 				title=_("Missing Payable Account"),
 			)
 		return advance_account, payable_account
-
-	def _get_or_create_supplier_party(self):
-		"""
-		Return a shared compliance Supplier for standard ERPNext Purchase docs.
-
-		This keeps PR/PI in the same list and standard doctype while custody
-		behavior is differentiated using custom_source_document_type = "Custody".
-		A single shared Supplier avoids creating one Supplier per Custodian.
-		"""
-		supplier_name = "Custody Procurement Supplier"
-		if frappe.db.exists("Supplier", supplier_name):
-			return supplier_name
-
-		supplier_group = (
-			frappe.db.get_value("Supplier Group", {"is_group": 0}, "name")
-			or frappe.db.get_value("Supplier Group", "All Supplier Groups", "name")
-		)
-		if not supplier_group:
-			frappe.throw(
-				_("Please create at least one Supplier Group before generating Purchase documents."),
-				title=_("Missing Supplier Group"),
-			)
-
-		supplier = frappe.new_doc("Supplier")
-		supplier.supplier_name = supplier_name
-		supplier.supplier_type = "Company"
-		supplier.supplier_group = supplier_group
-		supplier.flags.ignore_permissions = True
-		supplier.insert()
-		return supplier.name
 
 	# ── Status Engine ─────────────────────────────────────────────────────────
 	def recalculate_status(self):
@@ -517,6 +490,9 @@ class AccountantCustody(Document):
 		"""
 		Stage 3 — Settlement: Process settlement via the dynamic dialog.
 
+		Called exclusively through the API layer:
+		  JS (UI) → api.create_custody_settlement() → doc.create_settlement()
+
 		Supports three pathways:
 		  1. Advance Deduction only  — Journal Entry: Debit Payable / Credit Advance
 		  2. Direct Payment only     — Journal Entry: Debit Payable / Credit Bank/Cash
@@ -585,18 +561,22 @@ class AccountantCustody(Document):
 			je.submit()
 			primary_doc_name = je.name
 
-			# Record in settlements child table
-			self.append("settlements", {
-				"custody_request": self.custody_request,
-				"custody_request_balance": self.custody_request_balance,
-				"claimed_amount": advance_amount_allocated,
-				"advance_amount_allocated": advance_amount_allocated,
-				"direct_payment_amount": 0,
-				"total_settlement_amount": advance_amount_allocated,
-				"settlement_je": je.name,
-				"settlement_date": nowdate(),
-				"settlement_notes": settlement_notes,
-			})
+			# Append settlement record directly to the database (doc is submitted)
+			settlement_row = frappe.new_doc("Custody Settlement Entry")
+			settlement_row.parent = self.name
+			settlement_row.parenttype = "Accountant Custody"
+			settlement_row.parentfield = "settlements"
+			settlement_row.custody_request = self.custody_request or ""
+			settlement_row.custody_request_balance = flt(self.custody_request_balance or 0)
+			settlement_row.claimed_amount = advance_amount_allocated
+			settlement_row.advance_amount_allocated = advance_amount_allocated
+			settlement_row.direct_payment_amount = 0
+			settlement_row.total_settlement_amount = advance_amount_allocated
+			settlement_row.settlement_je = je.name
+			settlement_row.settlement_date = nowdate()
+			settlement_row.settlement_notes = settlement_notes or ""
+			settlement_row.flags.ignore_permissions = True
+			settlement_row.insert()
 
 		# ── Direct Payment via Journal Entry (Payable → Bank/Cash) ───────────
 		if direct_payment_amount > 0:
@@ -648,24 +628,32 @@ class AccountantCustody(Document):
 			if not primary_doc_name:
 				primary_doc_name = je.name
 
-			# Record in settlements child table
-			self.append("settlements", {
-				"custody_request": self.custody_request,
-				"custody_request_balance": self.custody_request_balance,
-				"claimed_amount": 0,
-				"advance_amount_allocated": 0,
-				"direct_payment_amount": direct_payment_amount,
-				"total_settlement_amount": direct_payment_amount,
-				"settlement_je": je.name,
-				"settlement_date": nowdate(),
-				"settlement_notes": settlement_notes,
-			})
+			# Append settlement record directly to the database (doc is submitted)
+			settlement_row = frappe.new_doc("Custody Settlement Entry")
+			settlement_row.parent = self.name
+			settlement_row.parenttype = "Accountant Custody"
+			settlement_row.parentfield = "settlements"
+			settlement_row.custody_request = self.custody_request or ""
+			settlement_row.custody_request_balance = flt(self.custody_request_balance or 0)
+			settlement_row.claimed_amount = 0
+			settlement_row.advance_amount_allocated = 0
+			settlement_row.direct_payment_amount = direct_payment_amount
+			settlement_row.total_settlement_amount = direct_payment_amount
+			settlement_row.settlement_je = je.name
+			settlement_row.settlement_date = nowdate()
+			settlement_row.settlement_notes = settlement_notes or ""
+			settlement_row.flags.ignore_permissions = True
+			settlement_row.insert()
 
-		# ── Update totals and status ──────────────────────────────────────────
-		new_settled = flt(self.total_settled_amount or 0) + total_settlement
-		self.db_set("total_settled_amount", new_settled)
-		self.save(ignore_permissions=True)
-		self.recalculate_status()
+		# ── Update totals and status via db_set (doc is submitted) ───────────
+		new_settled = flt(
+			frappe.db.get_value("Accountant Custody", self.name, "total_settled_amount") or 0
+		) + total_settlement
+		frappe.db.set_value("Accountant Custody", self.name, "total_settled_amount", new_settled)
+
+		# Reload and recalculate status from fresh DB state
+		fresh_doc = frappe.get_doc("Accountant Custody", self.name)
+		fresh_doc.recalculate_status()
 
 		# Update Custody Request claimed amounts if advance was used
 		if advance_amount_allocated > 0 and self.custody_request:
