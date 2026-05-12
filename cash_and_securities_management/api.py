@@ -126,7 +126,7 @@ def generate_custody_purchase_invoice(accountant_custody):
 
 
 @frappe.whitelist()
-def settle_accountant_custody(
+def create_custody_settlement(
     accountant_custody,
     advance_amount_allocated=0,
     direct_payment_amount=0,

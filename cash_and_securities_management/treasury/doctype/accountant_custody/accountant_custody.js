@@ -173,7 +173,7 @@ function run_custody_settlement(frm, payload) {
     }
 
     frappe.call({
-        method: "cash_and_securities_management.api.settle_accountant_custody",
+        method: "cash_and_securities_management.api.create_custody_settlement",
         args: Object.assign({ accountant_custody: frm.doc.name }, payload),
         freeze: true,
         freeze_message: __("Processing Settlement..."),
