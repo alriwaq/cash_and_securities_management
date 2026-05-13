@@ -246,6 +246,17 @@
    "label": "Settlement Entries"
   },
   {
+   "fieldname": "settlements_dashboard_section",
+   "fieldtype": "Section Break",
+   "label": "Settlement Status"
+  },
+  {
+   "fieldname": "settlements_dashboard",
+   "fieldtype": "HTML",
+   "label": "Settlements Dashboard",
+   "options": "<div id='custody-settlements-dashboard'><p class='text-muted'>Loading...</p></div>"
+  },
+  {
    "fieldname": "settlements",
    "fieldtype": "Table",
    "label": "Settlement Entries",

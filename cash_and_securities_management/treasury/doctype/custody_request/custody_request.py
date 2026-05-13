@@ -1,5 +1,5 @@
 """
-Custody Request DocType controller — v2.1
+Custody Request DocType controller — v3
 Tracks the advance lifecycle for a custodian:
   Draft → Approved → Partly Paid → Paid → Partly Claimed → Claimed → Cancelled
 
@@ -16,6 +16,9 @@ isolate individual balances within the shared account.
 
 paid_amount is strictly read-only, computed from submitted Payment Entries.
 remaining_to_pay = advance_amount - paid_amount.
+
+payment_entries child table (Table MultiSelect → Custody Advance Payment Entry)
+tracks all advance PEs linked to this request.
 """
 import frappe
 from frappe import _
@@ -79,7 +82,6 @@ class CustodyRequest(Document):
 	def _validate_custodian_status(self):
 		"""Custodian must exist and be Active."""
 		if not self.custodian:
-			# Try to find custodian for this employee
 			custodian_name = frappe.db.get_value(
 				"Custodian",
 				{"employee": self.employee, "docstatus": 1},
@@ -162,6 +164,68 @@ class CustodyRequest(Document):
 			except Exception:
 				pass  # Non-critical; balance can be refreshed manually
 
+	def _sync_payment_entries_table(self):
+		"""
+		Rebuild the payment_entries Table MultiSelect from all Payment Entries
+		that reference this Custody Request. Called after any PE submit/cancel.
+		"""
+		pes = frappe.get_all(
+			"Payment Entry",
+			filters={"custom_custody_request": self.name},
+			fields=["name", "paid_amount", "posting_date", "docstatus"],
+			order_by="posting_date asc",
+		)
+
+		# Map docstatus to readable label
+		status_map = {0: "Draft", 1: "Submitted", 2: "Cancelled"}
+
+		# Build new rows
+		existing_pe_names = {
+			row.payment_entry
+			for row in frappe.get_all(
+				"Custody Advance Payment Entry",
+				filters={"parent": self.name, "parenttype": "Custody Request"},
+				fields=["payment_entry"],
+			)
+		}
+
+		for pe in pes:
+			if pe.name not in existing_pe_names:
+				frappe.db.sql(
+					"""INSERT INTO `tabCustody Advance Payment Entry`
+					   (name, parent, parenttype, parentfield, idx,
+					    payment_entry, amount, posting_date, status,
+					    creation, modified, modified_by, owner, docstatus)
+					   VALUES (%s, %s, 'Custody Request', 'payment_entries',
+					   (SELECT COALESCE(MAX(idx),0)+1 FROM `tabCustody Advance Payment Entry` t2
+					    WHERE t2.parent = %s),
+					   %s, %s, %s, %s,
+					   NOW(), NOW(), 'Administrator', 'Administrator', 0)""",
+					(
+						frappe.generate_hash(length=10),
+						self.name,
+						self.name,
+						pe.name,
+						flt(pe.paid_amount),
+						pe.posting_date,
+						status_map.get(pe.docstatus, "Unknown"),
+					),
+				)
+			else:
+				# Update status in case it changed (e.g. PE was cancelled)
+				frappe.db.sql(
+					"""UPDATE `tabCustody Advance Payment Entry`
+					   SET status = %s, amount = %s, modified = NOW()
+					   WHERE parent = %s AND parenttype = 'Custody Request'
+					     AND payment_entry = %s""",
+					(
+						status_map.get(pe.docstatus, "Unknown"),
+						flt(pe.paid_amount),
+						self.name,
+						pe.name,
+					),
+				)
+
 	# ── Public API ────────────────────────────────────────────────────────────
 	@frappe.whitelist()
 	def refresh_amounts(self):
@@ -173,6 +237,7 @@ class CustodyRequest(Document):
 		"""
 		Recalculate paid_amount from all submitted Payment Entries linked to this
 		Custody Request. Called from the centralized balance engine (balances.py).
+		Also syncs the payment_entries Table MultiSelect.
 		"""
 		total_paid = frappe.db.sql(
 			"""SELECT COALESCE(SUM(paid_amount), 0)
@@ -196,13 +261,11 @@ class CustodyRequest(Document):
 			new_status = "Paid"
 		self.db_set("status", new_status)
 
+		# Sync the PE child table
 		try:
-			from cash_and_securities_management.treasury.balances import (
-				sync_custody_request_payment_entries,
-			)
-			sync_custody_request_payment_entries(self.name)
-		except Exception:
-			pass
+			self._sync_payment_entries_table()
+		except Exception as e:
+			frappe.log_error(str(e), f"update_paid_amount: failed to sync PE table for {self.name}")
 
 		self._refresh_custodian_balance()
 

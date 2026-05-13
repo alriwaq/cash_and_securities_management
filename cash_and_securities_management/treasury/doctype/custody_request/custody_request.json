@@ -205,6 +205,18 @@
    "read_only": 1
   },
   {
+   "fieldname": "payment_entries_section",
+   "fieldtype": "Section Break",
+   "label": "Advance Payment Entries"
+  },
+  {
+   "fieldname": "payment_entries",
+   "fieldtype": "Table MultiSelect",
+   "label": "Payment Entries",
+   "options": "Custody Advance Payment Entry",
+   "read_only": 1
+  },
+  {
    "fieldname": "column_break_18",
    "fieldtype": "Column Break"
   },
