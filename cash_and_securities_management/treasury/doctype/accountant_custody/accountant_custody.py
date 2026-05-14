@@ -168,6 +168,11 @@ class AccountantCustody(Document):
 		Status progression:
 		  Draft → Pending → Partly Received → Fully Received
 		  → Partly Invoiced → Fully Invoiced → Partly Settled → Fully Settled
+
+		IMPORTANT: This method queries the Item master directly for is_stock_item
+		and is_fixed_asset flags instead of relying on self.custody_items values,
+		which may be stale (0) in the database for records created before the
+		_populate_item_flags() fix was deployed.
 		"""
 		if self.docstatus == 2:
 			return  # Already cancelled
@@ -185,6 +190,29 @@ class AccountantCustody(Document):
 			{"custom_accountant_custody": self.name, "docstatus": 1},
 		)
 
+		# Query the Item master directly for stock/asset flags — never rely on
+		# self.custody_items.is_stock_item which may be 0 for old records.
+		stock_item_data = frappe.db.sql(
+			"""
+			SELECT aci.item_code, aci.qty,
+			       COALESCE(item.is_stock_item, 0) AS is_stock_item,
+			       COALESCE(item.is_fixed_asset, 0) AS is_fixed_asset
+			FROM `tabAccountant Custody Item` aci
+			LEFT JOIN `tabItem` item ON item.name = aci.item_code
+			WHERE aci.parent = %s AND aci.parenttype = 'Accountant Custody'
+			""",
+			(self.name,),
+			as_dict=True,
+		)
+
+		stock_items = [
+			d for d in stock_item_data
+			if d.is_stock_item or d.is_fixed_asset
+		]
+		total_stock_items = len(stock_items)
+		total_stock_qty = sum(flt(d.qty) for d in stock_items)
+		total_all_qty = sum(flt(d.qty) for d in stock_item_data)
+
 		if self.docstatus == 0:
 			new_status = "Draft"
 		elif submitted_prs == 0 and submitted_pis == 0:
@@ -192,35 +220,26 @@ class AccountantCustody(Document):
 			new_status = "Pending"
 		elif submitted_pis == 0:
 			# PRs exist but no PI yet
-			# Check if all stock items have been received
-			total_items = len([
-				i for i in self.custody_items if i.is_stock_item or i.is_fixed_asset
-			])
-			if total_items == 0:
+			if total_stock_items == 0:
 				# No stock items at all — go straight to invoice
 				new_status = "Fully Received"
 			else:
 				# Count PR items received
 				received_qty = flt(frappe.db.sql(
 					"""
-					SELECT COALESCE(SUM(pri.accepted_qty), 0)
+					SELECT COALESCE(SUM(pri.qty), 0)
 					FROM `tabPurchase Receipt Item` pri
 					JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent
 					WHERE pr.custom_accountant_custody = %s AND pr.docstatus = 1
 					""",
 					(self.name,),
 				)[0][0] or 0)
-				total_qty = sum(
-					flt(i.qty) for i in self.custody_items
-					if i.is_stock_item or i.is_fixed_asset
-				)
-				if received_qty >= total_qty - 0.001:
+				if received_qty >= total_stock_qty - 0.001:
 					new_status = "Fully Received"
 				else:
 					new_status = "Partly Received"
 		elif total_settled <= 0:
 			# PIs exist but no settlement yet
-			# Check if all items are invoiced
 			total_billed = flt(frappe.db.sql(
 				"""
 				SELECT COALESCE(SUM(pii.qty), 0)
@@ -230,8 +249,7 @@ class AccountantCustody(Document):
 				""",
 				(self.name,),
 			)[0][0] or 0)
-			total_qty = sum(flt(i.qty) for i in self.custody_items)
-			if total_billed >= total_qty - 0.001:
+			if total_billed >= total_all_qty - 0.001:
 				new_status = "Fully Invoiced"
 			else:
 				new_status = "Partly Invoiced"
@@ -245,6 +263,12 @@ class AccountantCustody(Document):
 				frappe.db.set_value("Accountant Custody", self.name, "status", new_status)
 			else:
 				self.status = new_status
+			frappe.log_error(
+				f"AC {self.name}: status changed from {self.status} to {new_status} "
+				f"(prs={submitted_prs}, pis={submitted_pis}, settled={total_settled}, "
+				f"stock_items={total_stock_items}, stock_qty={total_stock_qty})",
+				"recalculate_status debug",
+			)
 
 	# ── Stage 2: Purchase Receipt ─────────────────────────────────────────────
 	@frappe.whitelist()

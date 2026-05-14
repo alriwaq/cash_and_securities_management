@@ -29,6 +29,7 @@ def on_pr_validate(doc, method):
 	Triggered on Purchase Receipt validate.
 	Propagates custom_accountant_custody and custom_custodian from the AC
 	if not already set (handles the case where PR is created via the AC button).
+	Also validates that PR item quantities do not exceed AC item quantities.
 	"""
 	if doc.get("custom_accountant_custody"):
 		if not doc.get("custom_source_document_type"):
@@ -42,6 +43,11 @@ def on_pr_validate(doc, method):
 			)
 			if custodian:
 				doc.custom_custodian = custodian
+
+		# ── PR Qty Validation ─────────────────────────────────────────────────
+		# Ensure that the total received qty (existing submitted PRs + this PR)
+		# does not exceed the allowed qty on the Accountant Custody for each item.
+		_validate_pr_qty_against_ac(doc)
 
 
 def on_pr_before_submit(doc, method):
@@ -69,16 +75,14 @@ def on_pr_submit(doc, method):
 	"""
 	Triggered after a Purchase Receipt is submitted.
 	Updates received quantities on the linked Accountant Custody.
+	Errors are NOT silenced — they propagate to the user.
 	"""
 	if not doc.get("custom_accountant_custody"):
 		return
 
 	ac_name = doc.custom_accountant_custody
-	try:
-		ac_doc = frappe.get_doc("Accountant Custody", ac_name)
-		ac_doc.update_received_quantities()
-	except Exception as e:
-		frappe.log_error(str(e), f"on_pr_submit: failed to update AC {ac_name}")
+	ac_doc = frappe.get_doc("Accountant Custody", ac_name)
+	ac_doc.update_received_quantities()
 
 	if doc.get("custom_custodian"):
 		_safe_update_custodian_dashboard(doc.custom_custodian)
@@ -88,6 +92,7 @@ def on_pr_cancel(doc, method):
 	"""
 	Triggered after a Purchase Receipt is cancelled.
 	Enforces cancellation order, then resets received quantities.
+	Errors are NOT silenced — they propagate to the user.
 	"""
 	if not doc.get("custom_accountant_custody"):
 		return
@@ -98,11 +103,8 @@ def on_pr_cancel(doc, method):
 	validate_cancellation_order_for_pr(doc)
 
 	ac_name = doc.custom_accountant_custody
-	try:
-		ac_doc = frappe.get_doc("Accountant Custody", ac_name)
-		ac_doc.update_received_quantities()
-	except Exception as e:
-		frappe.log_error(str(e), f"on_pr_cancel: failed to update AC {ac_name}")
+	ac_doc = frappe.get_doc("Accountant Custody", ac_name)
+	ac_doc.update_received_quantities()
 
 	if doc.get("custom_custodian"):
 		_safe_update_custodian_dashboard(doc.custom_custodian)
@@ -375,6 +377,80 @@ def on_journal_cancel(doc, method):
 # ─── Private helpers ──────────────────────────────────────────────────────────
 
 CONSOLIDATED = "Consolidated (Party-Based)"
+
+
+def _validate_pr_qty_against_ac(doc):
+	"""
+	Validate that the total received qty (existing submitted PRs + this PR)
+	does not exceed the allowed qty on the Accountant Custody for each item.
+
+	Raises frappe.throw() with a clear message if any item exceeds its limit.
+	Skips validation for PRs not linked to an Accountant Custody.
+	"""
+	ac_name = doc.get("custom_accountant_custody")
+	if not ac_name:
+		return
+
+	# Get allowed qty per item_code from the Accountant Custody child table
+	ac_items = frappe.db.sql(
+		"""
+		SELECT aci.item_code, SUM(aci.qty) AS allowed_qty
+		FROM `tabAccountant Custody Item` aci
+		WHERE aci.parent = %s AND aci.parenttype = 'Accountant Custody'
+		GROUP BY aci.item_code
+		""",
+		(ac_name,),
+		as_dict=True,
+	)
+	allowed_qty_map = {d.item_code: flt(d.allowed_qty) for d in ac_items}
+
+	if not allowed_qty_map:
+		return
+
+	# Get already-received qty per item_code from other submitted PRs
+	# (exclude the current PR in case of amend/resubmit)
+	already_received = frappe.db.sql(
+		"""
+		SELECT pri.item_code, SUM(pri.qty) AS received_qty
+		FROM `tabPurchase Receipt Item` pri
+		JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent
+		WHERE pr.custom_accountant_custody = %s
+		  AND pr.docstatus = 1
+		  AND pr.name != %s
+		GROUP BY pri.item_code
+		""",
+		(ac_name, doc.name or ""),
+		as_dict=True,
+	)
+	received_qty_map = {d.item_code: flt(d.received_qty) for d in already_received}
+
+	# Validate each item in the current PR
+	errors = []
+	for pr_item in doc.items:
+		item_code = pr_item.item_code
+		allowed = allowed_qty_map.get(item_code)
+		if allowed is None:
+			# Item not in AC — skip (could be a non-custody item on a mixed PR)
+			continue
+
+		existing_received = received_qty_map.get(item_code, 0)
+		new_qty = flt(pr_item.qty)
+		total_after = existing_received + new_qty
+
+		if total_after > allowed + 0.001:
+			errors.append(
+				_("Row {0}: Item {1} — qty {2} would bring total received to {3}, "
+				  "exceeding allowed qty {4} on Accountant Custody {5}").format(
+					pr_item.idx, frappe.bold(item_code), new_qty,
+					total_after, allowed, ac_name
+				)
+			)
+
+	if errors:
+		frappe.throw(
+			"<br>".join(errors),
+			title=_("Purchase Receipt Qty Exceeds Accountant Custody Limit"),
+		)
 
 
 def _is_custody_settlement_pe(doc):
