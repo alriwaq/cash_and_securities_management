@@ -44,6 +44,14 @@ class AccountantCustody(Document):
 		self.recalculate_status()
 
 	def on_submit(self):
+		# Explicitly set status to "Pending" on submit.
+		# ERPNext's Document class may set a default "Submitted" status
+		# before on_submit runs — we override it here to ensure the AC
+		# always starts at "Pending" (the first valid post-submit status).
+		self.status = "Pending"
+		self.db_set("status", "Pending")
+		# Then run the full status engine which may advance it further
+		# if PRs/PIs already exist (e.g., amend scenario).
 		self.recalculate_status()
 
 	def on_cancel(self):
@@ -289,13 +297,6 @@ class AccountantCustody(Document):
 				frappe.db.set_value("Accountant Custody", self.name, "status", new_status)
 			else:
 				self.status = new_status
-			frappe.log_error(
-				f"AC {self.name}: status changed from {old_status} to {new_status} "
-				f"(prs={submitted_prs}, pis={submitted_pis}, settled={total_settled}, "
-				f"actual_billed={actual_billed_amount}, stock_items={total_stock_items}, "
-				f"stock_qty={total_stock_qty})",
-				"recalculate_status debug",
-			)
 
 	# ── Stage 2: Purchase Receipt ─────────────────────────────────────────────
 	@frappe.whitelist()

@@ -54,9 +54,14 @@ def on_pr_before_submit(doc, method):
 	"""
 	Submit-time custody swap for Purchase Receipt.
 	Redirects the payable-side account to the Custodian account.
+	Also re-validates qty limits (catches changes made between save and submit).
 	"""
 	if not _is_custody_purchase_doc(doc):
 		return
+
+	# Re-validate qty limits at submit time
+	if doc.get("custom_accountant_custody"):
+		_validate_pr_qty_against_ac(doc)
 
 	ac_doc, custodian = _resolve_custody_context(doc)
 	if not ac_doc:
