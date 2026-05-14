@@ -104,10 +104,66 @@ class AccountantCustody(Document):
 				title=_("No Items"),
 			)
 
-	def _calculate_totals(self):
-		"""Recalculate total_amount from custody_items."""
+	def _calculate_totals(self, persist=False):
+		"""
+		Recalculate all total fields on the AC.
+
+		  total_amount          — sum(qty × rate) from custody_items (always)
+		  total_accepted_amount — sum of PR grand_totals from submitted PRs
+		                          (only when self.name is set, i.e. doc exists in DB)
+		  total_billed_amount   — sum of PI grand_totals from submitted PIs
+		                          (only when self.name is set)
+
+		When persist=True (called from update_received_quantities /
+		update_billed_quantities on a submitted doc), all three values are
+		written directly to the DB via frappe.db.set_value.
+		"""
+		# ── 1. total_amount from child table ─────────────────────────────────
 		total = sum(flt(item.qty) * flt(item.rate) for item in self.custody_items)
 		self.total_amount = total
+
+		if not self.name:
+			# New doc not yet saved — nothing else to query
+			return
+
+		# ── 2. total_accepted_amount from submitted PRs ───────────────────────
+		total_accepted = flt(
+			frappe.db.sql(
+				"""
+				SELECT COALESCE(SUM(pr.grand_total), 0)
+				FROM `tabPurchase Receipt` pr
+				WHERE pr.custom_accountant_custody = %s AND pr.docstatus = 1
+				""",
+				(self.name,),
+			)[0][0] or 0
+		)
+		self.total_accepted_amount = total_accepted
+
+		# ── 3. total_billed_amount from submitted PIs ─────────────────────────
+		total_billed = flt(
+			frappe.db.sql(
+				"""
+				SELECT COALESCE(SUM(pi.grand_total), 0)
+				FROM `tabPurchase Invoice` pi
+				WHERE pi.custom_accountant_custody = %s AND pi.docstatus = 1
+				""",
+				(self.name,),
+			)[0][0] or 0
+		)
+		self.total_billed_amount = total_billed
+
+		if persist:
+			# Write all three totals to DB (safe for submitted docs)
+			frappe.db.set_value(
+				"Accountant Custody",
+				self.name,
+				{
+					"total_amount": total,
+					"total_accepted_amount": total_accepted,
+					"total_billed_amount": total_billed,
+				},
+				update_modified=False,
+			)
 
 	def _validate_no_settlements(self):
 		"""Block cancellation if any settlement PEs exist."""
@@ -194,7 +250,11 @@ class AccountantCustody(Document):
 		if self.docstatus == 2:
 			return  # Already cancelled
 
+		# Use the totals that were freshly written to DB by recalculate_accountant_custody_status
+		# (called before this method on submitted docs). On validate/draft, _calculate_totals
+		# has already populated self.total_billed_amount and self.total_settled_amount.
 		total_settled = flt(self.total_settled_amount or 0)
+		actual_billed_amount = flt(self.total_billed_amount or 0)
 
 		# Count submitted PRs and PIs linked to this AC
 		submitted_prs = frappe.db.count(
@@ -229,17 +289,6 @@ class AccountantCustody(Document):
 		total_stock_qty = sum(flt(d.qty) for d in stock_items)
 		total_all_qty = sum(flt(d.qty) for d in stock_item_data)
 
-		# Always compute actual_billed_amount from live PI data (never rely on
-		# self.total_amount which may be stale after _calculate_totals on reload).
-		actual_billed_amount = flt(frappe.db.sql(
-			"""
-			SELECT COALESCE(SUM(pi.grand_total), 0)
-			FROM `tabPurchase Invoice` pi
-			WHERE pi.custom_accountant_custody = %s AND pi.docstatus = 1
-			""",
-			(self.name,),
-		)[0][0] or 0)
-
 		if self.docstatus == 0:
 			new_status = "Draft"
 		elif submitted_prs == 0 and submitted_pis == 0:
@@ -267,7 +316,7 @@ class AccountantCustody(Document):
 					new_status = "Partly Received"
 		else:
 			# PIs exist — determine invoice vs settlement status
-			# First check: are all items billed?
+			# Check: are all items billed by qty?
 			total_billed_qty = flt(frappe.db.sql(
 				"""
 				SELECT COALESCE(SUM(pii.qty), 0)
@@ -280,15 +329,16 @@ class AccountantCustody(Document):
 			fully_billed = (total_billed_qty >= total_all_qty - 0.001)
 
 			if total_settled <= 0:
-				# No settlement yet
+				# No settlement yet — status depends on whether fully billed
 				if fully_billed:
 					new_status = "Fully Invoiced"
 				else:
 					new_status = "Partly Invoiced"
 			elif actual_billed_amount > 0 and total_settled >= actual_billed_amount - 0.01:
-				# Settled amount covers the actual billed amount
+				# Settled amount covers the actual billed amount — fully settled
 				new_status = "Fully Settled"
 			else:
+				# Some settlement exists but not enough — partly settled
 				new_status = "Partly Settled"
 
 		old_status = self.status
@@ -896,14 +946,9 @@ class AccountantCustody(Document):
 			custody_item.accepted_qty = new_accepted
 			custody_item.rejected_qty = new_rejected
 
-		# Recalculate totals and persist via db_set
-		self._calculate_totals()
-		frappe.db.set_value(
-			"Accountant Custody",
-			self.name,
-			{"total_amount": flt(self.total_amount)},
-			update_modified=False,
-		)
+		# Recalculate all totals and persist to DB (total_amount, total_accepted_amount,
+		# total_billed_amount) — safe for submitted docs.
+		self._calculate_totals(persist=True)
 		# Always reload from DB before recalculating status so that
 		# the status engine sees the freshly written qty values.
 		from cash_and_securities_management.treasury.balances import (
@@ -943,14 +988,9 @@ class AccountantCustody(Document):
 			)
 			custody_item.billed_qty = new_billed
 
-		# Recalculate totals and persist via db_set
-		self._calculate_totals()
-		frappe.db.set_value(
-			"Accountant Custody",
-			self.name,
-			{"total_amount": flt(self.total_amount)},
-			update_modified=False,
-		)
+		# Recalculate all totals and persist to DB (total_amount, total_accepted_amount,
+		# total_billed_amount) — safe for submitted docs.
+		self._calculate_totals(persist=True)
 		# Always reload from DB before recalculating status so that
 		# the status engine sees the freshly written qty values.
 		from cash_and_securities_management.treasury.balances import (

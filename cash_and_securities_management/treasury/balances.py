@@ -205,12 +205,13 @@ def recalculate_custody_request_status(cr_name):
 
 def recalculate_accountant_custody_status(ac_name):
 	"""
-	Recalculate total_settled_amount and the granular status of an Accountant
-	Custody based on current receipt, invoice, and settlement PE data.
+	Recalculate total_settled_amount, total_billed_amount, total_accepted_amount,
+	and the granular status of an Accountant Custody based on current receipt,
+	invoice, and settlement PE data.
 
 	Status progression:
-	  Draft → Pending Receipt → Pending Invoice → Pending Settlement
-	        → Partly Settled → Fully Settled
+	  Draft → Pending → Partly Received → Fully Received
+	        → Partly Invoiced → Fully Invoiced → Partly Settled → Fully Settled
 
 	Triggered by:
 	  - on_submit / on_cancel of Purchase Receipt (via pr_hooks)
@@ -220,8 +221,8 @@ def recalculate_accountant_custody_status(ac_name):
 	if not ac_name or not frappe.db.exists("Accountant Custody", ac_name):
 		return
 
-	# Recalculate total_settled_amount from live settlement rows
-	new_total = flt(
+	# ── 1. Recalculate total_settled_amount from live settlement rows ───────────
+	new_settled = flt(
 		frappe.db.sql(
 			"""
 			SELECT COALESCE(SUM(total_settlement_amount), 0)
@@ -232,17 +233,51 @@ def recalculate_accountant_custody_status(ac_name):
 		)[0][0]
 		or 0
 	)
+
+	# ── 2. Recalculate total_accepted_amount from submitted PRs ────────────────
+	new_accepted = flt(
+		frappe.db.sql(
+			"""
+			SELECT COALESCE(SUM(pr.grand_total), 0)
+			FROM `tabPurchase Receipt` pr
+			WHERE pr.custom_accountant_custody = %s AND pr.docstatus = 1
+			""",
+			(ac_name,),
+		)[0][0]
+		or 0
+	)
+
+	# ── 3. Recalculate total_billed_amount from submitted PIs ──────────────────
+	new_billed = flt(
+		frappe.db.sql(
+			"""
+			SELECT COALESCE(SUM(pi.grand_total), 0)
+			FROM `tabPurchase Invoice` pi
+			WHERE pi.custom_accountant_custody = %s AND pi.docstatus = 1
+			""",
+			(ac_name,),
+		)[0][0]
+		or 0
+	)
+
+	# ── 4. Write all three totals to DB in a single call ────────────────────────
 	frappe.db.set_value(
-		"Accountant Custody", ac_name, "total_settled_amount", new_total,
+		"Accountant Custody",
+		ac_name,
+		{
+			"total_settled_amount": new_settled,
+			"total_accepted_amount": new_accepted,
+			"total_billed_amount": new_billed,
+		},
 		update_modified=False,
 	)
 
-	# Reload and recalculate status
+	# ── 5. Reload and recalculate status ─────────────────────────────────────
 	ac_doc = frappe.get_doc("Accountant Custody", ac_name)
 	if ac_doc.docstatus == 1:
 		ac_doc.recalculate_status()
 
-	# Cascade to custodian dashboard
+	# ── 6. Cascade to custodian dashboard ─────────────────────────────────
 	if ac_doc.custodian:
 		update_custodian_dashboard(ac_doc.custodian)
 
