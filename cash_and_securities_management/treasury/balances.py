@@ -36,9 +36,9 @@ def update_custodian_dashboard(custodian_id):
 
 	Fields updated:
 	  total_disbursed      — sum of submitted advance Payment Entries
-	  total_outstanding    — total_disbursed minus total_claimed
-	  total_claimed        — sum of advance_amount_allocated from settlement rows
-	  total_pending        — sum of total_amount on submitted but unsettled ACs
+	  total_outstanding    — total_disbursed minus total_settled (advance deductions)
+	  pending_requests     — count of submitted but unpaid Custody Requests
+	  pending_settlements  — sum of total_amount on submitted but unsettled ACs
 	"""
 	if not custodian_id or not frappe.db.exists("Custodian", custodian_id):
 		return
@@ -59,8 +59,8 @@ def update_custodian_dashboard(custodian_id):
 		or 0
 	)
 
-	# Total claimed: advance deductions from settlement PE rows
-	total_claimed = flt(
+	# Total settled: sum of advance_amount_allocated from settlement rows
+	total_settled = flt(
 		frappe.db.sql(
 			"""
 			SELECT COALESCE(SUM(cse.advance_amount_allocated), 0)
@@ -73,11 +73,26 @@ def update_custodian_dashboard(custodian_id):
 		or 0
 	)
 
-	# Total outstanding = disbursed - claimed
-	total_outstanding = total_disbursed - total_claimed
+	# Total outstanding = disbursed - settled advance deductions
+	total_outstanding = total_disbursed - total_settled
 
-	# Total pending: submitted ACs not yet fully settled
-	total_pending = flt(
+	# Pending requests: submitted Custody Requests not yet fully paid
+	pending_requests = flt(
+		frappe.db.sql(
+			"""
+			SELECT COUNT(*)
+			FROM `tabCustody Request`
+			WHERE custodian = %s
+			  AND docstatus = 1
+			  AND status NOT IN ('Paid', 'Cancelled')
+			""",
+			(custodian_id,),
+		)[0][0]
+		or 0
+	)
+
+	# Pending settlements: sum of total_amount on submitted but unsettled ACs
+	pending_settlements = flt(
 		frappe.db.sql(
 			"""
 			SELECT COALESCE(SUM(total_amount), 0)
@@ -97,8 +112,8 @@ def update_custodian_dashboard(custodian_id):
 		{
 			"total_disbursed": total_disbursed,
 			"total_outstanding": total_outstanding,
-			"total_claimed": total_claimed,
-			"total_pending": total_pending,
+			"pending_requests": pending_requests,
+			"pending_settlements": pending_settlements,
 		},
 		update_modified=False,
 	)

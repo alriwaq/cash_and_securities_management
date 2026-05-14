@@ -146,8 +146,8 @@ class AccountantCustody(Document):
 		Called on validate, submit, and after any PR/PI/PE event.
 
 		Status progression:
-		  Draft → Pending Receipt → Pending Invoice → Pending Settlement
-		  → Partly Settled → Fully Settled → Closed
+		  Draft → Pending → Partly Received → Fully Received
+		  → Partly Invoiced → Fully Invoiced → Partly Settled → Fully Settled
 		"""
 		if self.docstatus == 2:
 			return  # Already cancelled
@@ -168,16 +168,53 @@ class AccountantCustody(Document):
 		if self.docstatus == 0:
 			new_status = "Draft"
 		elif submitted_prs == 0 and submitted_pis == 0:
-			# Check if there are any stock items requiring a PR
-			has_stock_items = any(
-				item.is_stock_item or item.is_fixed_asset
-				for item in self.custody_items
-			)
-			new_status = "Pending Receipt" if has_stock_items else "Pending Invoice"
+			# No PRs and no PIs yet — awaiting first receipt or invoice
+			new_status = "Pending"
 		elif submitted_pis == 0:
-			new_status = "Pending Invoice"
+			# PRs exist but no PI yet
+			# Check if all stock items have been received
+			total_items = len([
+				i for i in self.custody_items if i.is_stock_item or i.is_fixed_asset
+			])
+			if total_items == 0:
+				# No stock items at all — go straight to invoice
+				new_status = "Fully Received"
+			else:
+				# Count PR items received
+				received_qty = flt(frappe.db.sql(
+					"""
+					SELECT COALESCE(SUM(pri.accepted_qty), 0)
+					FROM `tabPurchase Receipt Item` pri
+					JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent
+					WHERE pr.custom_accountant_custody = %s AND pr.docstatus = 1
+					""",
+					(self.name,),
+				)[0][0] or 0)
+				total_qty = sum(
+					flt(i.qty) for i in self.custody_items
+					if i.is_stock_item or i.is_fixed_asset
+				)
+				if received_qty >= total_qty - 0.001:
+					new_status = "Fully Received"
+				else:
+					new_status = "Partly Received"
 		elif total_settled <= 0:
-			new_status = "Pending Settlement"
+			# PIs exist but no settlement yet
+			# Check if all items are invoiced
+			total_billed = flt(frappe.db.sql(
+				"""
+				SELECT COALESCE(SUM(pii.qty), 0)
+				FROM `tabPurchase Invoice Item` pii
+				JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent
+				WHERE pi.custom_accountant_custody = %s AND pi.docstatus = 1
+				""",
+				(self.name,),
+			)[0][0] or 0)
+			total_qty = sum(flt(i.qty) for i in self.custody_items)
+			if total_billed >= total_qty - 0.001:
+				new_status = "Fully Invoiced"
+			else:
+				new_status = "Partly Invoiced"
 		elif total_settled < total_amount - 0.01:
 			new_status = "Partly Settled"
 		else:
@@ -751,57 +788,93 @@ class AccountantCustody(Document):
 
 	# ── PR/PI Callbacks ──────────────────────────────────────────────────────
 	def update_received_quantities(self):
-		"""Called after a linked PR is submitted. Updates accepted_qty on items."""
+		"""
+		Called after a linked PR is submitted or cancelled.
+		Updates accepted_qty/rejected_qty on child items using direct DB writes
+		(safe for submitted documents).
+		"""
 		prs = frappe.get_all(
 			"Purchase Receipt",
 			filters={"custom_accountant_custody": self.name, "docstatus": 1},
 			fields=["name"],
 		)
-		if not prs:
-			return
 
-		for item in self.custody_items:
-			item.accepted_qty = 0
-			item.rejected_qty = 0
-
+		# Aggregate received/rejected qty per item_code across all submitted PRs
+		received = {}
+		rejected = {}
 		for pr_record in prs:
 			pr_doc = frappe.get_doc("Purchase Receipt", pr_record.name)
 			for pr_item in pr_doc.items:
-				for custody_item in self.custody_items:
-					if custody_item.item_code == pr_item.item_code:
-						custody_item.accepted_qty = (
-							flt(custody_item.accepted_qty) + flt(pr_item.qty)
-						)
-						custody_item.rejected_qty = (
-							flt(custody_item.rejected_qty) + flt(pr_item.rejected_qty)
-						)
-						break
+				code = pr_item.item_code
+				received[code] = flt(received.get(code, 0)) + flt(pr_item.qty)
+				rejected[code] = flt(rejected.get(code, 0)) + flt(pr_item.rejected_qty)
 
+		# Write directly to child table rows (bypasses docstatus check)
+		for custody_item in self.custody_items:
+			code = custody_item.item_code
+			new_accepted = received.get(code, 0)
+			new_rejected = rejected.get(code, 0)
+			frappe.db.set_value(
+				"Accountant Custody Item",
+				custody_item.name,
+				{"accepted_qty": new_accepted, "rejected_qty": new_rejected},
+				update_modified=False,
+			)
+			# Keep in-memory copy in sync
+			custody_item.accepted_qty = new_accepted
+			custody_item.rejected_qty = new_rejected
+
+		# Recalculate totals and persist via db_set
 		self._calculate_totals()
-		self.save(ignore_permissions=True)
+		frappe.db.set_value(
+			"Accountant Custody",
+			self.name,
+			{
+				"total_amount": flt(self.total_amount),
+				"total_received_amount": flt(self.get("total_received_amount") or 0),
+			},
+			update_modified=False,
+		)
 		self.recalculate_status()
 
 	def update_billed_quantities(self, pi_name=None):
-		"""Called after the linked PI is submitted. Updates billed_qty on items."""
+		"""
+		Called after a linked PI is submitted or cancelled.
+		Updates billed_qty on child items using direct DB writes
+		(safe for submitted documents).
+		"""
 		all_pis = frappe.get_all(
 			"Purchase Invoice",
 			filters={"custom_accountant_custody": self.name, "docstatus": 1},
 			fields=["name"],
 		)
-		if not all_pis:
-			return
 
-		for custody_item in self.custody_items:
-			custody_item.billed_qty = 0
-
+		# Aggregate billed qty per item_code across all submitted PIs
+		billed = {}
 		for pi_record in all_pis:
 			pi = frappe.get_doc("Purchase Invoice", pi_record.name)
 			for pi_item in pi.items:
-				for custody_item in self.custody_items:
-					if custody_item.item_code == pi_item.item_code:
-						custody_item.billed_qty = flt(custody_item.billed_qty) + flt(pi_item.qty)
-						break
+				code = pi_item.item_code
+				billed[code] = flt(billed.get(code, 0)) + flt(pi_item.qty)
 
+		# Write directly to child table rows (bypasses docstatus check)
+		for custody_item in self.custody_items:
+			code = custody_item.item_code
+			new_billed = billed.get(code, 0)
+			frappe.db.set_value(
+				"Accountant Custody Item",
+				custody_item.name,
+				{"billed_qty": new_billed},
+				update_modified=False,
+			)
+			custody_item.billed_qty = new_billed
+
+		# Recalculate totals and persist via db_set
 		self._calculate_totals()
-		self.save(ignore_permissions=True)
+		frappe.db.set_value(
+			"Accountant Custody",
+			self.name,
+			{"total_amount": flt(self.total_amount)},
+			update_modified=False,
+		)
 		self.recalculate_status()
