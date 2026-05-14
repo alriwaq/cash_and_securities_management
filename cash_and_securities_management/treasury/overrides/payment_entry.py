@@ -18,14 +18,40 @@ class CustodyPaymentEntry(PaymentEntry):
 	"""
 
 	def _is_custody_mode(self):
+		"""Return True for any PE created by the custody module."""
+		source = self.get("custom_source_document_type") or ""
 		return (
-			self.get("custom_source_document_type") == "Custody"
+			source in ("Custody", "Custody Settlement")
 			or bool(self.get("custom_accountant_custody"))
 		)
 
 	def before_validate(self):
 		if self._is_custody_mode():
 			self.flags.ignore_mandatory = True
+			self.flags.ignore_validate_update_after_submit = True
+
+	def validate(self):
+		"""
+		For custody PEs, bypass ERPNext's strict party-type / account-type
+		validation before calling the standard validate chain.
+		"""
+		if self._is_custody_mode():
+			# Ensure party fields are always set for custody PEs
+			if not self.get("party_type"):
+				self.party_type = "Custodian"
+			if not self.get("party") and self.get("custom_custodian"):
+				self.party = self.custom_custodian
+			# Ensure account currencies are set (prevents 'Account is required' from
+			# currency mismatch checks in the standard validate chain)
+			if self.get("paid_from") and not self.get("paid_from_account_currency"):
+				self.paid_from_account_currency = frappe.get_cached_value(
+					"Account", self.paid_from, "account_currency"
+				) or frappe.db.get_value("Company", self.company, "default_currency")
+			if self.get("paid_to") and not self.get("paid_to_account_currency"):
+				self.paid_to_account_currency = frappe.get_cached_value(
+					"Account", self.paid_to, "account_currency"
+				) or frappe.db.get_value("Company", self.company, "default_currency")
+		super().validate()
 
 	def set_missing_values(self):
 		"""

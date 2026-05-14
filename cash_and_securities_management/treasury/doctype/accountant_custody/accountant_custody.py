@@ -745,6 +745,16 @@ class AccountantCustody(Document):
 		advance_account, payable_account = self._get_custodian_accounts()
 		primary_pe_name = None
 
+		# Resolve account currencies once (used on both PE paths)
+		advance_account_currency = (
+			frappe.get_cached_value("Account", advance_account, "account_currency")
+			or frappe.db.get_value("Company", self.company, "default_currency")
+		)
+		payable_account_currency = (
+			frappe.get_cached_value("Account", payable_account, "account_currency")
+			or frappe.db.get_value("Company", self.company, "default_currency")
+		)
+
 		# Fetch all submitted PIs linked to this AC for the PE references table
 		linked_pis = frappe.get_all(
 			"Purchase Invoice",
@@ -809,10 +819,21 @@ class AccountantCustody(Document):
 			pe.payment_type = "Internal Transfer"
 			pe.posting_date = nowdate()
 			pe.company = self.company
-			pe.paid_amount = advance_amount_allocated
-			pe.received_amount = advance_amount_allocated
+			# Party — always Custodian for custody settlement PEs
+			pe.party_type = "Custodian"
+			pe.party = self.custodian
+			# Accounts
 			pe.paid_from = advance_account          # Asset account (reduces advance)
 			pe.paid_to = payable_account            # Liability account (clears payable)
+			pe.paid_from_account_currency = advance_account_currency
+			pe.paid_to_account_currency = payable_account_currency
+			# Amounts
+			pe.paid_amount = advance_amount_allocated
+			pe.received_amount = advance_amount_allocated
+			# References
+			pe.reference_no = self.name
+			pe.reference_date = nowdate()
+			# Custom fields
 			pe.custom_accountant_custody = self.name
 			pe.custom_custodian = self.custodian
 			pe.custom_source_document_type = "Custody Settlement"
@@ -823,15 +844,11 @@ class AccountantCustody(Document):
 				f"{settlement_notes}"
 			).strip()
 
-			# In Consolidated mode, set the Custodian as the Party
-			if mode == CONSOLIDATED:
-				pe.party_type = "Custodian"
-				pe.party = self.custodian
-
 			# Reference the linked PIs so ERPNext marks them as Paid
 			_build_pe_references(pe, advance_amount_allocated)
 
 			pe.flags.ignore_permissions = True
+			pe.flags.ignore_mandatory = True
 			pe.insert()
 			pe.submit()
 			primary_pe_name = pe.name
@@ -851,15 +868,31 @@ class AccountantCustody(Document):
 					title=_("Missing Account"),
 				)
 
+			pay_from_currency = (
+				frappe.get_cached_value("Account", pay_from, "account_currency")
+				or frappe.db.get_value("Company", self.company, "default_currency")
+			)
+
 			pe = frappe.new_doc("Payment Entry")
 			pe.naming_series = series
 			pe.payment_type = "Pay"
 			pe.posting_date = nowdate()
 			pe.company = self.company
-			pe.paid_amount = direct_payment_amount
-			pe.received_amount = direct_payment_amount
+			# Party — always Custodian for custody settlement PEs
+			pe.party_type = "Custodian"
+			pe.party = self.custodian
+			# Accounts
 			pe.paid_from = pay_from                 # Bank/Cash account
 			pe.paid_to = payable_account            # Liability account (clears payable)
+			pe.paid_from_account_currency = pay_from_currency
+			pe.paid_to_account_currency = payable_account_currency
+			# Amounts
+			pe.paid_amount = direct_payment_amount
+			pe.received_amount = direct_payment_amount
+			# References
+			pe.reference_no = self.name
+			pe.reference_date = nowdate()
+			# Custom fields
 			pe.custom_accountant_custody = self.name
 			pe.custom_custodian = self.custodian
 			pe.custom_source_document_type = "Custody Settlement"
@@ -870,15 +903,11 @@ class AccountantCustody(Document):
 				f"{settlement_notes}"
 			).strip()
 
-			# In Consolidated mode, set the Custodian as the Party
-			if mode == CONSOLIDATED:
-				pe.party_type = "Custodian"
-				pe.party = self.custodian
-
 			# Reference the linked PIs so ERPNext marks them as Paid
 			_build_pe_references(pe, direct_payment_amount)
 
 			pe.flags.ignore_permissions = True
+			pe.flags.ignore_mandatory = True
 			pe.insert()
 			pe.submit()
 			if not primary_pe_name:
