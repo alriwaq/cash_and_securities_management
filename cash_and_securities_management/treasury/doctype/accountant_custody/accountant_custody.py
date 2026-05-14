@@ -165,6 +165,11 @@ class AccountantCustody(Document):
 		Derive status from the state of linked documents.
 		Called on validate, submit, and after any PR/PI/PE event.
 
+		Valid statuses (from DocType Select field):
+		  Draft, Pending, Partly Received, Fully Received,
+		  Partly Invoiced, Fully Invoiced, Partly Settled, Fully Settled,
+		  Closed, Cancelled
+
 		Status progression:
 		  Draft → Pending → Partly Received → Fully Received
 		  → Partly Invoiced → Fully Invoiced → Partly Settled → Fully Settled
@@ -173,11 +178,14 @@ class AccountantCustody(Document):
 		and is_fixed_asset flags instead of relying on self.custody_items values,
 		which may be stale (0) in the database for records created before the
 		_populate_item_flags() fix was deployed.
+
+		Settlement comparison uses the actual billed amount (sum of PI grand_totals)
+		instead of self.total_amount, which can be stale/zero when called from
+		update_billed_quantities() after _calculate_totals() on a reloaded doc.
 		"""
 		if self.docstatus == 2:
 			return  # Already cancelled
 
-		total_amount = flt(self.total_amount)
 		total_settled = flt(self.total_settled_amount or 0)
 
 		# Count submitted PRs and PIs linked to this AC
@@ -213,6 +221,17 @@ class AccountantCustody(Document):
 		total_stock_qty = sum(flt(d.qty) for d in stock_items)
 		total_all_qty = sum(flt(d.qty) for d in stock_item_data)
 
+		# Always compute actual_billed_amount from live PI data (never rely on
+		# self.total_amount which may be stale after _calculate_totals on reload).
+		actual_billed_amount = flt(frappe.db.sql(
+			"""
+			SELECT COALESCE(SUM(pi.grand_total), 0)
+			FROM `tabPurchase Invoice` pi
+			WHERE pi.custom_accountant_custody = %s AND pi.docstatus = 1
+			""",
+			(self.name,),
+		)[0][0] or 0)
+
 		if self.docstatus == 0:
 			new_status = "Draft"
 		elif submitted_prs == 0 and submitted_pis == 0:
@@ -238,9 +257,10 @@ class AccountantCustody(Document):
 					new_status = "Fully Received"
 				else:
 					new_status = "Partly Received"
-		elif total_settled <= 0:
-			# PIs exist but no settlement yet
-			total_billed = flt(frappe.db.sql(
+		else:
+			# PIs exist — determine invoice vs settlement status
+			# First check: are all items billed?
+			total_billed_qty = flt(frappe.db.sql(
 				"""
 				SELECT COALESCE(SUM(pii.qty), 0)
 				FROM `tabPurchase Invoice Item` pii
@@ -249,24 +269,31 @@ class AccountantCustody(Document):
 				""",
 				(self.name,),
 			)[0][0] or 0)
-			if total_billed >= total_all_qty - 0.001:
-				new_status = "Fully Invoiced"
-			else:
-				new_status = "Partly Invoiced"
-		elif total_settled < total_amount - 0.01:
-			new_status = "Partly Settled"
-		else:
-			new_status = "Fully Settled"
+			fully_billed = (total_billed_qty >= total_all_qty - 0.001)
 
-		if self.status != new_status:
+			if total_settled <= 0:
+				# No settlement yet
+				if fully_billed:
+					new_status = "Fully Invoiced"
+				else:
+					new_status = "Partly Invoiced"
+			elif actual_billed_amount > 0 and total_settled >= actual_billed_amount - 0.01:
+				# Settled amount covers the actual billed amount
+				new_status = "Fully Settled"
+			else:
+				new_status = "Partly Settled"
+
+		old_status = self.status
+		if old_status != new_status:
 			if self.docstatus == 1:
 				frappe.db.set_value("Accountant Custody", self.name, "status", new_status)
 			else:
 				self.status = new_status
 			frappe.log_error(
-				f"AC {self.name}: status changed from {self.status} to {new_status} "
+				f"AC {self.name}: status changed from {old_status} to {new_status} "
 				f"(prs={submitted_prs}, pis={submitted_pis}, settled={total_settled}, "
-				f"stock_items={total_stock_items}, stock_qty={total_stock_qty})",
+				f"actual_billed={actual_billed_amount}, stock_items={total_stock_items}, "
+				f"stock_qty={total_stock_qty})",
 				"recalculate_status debug",
 			)
 

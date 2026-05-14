@@ -191,11 +191,8 @@ def on_pi_submit(doc, method):
 		return
 
 	ac_name = doc.custom_accountant_custody
-	try:
-		ac_doc = frappe.get_doc("Accountant Custody", ac_name)
-		ac_doc.update_billed_quantities(pi_name=doc.name)
-	except Exception as e:
-		frappe.log_error(str(e), f"on_pi_submit: failed to update AC {ac_name}")
+	ac_doc = frappe.get_doc("Accountant Custody", ac_name)
+	ac_doc.update_billed_quantities(pi_name=doc.name)
 
 	if doc.get("custom_custodian"):
 		_safe_update_custodian_dashboard(doc.custom_custodian)
@@ -212,11 +209,8 @@ def on_pi_cancel(doc, method):
 	validate_cancellation_order_for_pi(doc)
 
 	ac_name = doc.custom_accountant_custody
-	try:
-		ac_doc = frappe.get_doc("Accountant Custody", ac_name)
-		ac_doc.update_billed_quantities()
-	except Exception as e:
-		frappe.log_error(str(e), f"on_pi_cancel: failed to update AC {ac_name}")
+	ac_doc = frappe.get_doc("Accountant Custody", ac_name)
+	ac_doc.update_billed_quantities()
 
 	if doc.get("custom_custodian"):
 		_safe_update_custodian_dashboard(doc.custom_custodian)
