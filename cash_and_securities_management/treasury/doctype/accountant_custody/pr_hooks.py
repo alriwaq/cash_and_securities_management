@@ -399,21 +399,27 @@ def _is_custody_purchase_doc(doc):
 def _resolve_custody_context(doc):
 	"""
 	Resolve (Accountant Custody doc, custodian) from the purchase document.
+	Always prefers the explicit custom_accountant_custody link on the doc.
+	Fallback only matches submitted (docstatus=1) ACs to avoid Draft ACs
+	polluting the account resolution.
 	Returns (None, custodian) when no AC can be resolved.
 	"""
 	ac_name = doc.get("custom_accountant_custody")
 	custodian = doc.get("custom_custodian")
 
+	# Primary path: explicit link on the document
 	if ac_name and frappe.db.exists("Accountant Custody", ac_name):
 		ac_doc = frappe.get_doc("Accountant Custody", ac_name)
 		custodian = custodian or ac_doc.custodian
 		return ac_doc, custodian
 
+	# Fallback: find the most recent submitted AC for this custodian
 	if custodian:
 		linked_ac = frappe.db.get_value(
 			"Accountant Custody",
-			{"custodian": custodian, "docstatus": ["in", [0, 1]]},
+			{"custodian": custodian, "docstatus": 1},
 			"name",
+			order_by="creation desc",
 		)
 		if linked_ac:
 			return frappe.get_doc("Accountant Custody", linked_ac), custodian

@@ -829,13 +829,15 @@ class AccountantCustody(Document):
 		frappe.db.set_value(
 			"Accountant Custody",
 			self.name,
-			{
-				"total_amount": flt(self.total_amount),
-				"total_received_amount": flt(self.get("total_received_amount") or 0),
-			},
+			{"total_amount": flt(self.total_amount)},
 			update_modified=False,
 		)
-		self.recalculate_status()
+		# Always reload from DB before recalculating status so that
+		# the status engine sees the freshly written qty values.
+		from cash_and_securities_management.treasury.balances import (
+			recalculate_accountant_custody_status,
+		)
+		recalculate_accountant_custody_status(self.name)
 
 	def update_billed_quantities(self, pi_name=None):
 		"""
@@ -877,4 +879,9 @@ class AccountantCustody(Document):
 			{"total_amount": flt(self.total_amount)},
 			update_modified=False,
 		)
-		self.recalculate_status()
+		# Always reload from DB before recalculating status so that
+		# the status engine sees the freshly written qty values.
+		from cash_and_securities_management.treasury.balances import (
+			recalculate_accountant_custody_status,
+		)
+		recalculate_accountant_custody_status(self.name)
