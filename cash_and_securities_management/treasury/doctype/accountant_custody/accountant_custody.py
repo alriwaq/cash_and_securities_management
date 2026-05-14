@@ -759,11 +759,22 @@ class AccountantCustody(Document):
 		linked_pis = frappe.get_all(
 			"Purchase Invoice",
 			filters={"custom_accountant_custody": self.name, "docstatus": 1},
-			fields=["name", "outstanding_amount", "party_account_currency"],
+			fields=[
+				"name", "outstanding_amount", "grand_total",
+				"party_account_currency", "credit_to", "due_date",
+				"conversion_rate",
+			],
 		)
 
 		def _build_pe_references(pe_doc, amount_to_allocate):
-			"""Allocate the settlement amount across linked PIs in the PE references table."""
+			"""
+			Allocate the settlement amount across linked PIs in the PE references table.
+
+			ERPNext's make_advance_gl_entries() reads row.account from each reference
+			row to build the GL entry for reconciliation. If account is empty, it
+			throws 'Account is required'. We must populate it with the PI's credit_to
+			(the custodian payable account).
+			"""
 			remaining = flt(amount_to_allocate)
 			for pi in linked_pis:
 				if remaining <= 0:
@@ -775,9 +786,14 @@ class AccountantCustody(Document):
 				pe_doc.append("references", {
 					"reference_doctype": "Purchase Invoice",
 					"reference_name": pi.name,
-					"allocated_amount": allocated,
-					"total_amount": outstanding,
+					# account is mandatory for make_advance_gl_entries
+					"account": pi.credit_to or payable_account,
+					"due_date": pi.due_date,
+					"exchange_rate": pi.conversion_rate or 1,
+					"account_type": "Payable",
+					"total_amount": flt(pi.grand_total),
 					"outstanding_amount": outstanding,
+					"allocated_amount": allocated,
 				})
 				remaining -= allocated
 
