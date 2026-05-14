@@ -55,12 +55,19 @@ class CustodyPaymentEntry(PaymentEntry):
 
 	def set_missing_values(self):
 		"""
-		Preserve custody references for Internal Transfer mode.
+		Preserve custody accounts, party, and references for Internal Transfer mode.
 
-		ERPNext clears party and references in set_missing_values() when
-		payment_type is Internal Transfer. Custody settlement intentionally uses
-		Internal Transfer while still linking Purchase Invoices in references.
+		ERPNext's standard set_missing_values() for payment_type='Internal Transfer'
+		clears paid_from, paid_to, party, and references — replacing them with the
+		company's default accounts. For custody settlement PEs we must preserve the
+		custodian advance account (paid_from) and payable account (paid_to) that were
+		explicitly set by create_settlement().
 		"""
+		preserved_paid_from = self.get("paid_from")
+		preserved_paid_to = self.get("paid_to")
+		preserved_paid_from_currency = self.get("paid_from_account_currency")
+		preserved_paid_to_currency = self.get("paid_to_account_currency")
+		preserved_party_type = self.get("party_type")
 		preserved_party = self.get("party")
 		preserved_references = []
 
@@ -88,9 +95,21 @@ class CustodyPaymentEntry(PaymentEntry):
 		super().set_missing_values()
 
 		if self._is_custody_mode() and self.payment_type == "Internal Transfer":
+			# Restore accounts — ERPNext overwrites these with company defaults
+			if preserved_paid_from:
+				self.paid_from = preserved_paid_from
+			if preserved_paid_to:
+				self.paid_to = preserved_paid_to
+			if preserved_paid_from_currency:
+				self.paid_from_account_currency = preserved_paid_from_currency
+			if preserved_paid_to_currency:
+				self.paid_to_account_currency = preserved_paid_to_currency
+			# Restore party
+			if preserved_party_type and not self.get("party_type"):
+				self.party_type = preserved_party_type
 			if preserved_party and not self.get("party"):
 				self.party = preserved_party
-
+			# Restore PI references
 			if preserved_references and not self.get("references"):
 				self.set("references", [])
 				for ref in preserved_references:
