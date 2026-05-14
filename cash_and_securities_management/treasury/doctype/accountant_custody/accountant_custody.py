@@ -838,6 +838,11 @@ class AccountantCustody(Document):
 			# Party — always Custodian for custody settlement PEs
 			pe.party_type = "Custodian"
 			pe.party = self.custodian
+			# party_account is used by make_advance_gl_entries for the second GL entry
+			# (the entry against the party account). For advance deduction, this is
+			# the payable account (the account being cleared).
+			pe.party_account = payable_account
+			pe.party_account_currency = payable_account_currency
 			# Accounts
 			pe.paid_from = advance_account          # Asset account (reduces advance)
 			pe.paid_to = payable_account            # Liability account (clears payable)
@@ -846,6 +851,8 @@ class AccountantCustody(Document):
 			# Amounts
 			pe.paid_amount = advance_amount_allocated
 			pe.received_amount = advance_amount_allocated
+			pe.base_paid_amount = advance_amount_allocated
+			pe.base_received_amount = advance_amount_allocated
 			# References
 			pe.reference_no = self.name
 			pe.reference_date = nowdate()

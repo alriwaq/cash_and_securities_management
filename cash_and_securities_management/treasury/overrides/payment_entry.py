@@ -25,6 +25,32 @@ class CustodyPaymentEntry(PaymentEntry):
 			or bool(self.get("custom_accountant_custody"))
 		)
 
+	def setup_party_account_field(self):
+		"""
+		ERPNext's standard setup_party_account_field() only sets party_account for
+		payment_type='Receive' or 'Pay'. For 'Internal Transfer' it sets
+		party_account=None, which causes 'Account is required' when build_gl_map()
+		calls add_party_gl_entries().
+
+		For custody Internal Transfer PEs, party_account must be the payable account
+		(paid_to) so that the GL entry for the party side is created correctly.
+		"""
+		if self._is_custody_mode() and self.payment_type == "Internal Transfer":
+			# Preserve any party_account already set (e.g. by create_settlement)
+			existing = self.get("party_account")
+			existing_currency = self.get("party_account_currency")
+			super().setup_party_account_field()
+			# Restore — super() clears party_account for Internal Transfer
+			self.party_account = existing or self.get("paid_to")
+			self.party_account_currency = (
+				existing_currency
+				or self.get("paid_to_account_currency")
+				or frappe.db.get_value("Company", self.company, "default_currency")
+			)
+			self.party_account_field = "paid_to"
+		else:
+			super().setup_party_account_field()
+
 	def before_validate(self):
 		if self._is_custody_mode():
 			self.flags.ignore_mandatory = True
@@ -69,6 +95,9 @@ class CustodyPaymentEntry(PaymentEntry):
 		preserved_paid_to_currency = self.get("paid_to_account_currency")
 		preserved_party_type = self.get("party_type")
 		preserved_party = self.get("party")
+		# party_account is used by make_advance_gl_entries for the second GL entry
+		preserved_party_account = self.get("party_account")
+		preserved_party_account_currency = self.get("party_account_currency")
 		preserved_references = []
 
 		if self._is_custody_mode() and self.payment_type == "Internal Transfer":
@@ -109,6 +138,11 @@ class CustodyPaymentEntry(PaymentEntry):
 				self.party_type = preserved_party_type
 			if preserved_party and not self.get("party"):
 				self.party = preserved_party
+			# Restore party_account — used by make_advance_gl_entries for the second GL entry
+			if preserved_party_account:
+				self.party_account = preserved_party_account
+			if preserved_party_account_currency:
+				self.party_account_currency = preserved_party_account_currency
 			# Restore PI references
 			if preserved_references and not self.get("references"):
 				self.set("references", [])
