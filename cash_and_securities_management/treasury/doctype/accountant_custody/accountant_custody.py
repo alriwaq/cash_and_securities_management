@@ -39,6 +39,7 @@ class AccountantCustody(Document):
 	def validate(self):
 		self._sync_from_custody_request()
 		self._validate_items()
+		self._populate_item_flags()
 		self._calculate_totals()
 		self.recalculate_status()
 
@@ -67,6 +68,25 @@ class AccountantCustody(Document):
 		if not self.custodian:
 			self.custodian = cr.custodian
 		self.custody_request_balance = flt(cr.paid_amount)
+
+	def _populate_item_flags(self):
+		"""
+		Ensure is_stock_item and is_fixed_asset are populated server-side.
+		These are fetch_from fields that rely on client-side triggers — when
+		documents are created programmatically the values may be 0 in the DB.
+		This method queries the Item master directly to guarantee correctness.
+		"""
+		for item in self.custody_items:
+			if not item.item_code:
+				continue
+			flags = frappe.db.get_value(
+				"Item",
+				item.item_code,
+				["is_stock_item", "is_fixed_asset"],
+				as_dict=True,
+			) or {}
+			item.is_stock_item = int(flags.get("is_stock_item") or 0)
+			item.is_fixed_asset = int(flags.get("is_fixed_asset") or 0)
 
 	def _validate_items(self):
 		"""Ensure at least one item is present."""
