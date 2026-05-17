@@ -296,3 +296,53 @@ def get_accountant_custody_settlements_dashboard(accountant_custody):
 	Returns the same payload as get_settlement_summary.
 	"""
 	return get_settlement_summary(accountant_custody)
+
+
+# ─── GL Entry Firewall for Custodian Party Type ───────────────────────────────
+
+def fix_custody_gl_entry(doc, method=None):
+	"""
+	Intercepts GL Entry creation to resolve missing accounts
+	for the custom 'Custodian' Party Type before core validation fires.
+
+	Root cause: ERPNext's get_party_account() only recognises standard parties
+	(Supplier, Customer, Employee). For party_type='Custodian' it returns None,
+	leaving the account field blank and causing gl_entry.check_mandatory() to
+	throw 'Account is required'.
+
+	This hook fires on every GL Entry before_insert and injects the correct
+	account based on the voucher context.
+	"""
+	# Only act when this is a Custodian party entry with a missing account
+	if doc.party_type != "Custodian" or doc.account:
+		return
+
+	if not doc.party:
+		frappe.throw(_("GL Entry missing required Custodian Party ID reference."))
+
+	# Fetch the custodian master to get the configured sub-ledger accounts
+	custodian = frappe.get_doc("Custodian", doc.party)
+
+	# Context 1: Payment Entry
+	if doc.voucher_type == "Payment Entry":
+		pe = frappe.get_cached_doc("Payment Entry", doc.voucher_name)
+		if pe.get("custom_accountant_custody"):
+			# Accountant Custody settlement payment → use the Liability account
+			doc.account = custodian.custodian_payable_account
+		elif pe.get("custom_custody_request"):
+			# Initial Custody Request advance funding → use the Asset account
+			doc.account = custodian.custody_advance_account
+
+	# Context 2: Purchase Invoice
+	elif doc.voucher_type == "Purchase Invoice":
+		doc.account = custodian.custodian_payable_account
+
+	# Context 3: Purchase Receipt
+	elif doc.voucher_type == "Purchase Receipt":
+		doc.account = custodian.custodian_payable_account
+
+	# Final guard: if account still not resolved, throw a clear error
+	if not doc.account:
+		frappe.throw(
+			_("Could not automatically resolve a GL Account for Custodian {0}.").format(doc.party)
+		)

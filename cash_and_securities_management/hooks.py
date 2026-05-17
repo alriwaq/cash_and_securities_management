@@ -128,6 +128,9 @@ doc_events = {
         "on_submit": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_journal_submit",
         "on_cancel": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_journal_cancel",
     },
+    "GL Entry": {
+        "before_insert": "cash_and_securities_management.api.fix_custody_gl_entry",
+    },
 }
 
 # ─── Scheduled Tasks ──────────────────────────────────────────────────────────
