@@ -32,8 +32,8 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Custodian",
-   "link_count": 0,
+   "label": "Custodian (Active)",
+   "link_count": 1,
    "link_to": "Custodian",
    "link_type": "DocType",
    "onboard": 1,
@@ -50,8 +50,8 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Custody Request",
-   "link_count": 0,
+   "label": "Custody Request (Open)",
+   "link_count": 1,
    "link_to": "Custody Request",
    "link_type": "DocType",
    "onboard": 1,
@@ -60,8 +60,8 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Accountant Custody",
-   "link_count": 0,
+   "label": "Accountant Custody (Open Operations)",
+   "link_count": 1,
    "link_to": "Accountant Custody",
    "link_type": "DocType",
    "onboard": 1,
@@ -78,8 +78,8 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Treasury Station",
-   "link_count": 0,
+   "label": "Treasury Station (Active Stations)",
+   "link_count": 1,
    "link_to": "Treasury Station",
    "link_type": "DocType",
    "onboard": 1,
@@ -120,7 +120,7 @@
    "link_count": 0,
    "link_to": "Treasury Settings",
    "link_type": "DocType",
-   "onboard": 1,
+   "onboard": 0,
    "type": "Link"
   },
   {
@@ -130,11 +130,11 @@
    "link_count": 0,
    "link_to": "Vault Settings",
    "link_type": "DocType",
-   "onboard": 1,
+   "onboard": 0,
    "type": "Link"
   }
  ],
- "modified": "2026-05-17 00:00:00.000000",
+ "modified": "2026-05-17 19:30:00.000000",
  "modified_by": "Administrator",
  "module": "Treasury",
  "name": "Treasury",
