@@ -32,6 +32,9 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
       <span id="tcj-status-badge" class="badge badge-secondary" style="font-size:0.85rem; padding:6px 12px;">Draft</span>
     </div>
     <div class="col-auto ml-auto">
+      <button id="tcj-add-txn-btn" class="btn btn-sm btn-success mr-2" style="display:none;">
+        <i class="fa fa-plus mr-1"></i> Add Transaction
+      </button>
       <button id="tcj-save-btn" class="btn btn-sm btn-default mr-2">
         <i class="fa fa-save mr-1"></i> Save Draft
       </button>
@@ -126,12 +129,10 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
     </table>
   </div>
 
-  <!-- Add Row / Toolbar -->
+  <!-- Read-only Row Count Indicator -->
   <div class="tcj-toolbar mt-2 mb-3 d-flex align-items-center">
-    <button id="tcj-add-row-btn" class="btn btn-sm btn-outline-primary mr-2">
-      <i class="fa fa-plus mr-1"></i> Add Row
-    </button>
-    <span class="text-muted small" id="tcj-row-count">0 rows</span>
+    <span class="text-muted small"><i class="fa fa-info-circle mr-1"></i> <strong>Read-Only Table:</strong> Use "Add Transaction" button above to add rows.</span>
+    <span class="text-muted small ml-auto" id="tcj-row-count">0 rows</span>
   </div>
 
   <!-- End-of-Day Denomination Drawer -->
@@ -263,7 +264,9 @@ class TreasuryCashJournal {
 			this._renderGrid();
 		});
 
-		$("#tcj-add-row-btn").on("click", () => this._addRow());
+		// New: "Add Transaction" button triggers wizard
+		$("#tcj-add-txn-btn").on("click", () => this._showAddTransactionWizard());
+
 		$("#tcj-save-btn").on("click", () => this._saveDraft());
 		$("#tcj-post-btn").on("click", () => this._confirmPost());
 
@@ -275,112 +278,12 @@ class TreasuryCashJournal {
 		});
 	}
 
-	_initDenomTable() {
-		const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.25];
-		const tbody = $("#tcj-denom-tbody");
-		tbody.empty();
-		denoms.forEach((d) => {
-			tbody.append(`
-				<tr data-denom="${d}">
-					<td>${d}</td>
-					<td><input type="number" class="form-control form-control-sm denom-count"
-					           min="0" value="0" data-denom="${d}" style="width:80px;" /></td>
-					<td class="text-right denom-line-total">0.00</td>
-				</tr>
-			`);
-		});
-		$(document).on("input", ".denom-count", () => this._calcDenomTotal());
-	}
-
-	_calcDenomTotal() {
-		let total = 0;
-		$(".denom-count").each(function () {
-			const count = parseFloat($(this).val()) || 0;
-			const denom = parseFloat($(this).data("denom"));
-			const lineTotal = count * denom;
-			$(this).closest("tr").find(".denom-line-total").text(
-				frappe.utils.format_number(lineTotal, null, 2)
-			);
-			total += lineTotal;
-		});
-		const expected = this.openingBalance + this._sumInflows() - this._sumOutflows();
-		const variance = total - expected;
-
-		$("#tcj-denom-total").text(frappe.utils.format_number(total, null, 2));
-		$("#tcj-denom-expected").text(frappe.utils.format_number(expected, null, 2));
-		$("#tcj-denom-actual").text(frappe.utils.format_number(total, null, 2));
-		$("#tcj-denom-variance")
-			.text(frappe.utils.format_number(variance, null, 2))
-			.css("color", variance < 0 ? "#dc3545" : variance > 0 ? "#fd7e14" : "#28a745");
-	}
-
-	// ── Journal Load ─────────────────────────────────────────────────────────
-
-	_loadJournal() {
-		const station = $("#tcj-station-select").val();
-		const date = $("#tcj-date-input").val();
-		if (!station || !date) return;
-
-		frappe.call({
-			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.get_station_data",
-			args: { station, posting_date: date },
-			callback: (r) => {
-				if (!r.message) return;
-				const data = r.message;
-				this.stationData = data.station;
-				this.openingBalance = data.opening_balance || 0;
-				this.journalName = data.journal_name || null;
-				this.posted = data.existing && data.existing.posting_status === "Posted";
-
-				this.rows = (data.lines || []).map((l, i) => ({
-					_id: i,
-					direction: l.direction || "",
-					transaction_category: l.transaction_category || "",
-					party_type: l.party_type || "",
-					party: l.party || "",
-					reference_doctype: l.reference_doctype || "",
-					reference_name: l.reference_name || "",
-					amount: l.amount || 0,
-					narration: l.narration || "",
-					is_posted: l.is_posted || 0,
-					linked_document: l.linked_document || "",
-				}));
-
-				this._updateKPIs();
-				this._renderGrid();
-				this._updateStatusBadge();
-				this._updateDenomCard();
-				$("#tcj-opening-balance").val(this.openingBalance);
-				$("#tcj-journal-name").val(this.journalName || "");
-			},
-		});
-	}
-
-	// ── Row Management ────────────────────────────────────────────────────────
-
 	_addRow() {
 		if (this.posted) {
 			frappe.msgprint(__("This journal is already posted. No new rows can be added."));
 			return;
 		}
-		const id = Date.now();
-		this.rows.push({
-			_id: id,
-			direction: "",
-			transaction_category: "",
-			party_type: "",
-			party: "",
-			reference_doctype: "",
-			reference_name: "",
-			amount: 0,
-			narration: "",
-			is_posted: 0,
-			linked_document: "",
-		});
-		this._renderGrid();
-		setTimeout(() => {
-			$(`#row-${id} .tcj-direction`).focus();
-		}, 50);
+		this._showAddTransactionWizard();
 	}
 
 	_deleteRow(id) {
@@ -421,7 +324,6 @@ class TreasuryCashJournal {
 
 	_renderRow(row, idx) {
 		const posted = row.is_posted;
-		const readOnly = posted || this.posted;
 		const rowClass = posted
 			? "table-success"
 			: (row.direction === "Inbound"
@@ -430,27 +332,15 @@ class TreasuryCashJournal {
 					? "tcj-row-outbound"
 					: "");
 
-		const dirOptions = ["", "Inbound", "Outbound", "Bank Transfer"]
-			.map((d) => `<option value="${d}" ${row.direction === d ? "selected" : ""}>${d || "—"}</option>`)
-			.join("");
-
-		const catOptions = ["", "Invoice Payment", "Advance Allocation", "Direct Expense", "Bank Liquidity"]
-			.map((c) => `<option value="${c}" ${row.transaction_category === c ? "selected" : ""}>${c || "—"}</option>`)
-			.join("");
-
-		const ptOptions = ["", "Customer", "Supplier", "Custodian", "Bank Account"]
-			.map((p) => `<option value="${p}" ${row.party_type === p ? "selected" : ""}>${p || "—"}</option>`)
-			.join("");
-
 		const statusCell = posted
 			? `<span class="badge badge-success"><i class="fa fa-check"></i> Posted</span>
-			   <a href="/app/payment-entry/${row.linked_document}" target="_blank"
+			   ${row.linked_document ? `<a href="/app/payment-entry/${row.linked_document}" target="_blank"
 			      class="small ml-1" title="Open ${row.linked_document}">
 			      <i class="fa fa-external-link"></i>
-			   </a>`
+			   </a>` : ""}`
 			: `<span class="badge badge-secondary">Draft</span>`;
 
-		const deleteBtn = (!readOnly)
+		const deleteBtn = !posted
 			? `<button class="btn btn-xs btn-danger tcj-delete-row" data-id="${row._id}" title="Delete row">
 			     <i class="fa fa-trash"></i>
 			   </button>`
@@ -459,187 +349,24 @@ class TreasuryCashJournal {
 		return `
 			<tr id="row-${row._id}" class="${rowClass}" data-id="${row._id}">
 				<td class="text-muted small">${idx}</td>
-				<td>
-					<select class="form-control form-control-sm tcj-direction" data-id="${row._id}"
-					        ${readOnly ? "disabled" : ""}>
-						${dirOptions}
-					</select>
-				</td>
-				<td>
-					<select class="form-control form-control-sm tcj-category" data-id="${row._id}"
-					        ${readOnly ? "disabled" : ""}>
-						${catOptions}
-					</select>
-				</td>
-				<td>
-					<select class="form-control form-control-sm tcj-party-type" data-id="${row._id}"
-					        ${readOnly ? "disabled" : ""}>
-						${ptOptions}
-					</select>
-				</td>
-				<td>
-					<input type="text" class="form-control form-control-sm tcj-party" data-id="${row._id}"
-					       value="${this._escapeHtml(row.party || "")}" 
-					       placeholder="Party..." ${readOnly ? "readonly" : ""} />
-				</td>
-				<td>
-					<div class="d-flex">
-						<input type="text" class="form-control form-control-sm tcj-ref-name" data-id="${row._id}"
-						       value="${this._escapeHtml(row.reference_name || "")}"
-						       placeholder="Reference..." ${readOnly ? "readonly" : ""} style="flex:1;" />
-						${!readOnly && row.party_type && row.party ? `
-						<button class="btn btn-xs btn-outline-secondary tcj-fetch-refs ml-1" data-id="${row._id}"
-						        title="Fetch open references">
-							<i class="fa fa-search"></i>
-						</button>` : ""}
-					</div>
-				</td>
-				<td>
-					<input type="number" class="form-control form-control-sm tcj-amount text-right" data-id="${row._id}"
-					       value="${row.amount || 0}" min="0" step="0.01"
-					       ${readOnly ? "readonly" : ""} style="text-align:right;" />
-				</td>
-				<td>
-					<input type="text" class="form-control form-control-sm tcj-narration" data-id="${row._id}"
-					       value="${this._escapeHtml(row.narration || "")}"
-					       placeholder="Narration..." ${readOnly ? "readonly" : ""} />
-				</td>
+				<td><span class="badge badge-light">${row.direction || "—"}</span></td>
+				<td><span>${row.transaction_category || "—"}</span></td>
+				<td><span>${row.party_type || "—"}</span></td>
+				<td><span>${this._escapeHtml(row.party || "—")}</span></td>
+				<td><span>${this._escapeHtml(row.reference_name || "—")}</span></td>
+				<td style="text-align:right;"><strong>${frappe.utils.format_number(row.amount || 0, null, 2)}</strong></td>
+				<td><span>${this._escapeHtml(row.narration || "—")}</span></td>
 				<td class="text-center">${statusCell}</td>
 				<td>${deleteBtn}</td>
 			</tr>
 		`;
 	}
 
-	// ── Grid Event Delegation ─────────────────────────────────────────────────
-
 	_bindGridEvents() {
 		const tbody = $("#tcj-tbody");
-
-		tbody.off("change.tcj input.tcj blur.tcj click.tcj");
-
-		tbody.on("change.tcj", ".tcj-direction", (e) => {
-			const id = parseInt($(e.target).data("id"));
-			const row = this._getRow(id);
-			if (row) {
-				row.direction = $(e.target).val();
-				this._updateKPIs();
-				this._updateBadgeCounts();
-			}
-		});
-
-		tbody.on("change.tcj", ".tcj-category", (e) => {
-			const id = parseInt($(e.target).data("id"));
-			const row = this._getRow(id);
-			if (row) {
-				row.transaction_category = $(e.target).val();
-				row.reference_doctype = this._inferRefDoctype(row);
-			}
-		});
-
-		tbody.on("change.tcj", ".tcj-party-type", (e) => {
-			const id = parseInt($(e.target).data("id"));
-			const row = this._getRow(id);
-			if (row) {
-				row.party_type = $(e.target).val();
-				row.party = "";
-				row.reference_name = "";
-				row.reference_doctype = this._inferRefDoctype(row);
-				this._renderGrid();
-			}
-		});
-
-		tbody.on("blur.tcj", ".tcj-party", (e) => {
-			const id = parseInt($(e.target).data("id"));
-			const row = this._getRow(id);
-			if (row) {
-				row.party = $(e.target).val().trim();
-				this._renderGrid();
-			}
-		});
-
-		tbody.on("focus.tcj", ".tcj-party", (e) => {
-			const id = parseInt($(e.target).data("id"));
-			const row = this._getRow(id);
-			if (!row || !row.party_type) return;
-
-			const doctypeMap = {
-				"Customer": "Customer",
-				"Supplier": "Supplier",
-				"Custodian": "Custodian",
-				"Bank Account": "Bank Account",
-			};
-			const targetDoctype = doctypeMap[row.party_type];
-			if (!targetDoctype) return;
-
-			const $input = $(e.target);
-
-			$input.off("input.tcj-autocomplete").on("input.tcj-autocomplete", function () {
-				const txt = $(this).val();
-				if (txt.length < 1) return;
-				frappe.call({
-					method: "frappe.desk.search.search_link",
-					args: {
-						doctype: targetDoctype,
-						txt: txt,
-						query: "",
-						page_length: 10,
-					},
-					callback: (r) => {
-						if (!r.results || r.results.length === 0) return;
-						$input.next(".tcj-autocomplete-dropdown").remove();
-						const $dd = $(`<ul class="tcj-autocomplete-dropdown list-group" style="
-							position:absolute; z-index:9999; min-width:200px;
-							max-height:200px; overflow-y:auto;
-							background:#fff; border:1px solid #ccc; border-radius:4px;
-							box-shadow:0 2px 8px rgba(0,0,0,.15);"></ul>`);
-						r.results.forEach((res) => {
-							$dd.append(
-								$(`<li class="list-group-item list-group-item-action py-1 px-2" style="cursor:pointer;">${res.value}</li>`)
-								.on("mousedown", () => {
-									$input.val(res.value);
-									row.party = res.value;
-									$dd.remove();
-									setTimeout(() => this._renderGrid(), 50);
-								})
-							);
-						});
-						$input.after($dd);
-					},
-				});
-			}.bind(this));
-
-			$input.off("blur.tcj-autocomplete").on("blur.tcj-autocomplete", function () {
-				setTimeout(() => $input.next(".tcj-autocomplete-dropdown").remove(), 200);
-			});
-		});
-
-		tbody.on("input.tcj", ".tcj-amount", (e) => {
-			const id = parseInt($(e.target).data("id"));
-			const row = this._getRow(id);
-			if (row) {
-				row.amount = parseFloat($(e.target).val()) || 0;
-				this._updateKPIs();
-				this._calcDenomTotal();
-			}
-		});
-
-		tbody.on("blur.tcj", ".tcj-narration", (e) => {
-			const id = parseInt($(e.target).data("id"));
-			const row = this._getRow(id);
-			if (row) row.narration = $(e.target).val();
-		});
-
-		tbody.on("blur.tcj", ".tcj-ref-name", (e) => {
-			const id = parseInt($(e.target).data("id"));
-			const row = this._getRow(id);
-			if (row) row.reference_name = $(e.target).val();
-		});
-
-		tbody.on("click.tcj", ".tcj-fetch-refs", (e) => {
-			const id = parseInt($(e.target).closest("button").data("id"));
-			this._fetchReferences(id);
-		});
-
+		tbody.off("click.tcj");
+		
+		// Only delete button event needed for read-only table
 		tbody.on("click.tcj", ".tcj-delete-row", (e) => {
 			const id = parseInt($(e.target).closest("button").data("id"));
 			this._deleteRow(id);
@@ -647,7 +374,7 @@ class TreasuryCashJournal {
 	}
 
 	_inferRefDoctype(row) {
-		if (row.direction === "Inbound" && row.transaction_category === "Invoice Payment") {
+		if (row.direction === "Inbound" && row.transaction_category === "Invoice Collection") {
 			return "Sales Invoice";
 		}
 		if (row.direction === "Outbound" && row.transaction_category === "Invoice Payment") {
@@ -662,67 +389,285 @@ class TreasuryCashJournal {
 		return "";
 	}
 
-	_fetchReferences(rowId) {
-		const row = this._getRow(rowId);
-		if (!row || !row.party_type || !row.party) return;
+	// ── Multi-Step Wizard Dialog ────────────────────────────────────────────
 
-		const refDoctype = this._inferRefDoctype(row);
-		if (!refDoctype) {
-			frappe.msgprint(__("Cannot determine reference document type for this row."));
+	_showAddTransactionWizard() {
+		if (this.posted) {
+			frappe.msgprint(__("This journal is already posted. No new rows can be added."));
 			return;
 		}
-		row.reference_doctype = refDoctype;
 
-		frappe.call({
-			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.get_open_references",
-			args: {
-				party_type: row.party_type,
-				party: row.party,
-				reference_doctype: refDoctype,
+		const wizardFields = [
+			// ─ Step 1: Classification ─
+			{
+				fieldtype: "Section Break",
+				fieldname: "step1_section",
+				label: "Step 1: Transaction Classification",
+				hidden: 0,
 			},
-			callback: (r) => {
-				if (!r.message || r.message.length === 0) {
-					frappe.msgprint(__("No open {0} found for {1}.").replace("{0}", refDoctype).replace("{1}", row.party));
-					return;
-				}
-				const fields = r.message.map((ref) => ({
-					label: `${ref.name} — Outstanding: ${frappe.utils.format_number(ref.outstanding_amount, null, 2)}`,
-					value: ref.name,
-					amount: ref.outstanding_amount,
-				}));
-
-				const d = new frappe.ui.Dialog({
-					title: __("Select {0}").replace("{0}", refDoctype),
-					fields: [
-						{
-							fieldtype: "HTML",
-							fieldname: "ref_list",
-							options: `<div class="tcj-ref-list">
-								${fields.map((f) => `
-									<div class="tcj-ref-item d-flex justify-content-between align-items-center p-2 mb-1"
-									     style="border:1px solid #dee2e6; border-radius:4px; cursor:pointer;"
-									     data-name="${f.value}" data-amount="${f.amount}">
-										<span>${f.label}</span>
-										<button class="btn btn-xs btn-primary tcj-pick-ref">Select</button>
-									</div>
-								`).join("")}
-							</div>`,
-						},
-					],
-				});
-
-				d.show();
-
-				d.$wrapper.on("click", ".tcj-pick-ref", (e) => {
-					const item = $(e.target).closest(".tcj-ref-item");
-					row.reference_name = item.data("name");
-					row.amount = parseFloat(item.data("amount")) || row.amount;
-					d.hide();
-					this._renderGrid();
-					this._updateKPIs();
-				});
+			{
+				fieldtype: "Select",
+				fieldname: "direction",
+				label: "Direction",
+				options: ["", "Inbound", "Outbound", "Bank Transfer"],
+				reqd: 1,
+				hidden: 0,
 			},
+			{
+				fieldtype: "Select",
+				fieldname: "transaction_category",
+				label: "Category",
+				options: [],
+				reqd: 1,
+				hidden: 1, // Hidden until direction is selected
+				depends_on: "eval: doc.direction",
+			},
+
+			// ─ Step 2: Linking & Cascading Filters ─
+			{
+				fieldtype: "Section Break",
+				fieldname: "step2_section",
+				label: "Step 2: Link & Party Information",
+				hidden: 1, // Hidden until category is selected
+				depends_on: "eval: doc.transaction_category",
+			},
+			{
+				fieldtype: "Select",
+				fieldname: "party_type",
+				label: "Party Type",
+				options: ["", "Customer", "Supplier", "Custodian", "Bank Account"],
+				reqd: 1,
+				hidden: 1,
+				depends_on: "eval: doc.transaction_category",
+			},
+			{
+				fieldtype: "Link",
+				fieldname: "party",
+				label: "Party",
+				options: "Customer",
+				reqd: 1,
+				hidden: 1,
+				depends_on: "eval: doc.party_type",
+			},
+			{
+				fieldtype: "Select",
+				fieldname: "reference_doctype",
+				label: "Reference Type",
+				options: ["", "Sales Invoice", "Purchase Invoice", "Custody Request", "Accountant Custody"],
+				reqd: 1,
+				hidden: 1,
+				depends_on: "eval: doc.party_type",
+			},
+			{
+				fieldtype: "Link",
+				fieldname: "reference_name",
+				label: "Reference Name",
+				options: "Sales Invoice",
+				reqd: 1,
+				hidden: 1,
+				depends_on: "eval: doc.reference_doctype",
+			},
+
+			// ─ Step 3: Financial Automation & Validation ─
+			{
+				fieldtype: "Section Break",
+				fieldname: "step3_section",
+				label: "Step 3: Amount & Narration",
+				hidden: 1,
+				depends_on: "eval: doc.reference_name",
+			},
+			{
+				fieldtype: "Currency",
+				fieldname: "amount",
+				label: "Amount",
+				reqd: 1,
+				read_only: 1,
+				hidden: 1,
+				depends_on: "eval: doc.reference_name",
+			},
+			{
+				fieldtype: "Small Text",
+				fieldname: "narration",
+				label: "Narration",
+				reqd: 1,
+				hidden: 1,
+				depends_on: "eval: doc.reference_name",
+			},
+		];
+
+		const dialog = new frappe.ui.Dialog({
+			title: "Add Transaction",
+			fields: wizardFields,
+			primary_action_label: __("Add Row"),
+			primary_action: () => this._onWizardSubmit(dialog),
 		});
+
+		// ─ Event Handlers for Dynamic Field Updates ─
+		dialog.set_df_property("direction", "hidden", 0);
+
+		// When Direction changes, update Category options and visibility
+		dialog.fields_dict.direction.df.onchange = () => {
+			const direction = dialog.get_value("direction");
+			let catOptions = [];
+
+			if (direction === "Inbound") {
+				catOptions = ["", "Invoice Collection", "Cash Receipt", "Unused Custody Return"];
+			} else if (direction === "Outbound") {
+				catOptions = ["", "Invoice Payment", "Advance Allocation", "Direct Expense"];
+			} else if (direction === "Bank Transfer") {
+				catOptions = ["", "Bank Withdrawal", "Bank Deposit"];
+			}
+
+			dialog.set_df_property("transaction_category", "options", catOptions);
+			dialog.set_df_property("transaction_category", "hidden", direction ? 0 : 1);
+			dialog.get_field("transaction_category").refresh();
+		};
+
+		// When Category changes, show Step 2 section
+		dialog.fields_dict.transaction_category.df.onchange = () => {
+			const category = dialog.get_value("transaction_category");
+			const hasCategory = !!category;
+
+			dialog.set_df_property("step2_section", "hidden", hasCategory ? 0 : 1);
+			dialog.set_df_property("party_type", "hidden", hasCategory ? 0 : 1);
+			dialog.get_field("step2_section").df.hidden = !hasCategory;
+			dialog.get_field("party_type").refresh();
+		};
+
+		// When Party Type changes, update Party field options
+		dialog.fields_dict.party_type.df.onchange = () => {
+			const partyType = dialog.get_value("party_type");
+			if (partyType) {
+				dialog.set_df_property("party", "options", partyType);
+				dialog.set_df_property("party", "hidden", 0);
+				dialog.set_df_property("reference_doctype", "hidden", 0);
+				dialog.get_field("party").refresh();
+				dialog.get_field("reference_doctype").refresh();
+			}
+		};
+
+		// When Reference DocType changes, filter Reference Name field
+		dialog.fields_dict.reference_doctype.df.onchange = () => {
+			const refDoctype = dialog.get_value("reference_doctype");
+			if (refDoctype) {
+				dialog.set_df_property("reference_name", "options", refDoctype);
+				dialog.set_df_property("reference_name", "hidden", 0);
+				dialog.get_field("reference_name").refresh();
+
+				// Apply set_query to filter by party and outstanding_amount > 0
+				const party = dialog.get_value("party");
+				dialog.get_field("reference_name").df.get_query = () => {
+					return {
+						filters: {
+							docstatus: 1,
+							outstanding_amount: [">", 0],
+						},
+					};
+				};
+				// For different doctypes, we need to filter by party field
+				if (party) {
+					const partyField = this._getPartyFieldName(refDoctype);
+					if (partyField) {
+						dialog.get_field("reference_name").df.get_query = () => {
+							const filters = {
+								docstatus: 1,
+								outstanding_amount: [">", 0],
+							};
+							filters[partyField] = party;
+							return { filters };
+						};
+					}
+				}
+			}
+		};
+
+		// When Reference Name is selected, auto-fill Amount
+		dialog.fields_dict.reference_name.df.onchange = () => {
+			const refName = dialog.get_value("reference_name");
+			const refDoctype = dialog.get_value("reference_doctype");
+			if (refName && refDoctype) {
+				frappe.db.get_value(refDoctype, refName, "outstanding_amount", (r) => {
+					if (r.message) {
+						dialog.set_value("amount", r.message.outstanding_amount || 0);
+						// Show Step 3
+						dialog.set_df_property("step3_section", "hidden", 0);
+						dialog.set_df_property("amount", "hidden", 0);
+						dialog.set_df_property("narration", "hidden", 0);
+						dialog.get_field("step3_section").refresh();
+						dialog.get_field("amount").refresh();
+						dialog.get_field("narration").refresh();
+						dialog.get_field("narration").focus();
+					}
+				});
+			}
+		};
+
+		dialog.show();
+	}
+
+	_getPartyFieldName(doctype) {
+		const partyFieldMap = {
+			"Sales Invoice": "customer",
+			"Purchase Invoice": "supplier",
+			"Custody Request": "custodian",
+			"Accountant Custody": "custodian",
+		};
+		return partyFieldMap[doctype] || null;
+	}
+
+	_onWizardSubmit(dialog) {
+		const values = dialog.get_values();
+
+		// Validate mandatory fields
+		if (!values.direction) {
+			frappe.msgprint(__("Please select Direction."));
+			return;
+		}
+		if (!values.transaction_category) {
+			frappe.msgprint(__("Please select Category."));
+			return;
+		}
+		if (!values.party_type) {
+			frappe.msgprint(__("Please select Party Type."));
+			return;
+		}
+		if (!values.party) {
+			frappe.msgprint(__("Please select Party."));
+			return;
+		}
+		if (!values.reference_doctype) {
+			frappe.msgprint(__("Please select Reference Type."));
+			return;
+		}
+		if (!values.reference_name) {
+			frappe.msgprint(__("Please select Reference Name."));
+			return;
+		}
+		if (!values.narration) {
+			frappe.msgprint(__("Narration is mandatory."));
+			return;
+		}
+
+		// Create new row
+		const id = Date.now();
+		this.rows.push({
+			_id: id,
+			direction: values.direction,
+			transaction_category: values.transaction_category,
+			party_type: values.party_type,
+			party: values.party,
+			reference_doctype: values.reference_doctype,
+			reference_name: values.reference_name,
+			amount: parseFloat(values.amount) || 0,
+			narration: values.narration,
+			is_posted: 0,
+			linked_document: "",
+		});
+
+		this._updateKPIs();
+		this._renderGrid();
+		dialog.hide();
+		frappe.show_alert({ message: __("Transaction added successfully."), indicator: "green" });
 	}
 
 	// ── KPI Update ────────────────────────────────────────────────────────────
@@ -775,10 +720,10 @@ class TreasuryCashJournal {
 		badge.removeClass("badge-secondary badge-success badge-warning");
 		if (this.posted) {
 			badge.addClass("badge-success").text("Posted");
-			$("#tcj-save-btn, #tcj-add-row-btn").prop("disabled", true);
+			$("#tcj-save-btn, #tcj-add-txn-btn").prop("disabled", true).hide();
 		} else {
 			badge.addClass("badge-secondary").text("Draft");
-			$("#tcj-save-btn, #tcj-add-row-btn").prop("disabled", false);
+			$("#tcj-save-btn, #tcj-add-txn-btn").prop("disabled", false).show();
 		}
 	}
 
