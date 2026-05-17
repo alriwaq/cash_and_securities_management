@@ -1,0 +1,136 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2024-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "System Settings",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "default_vault_section",
+  "default_vault_account",
+  "default_shortage_account",
+  "column_break_1",
+  "default_company",
+  "default_currency",
+  "denomination_section",
+  "require_denomination_count",
+  "allow_variance_posting",
+  "column_break_2",
+  "max_variance_allowed",
+  "variance_narration_mandatory"
+ ],
+ "fields": [
+  {
+   "fieldname": "default_vault_section",
+   "fieldtype": "Section Break",
+   "label": "Default Vault Accounts"
+  },
+  {
+   "fieldname": "default_vault_account",
+   "fieldtype": "Link",
+   "label": "Default Vault Cash Account",
+   "options": "Account",
+   "description": "Default GL cash account assigned to new Treasury Stations."
+  },
+  {
+   "fieldname": "default_shortage_account",
+   "fieldtype": "Link",
+   "label": "Default Shortage / Overage Account",
+   "options": "Account",
+   "description": "GL account used to post cash variance Journal Entries."
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "default_company",
+   "fieldtype": "Link",
+   "label": "Default Company",
+   "options": "Company"
+  },
+  {
+   "fieldname": "default_currency",
+   "fieldtype": "Link",
+   "label": "Default Currency",
+   "options": "Currency"
+  },
+  {
+   "fieldname": "denomination_section",
+   "fieldtype": "Section Break",
+   "label": "Denomination & Variance Rules"
+  },
+  {
+   "fieldname": "require_denomination_count",
+   "fieldtype": "Check",
+   "label": "Require Denomination Count Before Posting",
+   "default": "0",
+   "description": "If enabled, the teller must complete the denomination drawer before clicking Post Journal."
+  },
+  {
+   "fieldname": "allow_variance_posting",
+   "fieldtype": "Check",
+   "label": "Allow Posting with Variance",
+   "default": "1",
+   "description": "If enabled, journals with a cash variance can still be posted (a narration is required)."
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "max_variance_allowed",
+   "fieldtype": "Currency",
+   "label": "Maximum Variance Allowed",
+   "default": "0",
+   "description": "If set, posting is blocked when the absolute variance exceeds this amount. Set 0 to disable."
+  },
+  {
+   "fieldname": "variance_narration_mandatory",
+   "fieldtype": "Check",
+   "label": "Variance Narration is Mandatory",
+   "default": "1",
+   "description": "If enabled, a narration must be entered whenever a variance exists."
+  }
+ ],
+ "idx": 0,
+ "issingle": 1,
+ "links": [],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Treasury",
+ "name": "Vault Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 0,
+   "print": 1,
+   "read": 1,
+   "report": 0,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 0,
+   "print": 1,
+   "read": 1,
+   "report": 0,
+   "role": "Accounts Manager",
+   "share": 0,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "",
+ "track_changes": 1
+}

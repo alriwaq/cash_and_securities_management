@@ -362,11 +362,76 @@ class TreasuryCashJournal {
 			}
 		});
 
-		// Party input
+		// Party input — save value and re-render to show/hide fetch button
 		tbody.on("blur", ".tcj-party", (e) => {
 			const id = parseInt($(e.target).data("id"));
 			const row = this._getRow(id);
-			if (row) row.party = $(e.target).val();
+			if (row) {
+				row.party = $(e.target).val().trim();
+				// Re-render to show/hide the fetch-refs button
+				this._renderGrid();
+			}
+		});
+
+		// Party input — live autocomplete filtered by party_type
+		tbody.on("focus", ".tcj-party", (e) => {
+			const id = parseInt($(e.target).data("id"));
+			const row = this._getRow(id);
+			if (!row || !row.party_type) return;
+
+			const doctypeMap = {
+				"Customer": "Customer",
+				"Supplier": "Supplier",
+				"Custodian": "Custodian",
+				"Bank Account": "Bank Account",
+			};
+			const targetDoctype = doctypeMap[row.party_type];
+			if (!targetDoctype) return;
+
+			const $input = $(e.target);
+
+			// Attach autocomplete using frappe's built-in suggest
+			$input.off("input.tcj-autocomplete").on("input.tcj-autocomplete", function () {
+				const txt = $(this).val();
+				if (txt.length < 1) return;
+				frappe.call({
+					method: "frappe.desk.search.search_link",
+					args: {
+						doctype: targetDoctype,
+						txt: txt,
+						query: "",
+						page_length: 10,
+					},
+					callback: (r) => {
+						if (!r.results || r.results.length === 0) return;
+						// Remove any existing dropdown
+						$input.next(".tcj-autocomplete-dropdown").remove();
+						const $dd = $(`<ul class="tcj-autocomplete-dropdown list-group" style="
+							position:absolute; z-index:9999; min-width:200px;
+							max-height:200px; overflow-y:auto;
+							background:#fff; border:1px solid #ccc; border-radius:4px;
+							box-shadow:0 2px 8px rgba(0,0,0,.15);"></ul>`);
+						r.results.forEach((res) => {
+							$dd.append(
+								$(`<li class="list-group-item list-group-item-action py-1 px-2" style="cursor:pointer;">${res.value}</li>`)
+								.on("mousedown", () => {
+									$input.val(res.value);
+									row.party = res.value;
+									$dd.remove();
+									// Re-render to show fetch button
+									setTimeout(() => this._renderGrid(), 50);
+								}.bind(this))
+							);
+						});
+						$input.after($dd);
+					},
+				});
+			}.bind(this));
+
+			// Remove dropdown on blur
+			$input.off("blur.tcj-autocomplete").on("blur.tcj-autocomplete", function () {
+				setTimeout(() => $input.next(".tcj-autocomplete-dropdown").remove(), 200);
+			});
 		});
 
 		// Amount change
