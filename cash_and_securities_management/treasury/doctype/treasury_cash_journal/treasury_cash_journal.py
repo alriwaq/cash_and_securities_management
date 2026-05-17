@@ -181,6 +181,9 @@ class TreasuryCashJournal(Document):
 				pe.paid_to = line.party
 			pe.paid_amount = flt(line.amount)
 			pe.received_amount = flt(line.amount)
+			# ERPNext requires reference_no/date for Bank-type mode of payment
+			pe.reference_no = self.name
+			pe.reference_date = self.posting_date
 
 		else:
 			frappe.throw(_("Unknown direction '{0}' on row {1}.").format(line.direction, line.idx))
