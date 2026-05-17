@@ -6,7 +6,7 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
 	});
 
 	// Render the HTML template into the page body
-	$(wrapper).find(".page-content").html(frappe.render_template("treasury_cash_journal"));
+	$(wrapper).find(".page-content").html(frappe.render_template("treasury_cash_journal_cockpit"));
 
 	// Boot the controller
 	new TreasuryCashJournal(page, wrapper);
@@ -41,7 +41,7 @@ class TreasuryCashJournal {
 
 	_loadStations() {
 		frappe.call({
-			method: "cash_and_securities_management.treasury.page.treasury_cash_journal.treasury_cash_journal_api.get_station_list",
+			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.get_station_list",
 			callback: (r) => {
 				if (!r.message) return;
 				const sel = $("#tcj-station-select");
@@ -139,7 +139,7 @@ class TreasuryCashJournal {
 		if (!station || !date) return;
 
 		frappe.call({
-			method: "cash_and_securities_management.treasury.page.treasury_cash_journal.treasury_cash_journal_api.get_station_data",
+			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.get_station_data",
 			args: { station, posting_date: date },
 			callback: (r) => {
 				if (!r.message) return;
@@ -500,7 +500,7 @@ class TreasuryCashJournal {
 		row.reference_doctype = refDoctype;
 
 		frappe.call({
-			method: "cash_and_securities_management.treasury.page.treasury_cash_journal.treasury_cash_journal_api.get_open_references",
+			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.get_open_references",
 			args: {
 				party_type: row.party_type,
 				party: row.party,
@@ -628,7 +628,7 @@ class TreasuryCashJournal {
 		}
 
 		frappe.call({
-			method: "cash_and_securities_management.treasury.page.treasury_cash_journal.treasury_cash_journal_api.save_journal_draft",
+			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.save_journal_draft",
 			args: {
 				station,
 				posting_date: date,
@@ -678,7 +678,7 @@ class TreasuryCashJournal {
 			: expected;
 
 		frappe.call({
-			method: "cash_and_securities_management.treasury.page.treasury_cash_journal.treasury_cash_journal_api.post_journal",
+			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.post_journal",
 			args: {
 				journal_name: this.journalName,
 				actual_balance: actual,
