@@ -498,8 +498,7 @@ class TreasuryCashJournal {
 				label: "Category",
 				options: [],
 				reqd: 1,
-				hidden: 1, // Hidden until direction is selected
-				depends_on: "eval: doc.direction",
+				hidden: 1,
 			},
 
 			// ─ Step 2: Linking & Cascading Filters ─
@@ -507,8 +506,7 @@ class TreasuryCashJournal {
 				fieldtype: "Section Break",
 				fieldname: "step2_section",
 				label: "Step 2: Link & Party Information",
-				hidden: 1, // Hidden until category is selected
-				depends_on: "eval: doc.transaction_category",
+				hidden: 1,
 			},
 			{
 				fieldtype: "Select",
@@ -517,7 +515,6 @@ class TreasuryCashJournal {
 				options: ["", "Customer", "Supplier", "Custodian", "Bank Account"],
 				reqd: 1,
 				hidden: 1,
-				depends_on: "eval: doc.transaction_category",
 			},
 			{
 				fieldtype: "Link",
@@ -526,7 +523,6 @@ class TreasuryCashJournal {
 				options: "Customer",
 				reqd: 1,
 				hidden: 1,
-				depends_on: "eval: doc.party_type",
 			},
 			{
 				fieldtype: "Select",
@@ -535,7 +531,6 @@ class TreasuryCashJournal {
 				options: ["", "Sales Invoice", "Purchase Invoice", "Custody Request", "Accountant Custody"],
 				reqd: 1,
 				hidden: 1,
-				depends_on: "eval: doc.party_type",
 			},
 			{
 				fieldtype: "Link",
@@ -544,7 +539,6 @@ class TreasuryCashJournal {
 				options: "Sales Invoice",
 				reqd: 1,
 				hidden: 1,
-				depends_on: "eval: doc.reference_doctype",
 			},
 
 			// ─ Step 3: Financial Automation & Validation ─
@@ -553,7 +547,6 @@ class TreasuryCashJournal {
 				fieldname: "step3_section",
 				label: "Step 3: Amount & Narration",
 				hidden: 1,
-				depends_on: "eval: doc.reference_name",
 			},
 			{
 				fieldtype: "Currency",
@@ -562,7 +555,6 @@ class TreasuryCashJournal {
 				reqd: 1,
 				read_only: 1,
 				hidden: 1,
-				depends_on: "eval: doc.reference_name",
 			},
 			{
 				fieldtype: "Small Text",
@@ -570,7 +562,6 @@ class TreasuryCashJournal {
 				label: "Narration",
 				reqd: 1,
 				hidden: 1,
-				depends_on: "eval: doc.reference_name",
 			},
 		];
 
@@ -582,7 +573,6 @@ class TreasuryCashJournal {
 		});
 
 		// ─ Event Handlers for Dynamic Field Updates ─
-		dialog.set_df_property("direction", "hidden", 0);
 
 		// When Direction changes, update Category options and visibility
 		dialog.fields_dict.direction.df.onchange = () => {
@@ -600,6 +590,13 @@ class TreasuryCashJournal {
 			dialog.set_df_property("transaction_category", "options", catOptions);
 			dialog.set_df_property("transaction_category", "hidden", direction ? 0 : 1);
 			dialog.get_field("transaction_category").refresh();
+
+			// Reset category and subsequent fields
+			dialog.set_value("transaction_category", "");
+			dialog.set_value("party_type", "");
+			dialog.set_value("party", "");
+			dialog.set_value("reference_doctype", "");
+			dialog.set_value("reference_name", "");
 		};
 
 		// When Category changes, show Step 2 section
@@ -609,8 +606,14 @@ class TreasuryCashJournal {
 
 			dialog.set_df_property("step2_section", "hidden", hasCategory ? 0 : 1);
 			dialog.set_df_property("party_type", "hidden", hasCategory ? 0 : 1);
-			dialog.get_field("step2_section").df.hidden = !hasCategory;
+			dialog.get_field("step2_section").refresh();
 			dialog.get_field("party_type").refresh();
+
+			// Reset subsequent fields
+			dialog.set_value("party_type", "");
+			dialog.set_value("party", "");
+			dialog.set_value("reference_doctype", "");
+			dialog.set_value("reference_name", "");
 		};
 
 		// When Party Type changes, update Party field options
@@ -622,7 +625,15 @@ class TreasuryCashJournal {
 				dialog.set_df_property("reference_doctype", "hidden", 0);
 				dialog.get_field("party").refresh();
 				dialog.get_field("reference_doctype").refresh();
+			} else {
+				dialog.set_df_property("party", "hidden", 1);
+				dialog.set_df_property("reference_doctype", "hidden", 1);
 			}
+
+			// Reset subsequent fields
+			dialog.set_value("party", "");
+			dialog.set_value("reference_doctype", "");
+			dialog.set_value("reference_name", "");
 		};
 
 		// When Reference DocType changes, filter Reference Name field
@@ -657,7 +668,12 @@ class TreasuryCashJournal {
 						};
 					}
 				}
+			} else {
+				dialog.set_df_property("reference_name", "hidden", 1);
 			}
+
+			// Reset reference name
+			dialog.set_value("reference_name", "");
 		};
 
 		// When Reference Name is selected, auto-fill Amount
