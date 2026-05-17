@@ -1,3 +1,5 @@
+frappe.pages["treasury-cash-journal-cockpit"] = frappe.pages["treasury-cash-journal-cockpit"] || {};
+
 frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) {
 	var page = frappe.ui.make_app_page({
 		parent: wrapper,
@@ -5,8 +7,9 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
 		single_column: true,
 	});
 
-	// Inject the cockpit HTML directly into the page main section
-	$(page.main).html(`
+	try {
+		// Inject the cockpit HTML directly into the page main section
+		$(page.main).html(`
 <div class="tcj-page" style="padding: 0 15px;">
 
   <!-- Header Bar -->
@@ -191,8 +194,17 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
 </div>
 `);
 
-	// Boot the controller
-	new TreasuryCashJournal(page, wrapper);
+		// Boot the controller
+		new TreasuryCashJournal(page, wrapper);
+	} catch (e) {
+		console.error("Failed to load Treasury Cash Journal Cockpit", e);
+		$(page.main).html(`
+			<div class="alert alert-danger" role="alert" style="margin: 15px;">
+				<strong>Cash Journal Cockpit failed to load.</strong><br/>
+				Please contact your administrator and check browser console logs.
+			</div>
+		`);
+	}
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -467,13 +479,13 @@ class TreasuryCashJournal {
 				</td>
 				<td>
 					<input type="text" class="form-control form-control-sm tcj-party" data-id="${row._id}"
-					       value="${frappe.utils.escape_html(row.party || "")}"
+					       value="${this._escapeHtml(row.party || "")}" 
 					       placeholder="Party..." ${readOnly ? "readonly" : ""} />
 				</td>
 				<td>
 					<div class="d-flex">
 						<input type="text" class="form-control form-control-sm tcj-ref-name" data-id="${row._id}"
-						       value="${frappe.utils.escape_html(row.reference_name || "")}"
+						       value="${this._escapeHtml(row.reference_name || "")}"
 						       placeholder="Reference..." ${readOnly ? "readonly" : ""} style="flex:1;" />
 						${!readOnly && row.party_type && row.party ? `
 						<button class="btn btn-xs btn-outline-secondary tcj-fetch-refs ml-1" data-id="${row._id}"
@@ -489,7 +501,7 @@ class TreasuryCashJournal {
 				</td>
 				<td>
 					<input type="text" class="form-control form-control-sm tcj-narration" data-id="${row._id}"
-					       value="${frappe.utils.escape_html(row.narration || "")}"
+					       value="${this._escapeHtml(row.narration || "")}"
 					       placeholder="Narration..." ${readOnly ? "readonly" : ""} />
 				</td>
 				<td class="text-center">${statusCell}</td>
@@ -588,7 +600,7 @@ class TreasuryCashJournal {
 									row.party = res.value;
 									$dd.remove();
 									setTimeout(() => this._renderGrid(), 50);
-								}.bind(this))
+								})
 							);
 						});
 						$input.after($dd);
@@ -871,6 +883,13 @@ class TreasuryCashJournal {
 	}
 
 	// ── Helpers ───────────────────────────────────────────────────────────────
+
+	_escapeHtml(value) {
+		if (frappe.utils && typeof frappe.utils.escape_html === "function") {
+			return frappe.utils.escape_html(value || "");
+		}
+		return $("<div>").text(value || "").html();
+	}
 
 	_getRow(id) {
 		return this.rows.find((r) => r._id === id);
