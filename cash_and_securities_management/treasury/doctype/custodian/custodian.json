@@ -16,6 +16,7 @@
   "company",
   "custody_account_section",
   "custody_account",
+  "custodian_bank_account",
   "liability_account",
   "custody_limit",
   "column_break_account",
@@ -99,6 +100,14 @@
    "no_copy": 1,
    "options": "Account",
    "read_only": 1
+  },
+  {
+   "description": "Bank Account held by the custodian. The GL Account linked to this Bank Account must match the Advance (Asset) Account above. Advance disbursements will be sent here as a Bank Draft.",
+   "fieldname": "custodian_bank_account",
+   "fieldtype": "Link",
+   "label": "Custodian Bank Account",
+   "options": "Bank Account",
+   "in_list_view": 0
   },
   {
    "fieldname": "liability_account",
