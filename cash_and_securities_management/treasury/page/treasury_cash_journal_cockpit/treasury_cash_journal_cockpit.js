@@ -32,7 +32,7 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
       <span id="tcj-status-badge" class="badge badge-secondary" style="font-size:0.85rem; padding:6px 12px;">Draft</span>
     </div>
     <div class="col-auto ml-auto">
-      <button id="tcj-add-txn-btn" class="btn btn-sm btn-success mr-2" style="display:none;">
+      <button id="tcj-add-txn-btn" class="btn btn-sm btn-success mr-2">
         <i class="fa fa-plus mr-1"></i> Add Transaction
       </button>
       <button id="tcj-save-btn" class="btn btn-sm btn-default mr-2">
