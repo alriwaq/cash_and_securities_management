@@ -278,6 +278,85 @@ class TreasuryCashJournal {
 		});
 	}
 
+	_initDenomTable() {
+		const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.25];
+		const tbody = $("#tcj-denom-tbody");
+		tbody.empty();
+		denoms.forEach((d) => {
+			tbody.append(`
+				<tr data-denom="${d}">
+					<td>${d}</td>
+					<td><input type="number" class="form-control form-control-sm denom-count"
+					           min="0" value="0" data-denom="${d}" style="width:80px;" /></td>
+					<td class="text-right denom-line-total">0.00</td>
+				</tr>
+			`);
+		});
+		$(document).on("input", ".denom-count", () => this._calcDenomTotal());
+	}
+
+	_calcDenomTotal() {
+		let total = 0;
+		$(".denom-count").each(function () {
+			const count = parseFloat($(this).val()) || 0;
+			const denom = parseFloat($(this).data("denom"));
+			const lineTotal = count * denom;
+			$(this).closest("tr").find(".denom-line-total").text(
+				frappe.utils.format_number(lineTotal, null, 2)
+			);
+			total += lineTotal;
+		});
+		const expected = this.openingBalance + this._sumInflows() - this._sumOutflows();
+		const variance = total - expected;
+
+		$("#tcj-denom-total").text(frappe.utils.format_number(total, null, 2));
+		$("#tcj-denom-expected").text(frappe.utils.format_number(expected, null, 2));
+		$("#tcj-denom-actual").text(frappe.utils.format_number(total, null, 2));
+		$("#tcj-denom-variance")
+			.text(frappe.utils.format_number(variance, null, 2))
+			.css("color", variance < 0 ? "#dc3545" : variance > 0 ? "#fd7e14" : "#28a745");
+	}
+
+	_loadJournal() {
+		const station = $("#tcj-station-select").val();
+		const date = $("#tcj-date-input").val();
+		if (!station || !date) return;
+
+		frappe.call({
+			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.get_station_data",
+			args: { station, posting_date: date },
+			callback: (r) => {
+				if (!r.message) return;
+				const data = r.message;
+				this.stationData = data.station;
+				this.openingBalance = data.opening_balance || 0;
+				this.journalName = data.journal_name || null;
+				this.posted = data.existing && data.existing.posting_status === "Posted";
+
+				this.rows = (data.lines || []).map((l, i) => ({
+					_id: i,
+					direction: l.direction || "",
+					transaction_category: l.transaction_category || "",
+					party_type: l.party_type || "",
+					party: l.party || "",
+					reference_doctype: l.reference_doctype || "",
+					reference_name: l.reference_name || "",
+					amount: l.amount || 0,
+					narration: l.narration || "",
+					is_posted: l.is_posted || 0,
+					linked_document: l.linked_document || "",
+				}));
+
+				this._updateKPIs();
+				this._renderGrid();
+				this._updateStatusBadge();
+				this._updateDenomCard();
+				$("#tcj-opening-balance").val(this.openingBalance);
+				$("#tcj-journal-name").val(this.journalName || "");
+			},
+		});
+	}
+
 	_addRow() {
 		if (this.posted) {
 			frappe.msgprint(__("This journal is already posted. No new rows can be added."));
