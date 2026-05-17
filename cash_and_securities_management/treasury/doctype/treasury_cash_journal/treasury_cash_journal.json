@@ -1,0 +1,205 @@
+{
+ "actions": [],
+ "autoname": "naming_series:",
+ "creation": "2024-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "treasury_station",
+  "posting_date",
+  "column_break_1",
+  "posting_status",
+  "company",
+  "balance_section",
+  "opening_balance",
+  "total_inflows",
+  "column_break_balance",
+  "total_outflows",
+  "expected_balance",
+  "variance_section",
+  "actual_balance",
+  "variance",
+  "column_break_variance",
+  "variance_narration",
+  "lines_section",
+  "journal_lines"
+ ],
+ "fields": [
+  {
+   "default": "TCJ-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "TCJ-.YYYY.-.#####",
+   "reqd": 1
+  },
+  {
+   "fieldname": "treasury_station",
+   "fieldtype": "Link",
+   "label": "Treasury Station",
+   "options": "Treasury Station",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "default": "Today",
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "label": "Posting Date",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "posting_status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Draft\nPosted\nClosed",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fetch_from": "treasury_station.company",
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1
+  },
+  {
+   "fieldname": "balance_section",
+   "fieldtype": "Section Break",
+   "label": "Balance Summary"
+  },
+  {
+   "fieldname": "opening_balance",
+   "fieldtype": "Currency",
+   "label": "Opening Balance",
+   "read_only": 1,
+   "description": "Carried forward from the last closed journal for this station."
+  },
+  {
+   "fieldname": "total_inflows",
+   "fieldtype": "Currency",
+   "label": "Total Inflows",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_balance",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_outflows",
+   "fieldtype": "Currency",
+   "label": "Total Outflows",
+   "read_only": 1
+  },
+  {
+   "fieldname": "expected_balance",
+   "fieldtype": "Currency",
+   "label": "Expected Balance",
+   "read_only": 1,
+   "description": "Formula: Opening Balance + Total Inflows − Total Outflows"
+  },
+  {
+   "fieldname": "variance_section",
+   "fieldtype": "Section Break",
+   "label": "End-of-Day Denomination Verification",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "actual_balance",
+   "fieldtype": "Currency",
+   "label": "Actual (Counted) Balance",
+   "description": "Enter the physical cash count total from the denomination grid."
+  },
+  {
+   "fieldname": "variance",
+   "fieldtype": "Currency",
+   "label": "Variance",
+   "read_only": 1,
+   "description": "Formula: Actual Balance − Expected Balance. Negative = shortage."
+  },
+  {
+   "fieldname": "column_break_variance",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "variance_narration",
+   "fieldtype": "Small Text",
+   "label": "Variance Narration",
+   "description": "Required if variance is non-zero. Explain the reason for the shortage or overage."
+  },
+  {
+   "fieldname": "lines_section",
+   "fieldtype": "Section Break",
+   "label": "Transaction Lines"
+  },
+  {
+   "fieldname": "journal_lines",
+   "fieldtype": "Table",
+   "label": "Journal Lines",
+   "options": "Treasury Journal Line",
+   "reqd": 0
+  }
+ ],
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Treasury",
+ "name": "Treasury Cash Journal",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "cancel": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "submit": 1,
+   "cancel": 0,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 0,
+   "export": 0,
+   "print": 1,
+   "read": 1,
+   "report": 0,
+   "role": "Accounts User",
+   "share": 0,
+   "submit": 0,
+   "cancel": 0,
+   "write": 1
+  }
+ ],
+ "sort_field": "posting_date",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

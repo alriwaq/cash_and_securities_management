@@ -1,0 +1,23 @@
+{
+ "creation": "2024-01-01 00:00:00.000000",
+ "doctype": "Page",
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Treasury",
+ "name": "treasury-cash-journal",
+ "owner": "Administrator",
+ "page_name": "treasury-cash-journal",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Accounts Manager"
+  },
+  {
+   "role": "Accounts User"
+  }
+ ],
+ "standard": "Yes",
+ "title": "Treasury Cash Journal"
+}

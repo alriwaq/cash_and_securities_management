@@ -70,6 +70,44 @@
   {
    "hidden": 0,
    "is_query_report": 0,
+   "label": "Cash Journal",
+   "link_count": 0,
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Treasury Cash Journal",
+   "link_count": 0,
+   "link_to": "treasury-cash-journal",
+   "link_type": "Page",
+   "onboard": 1,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Treasury Cash Journal (Form)",
+   "link_count": 0,
+   "link_to": "Treasury Cash Journal",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Treasury Station",
+   "link_count": 0,
+   "link_to": "Treasury Station",
+   "link_type": "DocType",
+   "onboard": 1,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
    "label": "Settings",
    "link_count": 0,
    "onboard": 0,
@@ -143,6 +181,20 @@
    "color": "Grey",
    "label": "Treasury Settings",
    "link_to": "Treasury Settings",
+   "type": "DocType"
+  },
+  {
+   "color": "Blue",
+   "label": "Cash Journal",
+   "link_to": "treasury-cash-journal",
+   "type": "Page"
+  },
+  {
+   "color": "Purple",
+   "format": "{} Open",
+   "label": "Treasury Station",
+   "link_to": "Treasury Station",
+   "stats_filter": "{\n    \"status\": \"Open\"\n}",
    "type": "DocType"
   }
  ],

@@ -1,0 +1,159 @@
+{
+ "actions": [],
+ "autoname": "field:station_name",
+ "creation": "2024-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "station_name",
+  "company",
+  "column_break_1",
+  "responsible_user",
+  "status",
+  "vault_section",
+  "vault_account",
+  "column_break_vault",
+  "shortage_account",
+  "balance_section",
+  "opening_balance",
+  "column_break_balance",
+  "current_balance",
+  "last_closing_date"
+ ],
+ "fields": [
+  {
+   "fieldname": "station_name",
+   "fieldtype": "Data",
+   "label": "Station Name",
+   "reqd": 1,
+   "in_list_view": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "responsible_user",
+   "fieldtype": "Link",
+   "label": "Responsible User (Cashier)",
+   "options": "User"
+  },
+  {
+   "default": "Open",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "\nOpen\nClosed",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "vault_section",
+   "fieldtype": "Section Break",
+   "label": "Vault GL Accounts"
+  },
+  {
+   "fieldname": "vault_account",
+   "fieldtype": "Link",
+   "label": "Vault Cash Account",
+   "options": "Account",
+   "reqd": 1,
+   "description": "The GL Cash Account representing the physical vault/safe of this station. All cash transactions debit or credit this account."
+  },
+  {
+   "fieldname": "column_break_vault",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "shortage_account",
+   "fieldtype": "Link",
+   "label": "Shortage / Overage Account",
+   "options": "Account",
+   "description": "GL Account used to post cash variance (shortage or overage) discovered during end-of-day denomination count."
+  },
+  {
+   "fieldname": "balance_section",
+   "fieldtype": "Section Break",
+   "label": "Running Balances"
+  },
+  {
+   "fieldname": "opening_balance",
+   "fieldtype": "Currency",
+   "label": "Opening Balance",
+   "read_only": 1,
+   "description": "Balance carried forward from the last closed journal."
+  },
+  {
+   "fieldname": "column_break_balance",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "current_balance",
+   "fieldtype": "Currency",
+   "label": "Current Balance",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_closing_date",
+   "fieldtype": "Date",
+   "label": "Last Closing Date",
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Treasury",
+ "name": "Treasury Station",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 0,
+   "print": 1,
+   "read": 1,
+   "report": 0,
+   "role": "Accounts User",
+   "share": 0,
+   "write": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}
