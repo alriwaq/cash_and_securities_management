@@ -5,8 +5,191 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
 		single_column: true,
 	});
 
-	// Render the HTML template into the page body
-	$(wrapper).find(".page-content").html(frappe.render_template("treasury_cash_journal_cockpit"));
+	// Inject the cockpit HTML directly into the page main section
+	$(page.main).html(`
+<div class="tcj-page" style="padding: 0 15px;">
+
+  <!-- Header Bar -->
+  <div class="tcj-header row align-items-center mb-3 mt-2">
+    <div class="col-auto">
+      <h4 class="mb-0" style="font-weight:600;">
+        <i class="fa fa-university mr-2" style="color:var(--primary);"></i>
+        Treasury Cash Journal
+      </h4>
+    </div>
+    <div class="col-auto ml-3">
+      <select id="tcj-station-select" class="form-control form-control-sm" style="min-width:200px;">
+        <option value="">— Select Station —</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <input type="date" id="tcj-date-input" class="form-control form-control-sm" style="min-width:140px;" />
+    </div>
+    <div class="col-auto">
+      <span id="tcj-status-badge" class="badge badge-secondary" style="font-size:0.85rem; padding:6px 12px;">Draft</span>
+    </div>
+    <div class="col-auto ml-auto">
+      <button id="tcj-save-btn" class="btn btn-sm btn-default mr-2">
+        <i class="fa fa-save mr-1"></i> Save Draft
+      </button>
+      <button id="tcj-post-btn" class="btn btn-sm btn-primary">
+        <i class="fa fa-check-circle mr-1"></i> Post Journal
+      </button>
+    </div>
+  </div>
+
+  <!-- KPI Cards -->
+  <div class="tcj-kpi-row row mb-3" id="tcj-kpi-row">
+    <div class="col-md-3 col-sm-6 mb-2">
+      <div class="tcj-kpi-card card shadow-sm" style="border-left:4px solid #6c757d;">
+        <div class="card-body py-2 px-3">
+          <div class="tcj-kpi-label text-muted" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em;">Opening Balance</div>
+          <div class="tcj-kpi-value" id="kpi-opening" style="font-size:1.4rem; font-weight:700; color:#495057;">0.00</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3 col-sm-6 mb-2">
+      <div class="tcj-kpi-card card shadow-sm" style="border-left:4px solid #28a745;">
+        <div class="card-body py-2 px-3">
+          <div class="tcj-kpi-label text-muted" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em;">Total Inflows</div>
+          <div class="tcj-kpi-value" id="kpi-inflows" style="font-size:1.4rem; font-weight:700; color:#28a745;">0.00</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3 col-sm-6 mb-2">
+      <div class="tcj-kpi-card card shadow-sm" style="border-left:4px solid #dc3545;">
+        <div class="card-body py-2 px-3">
+          <div class="tcj-kpi-label text-muted" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em;">Total Outflows</div>
+          <div class="tcj-kpi-value" id="kpi-outflows" style="font-size:1.4rem; font-weight:700; color:#dc3545;">0.00</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3 col-sm-6 mb-2">
+      <div class="tcj-kpi-card card shadow-sm" style="border-left:4px solid var(--primary);">
+        <div class="card-body py-2 px-3">
+          <div class="tcj-kpi-label text-muted" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em;">Expected Balance</div>
+          <div class="tcj-kpi-value" id="kpi-expected" style="font-size:1.4rem; font-weight:700; color:var(--primary);">0.00</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab Filter Bar -->
+  <ul class="nav nav-tabs mb-0" id="tcj-tabs" role="tablist" style="border-bottom:2px solid var(--primary);">
+    <li class="nav-item">
+      <a class="nav-link active" id="tab-all" data-filter="all" href="#" role="tab">
+        All <span class="badge badge-secondary ml-1" id="badge-all">0</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" id="tab-outbound" data-filter="Outbound" href="#" role="tab">
+        <span style="color:#dc3545;">&#8595;</span> Outbound
+        <span class="badge badge-danger ml-1" id="badge-outbound">0</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" id="tab-inbound" data-filter="Inbound" href="#" role="tab">
+        <span style="color:#28a745;">&#8593;</span> Inbound
+        <span class="badge badge-success ml-1" id="badge-inbound">0</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link" id="tab-bank" data-filter="Bank Transfer" href="#" role="tab">
+        <i class="fa fa-exchange"></i> Bank
+        <span class="badge badge-info ml-1" id="badge-bank">0</span>
+      </a>
+    </li>
+  </ul>
+
+  <!-- Transaction Grid -->
+  <div class="tcj-grid-wrapper" style="overflow-x:auto; background:#fff; border:1px solid #dee2e6; border-top:none;">
+    <table class="table table-sm table-hover mb-0" id="tcj-grid">
+      <thead style="background:var(--subtle-fg); position:sticky; top:0; z-index:10;">
+        <tr>
+          <th style="width:30px;">#</th>
+          <th style="width:110px;">Direction</th>
+          <th style="width:150px;">Category</th>
+          <th style="width:120px;">Party Type</th>
+          <th style="width:180px;">Party</th>
+          <th style="width:160px;">Reference</th>
+          <th style="width:120px; text-align:right;">Amount</th>
+          <th>Narration</th>
+          <th style="width:80px; text-align:center;">Status</th>
+          <th style="width:40px;"></th>
+        </tr>
+      </thead>
+      <tbody id="tcj-tbody">
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Add Row / Toolbar -->
+  <div class="tcj-toolbar mt-2 mb-3 d-flex align-items-center">
+    <button id="tcj-add-row-btn" class="btn btn-sm btn-outline-primary mr-2">
+      <i class="fa fa-plus mr-1"></i> Add Row
+    </button>
+    <span class="text-muted small" id="tcj-row-count">0 rows</span>
+  </div>
+
+  <!-- End-of-Day Denomination Drawer -->
+  <div class="card mt-3" id="tcj-denomination-card" style="display:none;">
+    <div class="card-header d-flex justify-content-between align-items-center"
+         style="cursor:pointer; background:var(--subtle-fg);"
+         id="tcj-denomination-toggle">
+      <span><i class="fa fa-calculator mr-2"></i> End-of-Day Denomination Count</span>
+      <i class="fa fa-chevron-down" id="tcj-denom-chevron"></i>
+    </div>
+    <div class="card-body" id="tcj-denomination-body">
+      <div class="row">
+        <div class="col-md-6">
+          <table class="table table-sm" id="tcj-denom-table">
+            <thead>
+              <tr>
+                <th>Denomination</th>
+                <th style="width:100px;">Count</th>
+                <th style="width:120px; text-align:right;">Total</th>
+              </tr>
+            </thead>
+            <tbody id="tcj-denom-tbody"></tbody>
+            <tfoot>
+              <tr style="font-weight:700; border-top:2px solid #dee2e6;">
+                <td colspan="2">Physical Count Total</td>
+                <td style="text-align:right;" id="tcj-denom-total">0.00</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div class="col-md-6">
+          <div class="card bg-light p-3">
+            <div class="row mb-2">
+              <div class="col-6 text-muted">Expected Balance:</div>
+              <div class="col-6 text-right font-weight-bold" id="tcj-denom-expected">0.00</div>
+            </div>
+            <div class="row mb-2">
+              <div class="col-6 text-muted">Actual (Counted):</div>
+              <div class="col-6 text-right font-weight-bold" id="tcj-denom-actual">0.00</div>
+            </div>
+            <div class="row mb-3">
+              <div class="col-6 text-muted">Variance:</div>
+              <div class="col-6 text-right font-weight-bold" id="tcj-denom-variance" style="color:#dc3545;">0.00</div>
+            </div>
+            <div class="form-group mb-2">
+              <label class="small text-muted">Variance Narration (required if variance &ne; 0)</label>
+              <textarea id="tcj-variance-narration" class="form-control form-control-sm" rows="2"
+                        placeholder="Explain the reason for shortage or overage..."></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden journal name store -->
+  <input type="hidden" id="tcj-journal-name" value="" />
+  <input type="hidden" id="tcj-opening-balance" value="0" />
+
+</div>
+`);
 
 	// Boot the controller
 	new TreasuryCashJournal(page, wrapper);
@@ -19,7 +202,7 @@ class TreasuryCashJournal {
 	constructor(page, wrapper) {
 		this.page = page;
 		this.wrapper = wrapper;
-		this.rows = [];           // in-memory row array
+		this.rows = [];
 		this.activeFilter = "all";
 		this.journalName = null;
 		this.openingBalance = 0;
@@ -48,7 +231,6 @@ class TreasuryCashJournal {
 				r.message.forEach((s) => {
 					sel.append(`<option value="${s.name}">${s.station_name}</option>`);
 				});
-				// Auto-select if only one station
 				if (r.message.length === 1) {
 					sel.val(r.message[0].name);
 					this._loadJournal();
@@ -58,11 +240,9 @@ class TreasuryCashJournal {
 	}
 
 	_bindEvents() {
-		// Station / date change → reload journal
 		$("#tcj-station-select").on("change", () => this._loadJournal());
 		$("#tcj-date-input").on("change", () => this._loadJournal());
 
-		// Tab filter
 		$("#tcj-tabs .nav-link").on("click", (e) => {
 			e.preventDefault();
 			$("#tcj-tabs .nav-link").removeClass("active");
@@ -71,16 +251,10 @@ class TreasuryCashJournal {
 			this._renderGrid();
 		});
 
-		// Add row
 		$("#tcj-add-row-btn").on("click", () => this._addRow());
-
-		// Save draft
 		$("#tcj-save-btn").on("click", () => this._saveDraft());
-
-		// Post journal
 		$("#tcj-post-btn").on("click", () => this._confirmPost());
 
-		// Denomination drawer toggle
 		$("#tcj-denomination-toggle").on("click", () => {
 			const body = $("#tcj-denomination-body");
 			const chevron = $("#tcj-denom-chevron");
@@ -90,7 +264,6 @@ class TreasuryCashJournal {
 	}
 
 	_initDenomTable() {
-		// Standard denominations (SAR — adjust per company currency as needed)
 		const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.25];
 		const tbody = $("#tcj-denom-tbody");
 		tbody.empty();
@@ -104,8 +277,6 @@ class TreasuryCashJournal {
 				</tr>
 			`);
 		});
-
-		// Live calculation
 		$(document).on("input", ".denom-count", () => this._calcDenomTotal());
 	}
 
@@ -149,7 +320,6 @@ class TreasuryCashJournal {
 				this.journalName = data.journal_name || null;
 				this.posted = data.existing && data.existing.posting_status === "Posted";
 
-				// Populate rows from existing journal
 				this.rows = (data.lines || []).map((l, i) => ({
 					_id: i,
 					direction: l.direction || "",
@@ -196,7 +366,6 @@ class TreasuryCashJournal {
 			linked_document: "",
 		});
 		this._renderGrid();
-		// Focus the direction cell of the new row
 		setTimeout(() => {
 			$(`#row-${id} .tcj-direction`).focus();
 		}, 50);
@@ -233,6 +402,7 @@ class TreasuryCashJournal {
 			});
 		}
 
+		this._bindGridEvents();
 		this._updateBadgeCounts();
 		this._updateRowCount();
 	}
@@ -240,7 +410,13 @@ class TreasuryCashJournal {
 	_renderRow(row, idx) {
 		const posted = row.is_posted;
 		const readOnly = posted || this.posted;
-		const rowClass = posted ? "table-success" : (row.direction === "Inbound" ? "tcj-row-inbound" : row.direction === "Outbound" ? "tcj-row-outbound" : "");
+		const rowClass = posted
+			? "table-success"
+			: (row.direction === "Inbound"
+				? "tcj-row-inbound"
+				: row.direction === "Outbound"
+					? "tcj-row-outbound"
+					: "");
 
 		const dirOptions = ["", "Inbound", "Outbound", "Bank Transfer"]
 			.map((d) => `<option value="${d}" ${row.direction === d ? "selected" : ""}>${d || "—"}</option>`)
@@ -327,8 +503,9 @@ class TreasuryCashJournal {
 	_bindGridEvents() {
 		const tbody = $("#tcj-tbody");
 
-		// Direction change
-		tbody.on("change", ".tcj-direction", (e) => {
+		tbody.off("change.tcj input.tcj blur.tcj click.tcj");
+
+		tbody.on("change.tcj", ".tcj-direction", (e) => {
 			const id = parseInt($(e.target).data("id"));
 			const row = this._getRow(id);
 			if (row) {
@@ -338,19 +515,16 @@ class TreasuryCashJournal {
 			}
 		});
 
-		// Category change
-		tbody.on("change", ".tcj-category", (e) => {
+		tbody.on("change.tcj", ".tcj-category", (e) => {
 			const id = parseInt($(e.target).data("id"));
 			const row = this._getRow(id);
 			if (row) {
 				row.transaction_category = $(e.target).val();
-				// Swap reference_doctype based on category
 				row.reference_doctype = this._inferRefDoctype(row);
 			}
 		});
 
-		// Party type change
-		tbody.on("change", ".tcj-party-type", (e) => {
+		tbody.on("change.tcj", ".tcj-party-type", (e) => {
 			const id = parseInt($(e.target).data("id"));
 			const row = this._getRow(id);
 			if (row) {
@@ -362,19 +536,16 @@ class TreasuryCashJournal {
 			}
 		});
 
-		// Party input — save value and re-render to show/hide fetch button
-		tbody.on("blur", ".tcj-party", (e) => {
+		tbody.on("blur.tcj", ".tcj-party", (e) => {
 			const id = parseInt($(e.target).data("id"));
 			const row = this._getRow(id);
 			if (row) {
 				row.party = $(e.target).val().trim();
-				// Re-render to show/hide the fetch-refs button
 				this._renderGrid();
 			}
 		});
 
-		// Party input — live autocomplete filtered by party_type
-		tbody.on("focus", ".tcj-party", (e) => {
+		tbody.on("focus.tcj", ".tcj-party", (e) => {
 			const id = parseInt($(e.target).data("id"));
 			const row = this._getRow(id);
 			if (!row || !row.party_type) return;
@@ -390,7 +561,6 @@ class TreasuryCashJournal {
 
 			const $input = $(e.target);
 
-			// Attach autocomplete using frappe's built-in suggest
 			$input.off("input.tcj-autocomplete").on("input.tcj-autocomplete", function () {
 				const txt = $(this).val();
 				if (txt.length < 1) return;
@@ -404,7 +574,6 @@ class TreasuryCashJournal {
 					},
 					callback: (r) => {
 						if (!r.results || r.results.length === 0) return;
-						// Remove any existing dropdown
 						$input.next(".tcj-autocomplete-dropdown").remove();
 						const $dd = $(`<ul class="tcj-autocomplete-dropdown list-group" style="
 							position:absolute; z-index:9999; min-width:200px;
@@ -418,7 +587,6 @@ class TreasuryCashJournal {
 									$input.val(res.value);
 									row.party = res.value;
 									$dd.remove();
-									// Re-render to show fetch button
 									setTimeout(() => this._renderGrid(), 50);
 								}.bind(this))
 							);
@@ -428,14 +596,12 @@ class TreasuryCashJournal {
 				});
 			}.bind(this));
 
-			// Remove dropdown on blur
 			$input.off("blur.tcj-autocomplete").on("blur.tcj-autocomplete", function () {
 				setTimeout(() => $input.next(".tcj-autocomplete-dropdown").remove(), 200);
 			});
 		});
 
-		// Amount change
-		tbody.on("input", ".tcj-amount", (e) => {
+		tbody.on("input.tcj", ".tcj-amount", (e) => {
 			const id = parseInt($(e.target).data("id"));
 			const row = this._getRow(id);
 			if (row) {
@@ -445,28 +611,24 @@ class TreasuryCashJournal {
 			}
 		});
 
-		// Narration change
-		tbody.on("blur", ".tcj-narration", (e) => {
+		tbody.on("blur.tcj", ".tcj-narration", (e) => {
 			const id = parseInt($(e.target).data("id"));
 			const row = this._getRow(id);
 			if (row) row.narration = $(e.target).val();
 		});
 
-		// Reference name change
-		tbody.on("blur", ".tcj-ref-name", (e) => {
+		tbody.on("blur.tcj", ".tcj-ref-name", (e) => {
 			const id = parseInt($(e.target).data("id"));
 			const row = this._getRow(id);
 			if (row) row.reference_name = $(e.target).val();
 		});
 
-		// Fetch references button
-		tbody.on("click", ".tcj-fetch-refs", (e) => {
+		tbody.on("click.tcj", ".tcj-fetch-refs", (e) => {
 			const id = parseInt($(e.target).closest("button").data("id"));
 			this._fetchReferences(id);
 		});
 
-		// Delete row
-		tbody.on("click", ".tcj-delete-row", (e) => {
+		tbody.on("click.tcj", ".tcj-delete-row", (e) => {
 			const id = parseInt($(e.target).closest("button").data("id"));
 			this._deleteRow(id);
 		});
@@ -511,7 +673,6 @@ class TreasuryCashJournal {
 					frappe.msgprint(__("No open {0} found for {1}.").replace("{0}", refDoctype).replace("{1}", row.party));
 					return;
 				}
-				// Show a dialog to pick a reference
 				const fields = r.message.map((ref) => ({
 					label: `${ref.name} — Outstanding: ${frappe.utils.format_number(ref.outstanding_amount, null, 2)}`,
 					value: ref.name,
@@ -576,8 +737,6 @@ class TreasuryCashJournal {
 		$("#kpi-inflows").text(fmt(inflows));
 		$("#kpi-outflows").text(fmt(outflows));
 		$("#kpi-expected").text(fmt(expected));
-
-		// Update denomination expected
 		$("#tcj-denom-expected").text(fmt(expected));
 	}
 
@@ -673,9 +832,7 @@ class TreasuryCashJournal {
 
 	_doPost(actualBalance, varianceNarration) {
 		const expected = this.openingBalance + this._sumInflows() - this._sumOutflows();
-		const actual = actualBalance !== 0
-			? expected + actualBalance
-			: expected;
+		const actual = actualBalance !== 0 ? expected + actualBalance : expected;
 
 		frappe.call({
 			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.post_journal",
@@ -690,7 +847,6 @@ class TreasuryCashJournal {
 				if (!r.message) return;
 				const result = r.message;
 
-				// Update row posted status from result
 				result.lines.forEach((l) => {
 					const row = this.rows.find((r) => r._id == l.idx - 1 || r.idx == l.idx);
 					if (row) {
@@ -720,15 +876,3 @@ class TreasuryCashJournal {
 		return this.rows.find((r) => r._id === id);
 	}
 }
-
-// Bind grid events after each render (event delegation on tbody)
-$(document).on("page-change", function () {
-	// Clean up on page change
-});
-
-// Override render to also bind events
-const _origRenderGrid = TreasuryCashJournal.prototype._renderGrid;
-TreasuryCashJournal.prototype._renderGrid = function () {
-	_origRenderGrid.call(this);
-	this._bindGridEvents();
-};
