@@ -509,10 +509,10 @@ class TreasuryCashJournal {
 				hidden: 1,
 			},
 			{
-				fieldtype: "Select",
+				fieldtype: "Link",
 				fieldname: "party_type",
 				label: "Party Type",
-				options: ["", "Customer", "Supplier", "Custodian", "Bank Account"],
+				options: "Party Type",
 				reqd: 1,
 				hidden: 1,
 			},
@@ -525,10 +525,10 @@ class TreasuryCashJournal {
 				hidden: 1,
 			},
 			{
-				fieldtype: "Select",
+				fieldtype: "Link",
 				fieldname: "reference_doctype",
 				label: "Reference Type",
-				options: ["", "Sales Invoice", "Purchase Invoice", "Custody Request", "Accountant Custody"],
+				options: "DocType",
 				reqd: 1,
 				hidden: 1,
 			},
@@ -570,6 +570,16 @@ class TreasuryCashJournal {
 			fields: wizardFields,
 			primary_action_label: __("Add Row"),
 			primary_action: () => this._onWizardSubmit(dialog),
+		});
+
+		// Limit Party Type to relevant types only
+		dialog.get_field("party_type").df.get_query = () => ({
+			filters: { name: ["in", ["Customer", "Supplier", "Custodian", "Bank Account"]] },
+		});
+
+		// Limit Reference Type to supported doctypes only
+		dialog.get_field("reference_doctype").df.get_query = () => ({
+			filters: { name: ["in", ["Sales Invoice", "Purchase Invoice", "Custody Request", "Accountant Custody"]] },
 		});
 
 		// ─ Event Handlers for Dynamic Field Updates ─
