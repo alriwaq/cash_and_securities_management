@@ -33,7 +33,7 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
     </div>
     <div class="col-auto ml-auto">
       <button id="tcj-add-txn-btn" class="btn btn-sm btn-success mr-2">
-        <i class="fa fa-plus mr-1"></i> Add Transaction
+				<i class="fa fa-plus mr-1"></i> Record Vault Movement
       </button>
       <button id="tcj-save-btn" class="btn btn-sm btn-default mr-2">
         <i class="fa fa-save mr-1"></i> Save Draft
@@ -99,12 +99,6 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
         <span class="badge badge-success ml-1" id="badge-inbound">0</span>
       </a>
     </li>
-    <li class="nav-item">
-      <a class="nav-link" id="tab-bank" data-filter="Bank Transfer" href="#" role="tab">
-        <i class="fa fa-exchange"></i> Bank
-        <span class="badge badge-info ml-1" id="badge-bank">0</span>
-      </a>
-    </li>
   </ul>
 
   <!-- Transaction Grid -->
@@ -131,7 +125,7 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
 
   <!-- Read-only Row Count Indicator -->
   <div class="tcj-toolbar mt-2 mb-3 d-flex align-items-center">
-    <span class="text-muted small"><i class="fa fa-info-circle mr-1"></i> <strong>Read-Only Table:</strong> Use "Add Transaction" button above to add rows.</span>
+		<span class="text-muted small"><i class="fa fa-info-circle mr-1"></i> <strong>Read-Only Table:</strong> Use "Record Vault Movement" to add entries through the wizard.</span>
     <span class="text-muted small ml-auto" id="tcj-row-count">0 rows</span>
   </div>
 
@@ -341,10 +335,12 @@ class TreasuryCashJournal {
 					party: l.party || "",
 					reference_doctype: l.reference_doctype || "",
 					reference_name: l.reference_name || "",
+					expense_account: l.expense_account || "",
 					amount: l.amount || 0,
 					narration: l.narration || "",
 					is_posted: l.is_posted || 0,
 					linked_document: l.linked_document || "",
+					linked_doctype: l.linked_doctype || "",
 				}));
 
 				this._updateKPIs();
@@ -386,7 +382,7 @@ class TreasuryCashJournal {
 				<tr>
 					<td colspan="10" class="text-center text-muted py-4">
 						<i class="fa fa-inbox fa-2x mb-2 d-block"></i>
-						No rows yet. Click <strong>Add Row</strong> to begin.
+						No rows yet. Click <strong>Record Vault Movement</strong> to begin.
 					</td>
 				</tr>
 			`);
@@ -411,9 +407,13 @@ class TreasuryCashJournal {
 					? "tcj-row-outbound"
 					: "");
 
+		const linkedRoute = row.linked_doctype
+			? row.linked_doctype.toLowerCase().replace(/\s+/g, "-")
+			: "payment-entry";
+
 		const statusCell = posted
 			? `<span class="badge badge-success"><i class="fa fa-check"></i> Posted</span>
-			   ${row.linked_document ? `<a href="/app/payment-entry/${row.linked_document}" target="_blank"
+			   ${row.linked_document ? `<a href="/app/${linkedRoute}/${row.linked_document}" target="_blank"
 			      class="small ml-1" title="Open ${row.linked_document}">
 			      <i class="fa fa-external-link"></i>
 			   </a>` : ""}`
@@ -456,14 +456,17 @@ class TreasuryCashJournal {
 		if (row.direction === "Inbound" && row.transaction_category === "Invoice Collection") {
 			return "Sales Invoice";
 		}
-		if (row.direction === "Outbound" && row.transaction_category === "Invoice Payment") {
+		if (row.direction === "Outbound" && row.transaction_category === "Supplier Payment") {
 			return "Purchase Invoice";
 		}
-		if (row.transaction_category === "Advance Allocation") {
+		if (row.direction === "Inbound" && row.transaction_category === "Custody Return") {
 			return "Custody Request";
 		}
-		if (row.transaction_category === "Direct Expense" && row.party_type === "Custodian") {
+		if (row.transaction_category === "Advance Allocation") {
 			return "Accountant Custody";
+		}
+		if (row.transaction_category === "Direct Expense") {
+			return "Account";
 		}
 		return "";
 	}
@@ -475,6 +478,14 @@ class TreasuryCashJournal {
 			frappe.msgprint(__("This journal is already posted. No new rows can be added."));
 			return;
 		}
+
+		const categoryConfig = {
+			"Invoice Collection": { party_type: "Customer", reference_doctype: "Sales Invoice", is_direct_expense: false },
+			"Custody Return": { party_type: "Custodian", reference_doctype: "Custody Request", is_direct_expense: false },
+			"Supplier Payment": { party_type: "Supplier", reference_doctype: "Purchase Invoice", is_direct_expense: false },
+			"Advance Allocation": { party_type: "Custodian", reference_doctype: "Accountant Custody", is_direct_expense: false },
+			"Direct Expense": { party_type: "", reference_doctype: "", is_direct_expense: true },
+		};
 
 		const wizardFields = [
 			// ─ Step 1: Classification ─
@@ -488,7 +499,7 @@ class TreasuryCashJournal {
 				fieldtype: "Select",
 				fieldname: "direction",
 				label: "Direction",
-				options: ["", "Inbound", "Outbound", "Bank Transfer"],
+				options: ["", "Inbound", "Outbound"],
 				reqd: 1,
 				hidden: 0,
 			},
@@ -515,6 +526,7 @@ class TreasuryCashJournal {
 				options: "Party Type",
 				reqd: 1,
 				hidden: 1,
+				read_only: 1,
 			},
 			{
 				fieldtype: "Link",
@@ -525,18 +537,26 @@ class TreasuryCashJournal {
 				hidden: 1,
 			},
 			{
-				fieldtype: "Link",
+				fieldtype: "Data",
 				fieldname: "reference_doctype",
 				label: "Reference Type",
-				options: "DocType",
-				reqd: 1,
+				reqd: 0,
 				hidden: 1,
+				read_only: 1,
 			},
 			{
 				fieldtype: "Link",
 				fieldname: "reference_name",
 				label: "Reference Name",
 				options: "Sales Invoice",
+				reqd: 1,
+				hidden: 1,
+			},
+			{
+				fieldtype: "Link",
+				fieldname: "expense_account",
+				label: "Expense Account",
+				options: "Account",
 				reqd: 1,
 				hidden: 1,
 			},
@@ -553,7 +573,7 @@ class TreasuryCashJournal {
 				fieldname: "amount",
 				label: "Amount",
 				reqd: 1,
-				read_only: 1,
+				read_only: 0,
 				hidden: 1,
 			},
 			{
@@ -566,21 +586,67 @@ class TreasuryCashJournal {
 		];
 
 		const dialog = new frappe.ui.Dialog({
-			title: "Add Transaction",
+			title: "Record Vault Movement",
 			fields: wizardFields,
-			primary_action_label: __("Add Row"),
+			primary_action_label: __("Confirm"),
 			primary_action: () => this._onWizardSubmit(dialog),
 		});
 
-		// Limit Party Type to relevant types only
-		dialog.get_field("party_type").df.get_query = () => ({
-			filters: { name: ["in", ["Customer", "Supplier", "Custodian", "Bank Account"]] },
+		dialog.get_field("expense_account").df.get_query = () => ({
+			filters: {
+				root_type: "Expense",
+				is_group: 0,
+			},
 		});
 
-		// Limit Reference Type to supported doctypes only
-		dialog.get_field("reference_doctype").df.get_query = () => ({
-			filters: { name: ["in", ["Sales Invoice", "Purchase Invoice", "Custody Request", "Accountant Custody"]] },
-		});
+		const hideStep3 = () => {
+			dialog.set_df_property("step3_section", "hidden", 1);
+			dialog.set_df_property("amount", "hidden", 1);
+			dialog.set_df_property("narration", "hidden", 1);
+			dialog.get_field("step3_section").refresh();
+			dialog.get_field("amount").refresh();
+			dialog.get_field("narration").refresh();
+		};
+
+		const hideStep2Details = () => {
+			dialog.set_df_property("party_type", "hidden", 1);
+			dialog.set_df_property("party", "hidden", 1);
+			dialog.set_df_property("reference_name", "hidden", 1);
+			dialog.set_df_property("expense_account", "hidden", 1);
+			dialog.set_df_property("party", "reqd", 0);
+			dialog.set_df_property("reference_name", "reqd", 0);
+			dialog.set_df_property("expense_account", "reqd", 0);
+			dialog.get_field("party_type").refresh();
+			dialog.get_field("party").refresh();
+			dialog.get_field("reference_name").refresh();
+			dialog.get_field("expense_account").refresh();
+		};
+
+		const showStep3 = (amountReadOnly) => {
+			dialog.set_df_property("step3_section", "hidden", 0);
+			dialog.set_df_property("amount", "hidden", 0);
+			dialog.set_df_property("narration", "hidden", 0);
+			dialog.set_df_property("amount", "read_only", amountReadOnly ? 1 : 0);
+			dialog.get_field("step3_section").refresh();
+			dialog.get_field("amount").refresh();
+			dialog.get_field("narration").refresh();
+		};
+
+		const updateConfirmState = () => {
+			const values = dialog.get_values() || {};
+			const cfg = categoryConfig[values.transaction_category] || null;
+			const isDirectExpense = !!(cfg && cfg.is_direct_expense);
+
+			const amount = parseFloat(values.amount) || 0;
+			const narration = (values.narration || "").trim();
+			const hasBase = !!values.direction && !!values.transaction_category;
+			const hasStandardLinks = isDirectExpense
+				? !!values.expense_account
+				: !!values.party_type && !!values.party && !!values.reference_name;
+			const canConfirm = hasBase && hasStandardLinks && amount > 0 && narration.length > 0;
+
+			dialog.get_primary_btn().prop("disabled", !canConfirm);
+		};
 
 		// ─ Event Handlers for Dynamic Field Updates ─
 
@@ -590,11 +656,9 @@ class TreasuryCashJournal {
 			let catOptions = [];
 
 			if (direction === "Inbound") {
-				catOptions = ["", "Invoice Collection", "Cash Receipt", "Unused Custody Return"];
+				catOptions = ["", "Invoice Collection", "Custody Return"];
 			} else if (direction === "Outbound") {
-				catOptions = ["", "Invoice Payment", "Advance Allocation", "Direct Expense"];
-			} else if (direction === "Bank Transfer") {
-				catOptions = ["", "Bank Withdrawal", "Bank Deposit"];
+				catOptions = ["", "Supplier Payment", "Advance Allocation", "Direct Expense"];
 			}
 
 			dialog.set_df_property("transaction_category", "options", catOptions);
@@ -607,83 +671,89 @@ class TreasuryCashJournal {
 			dialog.set_value("party", "");
 			dialog.set_value("reference_doctype", "");
 			dialog.set_value("reference_name", "");
+			dialog.set_value("expense_account", "");
+			dialog.set_value("amount", 0);
+			dialog.set_value("narration", "");
+			hideStep2Details();
+			hideStep3();
+			updateConfirmState();
 		};
 
 		// When Category changes, show Step 2 section
 		dialog.fields_dict.transaction_category.df.onchange = () => {
 			const category = dialog.get_value("transaction_category");
 			const hasCategory = !!category;
+			const cfg = categoryConfig[category] || null;
+			const isDirectExpense = !!(cfg && cfg.is_direct_expense);
 
 			dialog.set_df_property("step2_section", "hidden", hasCategory ? 0 : 1);
-			dialog.set_df_property("party_type", "hidden", hasCategory ? 0 : 1);
+			hideStep2Details();
 			dialog.get_field("step2_section").refresh();
-			dialog.get_field("party_type").refresh();
 
-			// Reset subsequent fields
-			dialog.set_value("party_type", "");
-			dialog.set_value("party", "");
-			dialog.set_value("reference_doctype", "");
-			dialog.set_value("reference_name", "");
-		};
+			dialog.set_value("party_type", cfg ? cfg.party_type : "");
+			dialog.set_value("reference_doctype", cfg ? cfg.reference_doctype : "");
 
-		// When Party Type changes, update Party field options
-		dialog.fields_dict.party_type.df.onchange = () => {
-			const partyType = dialog.get_value("party_type");
-			if (partyType) {
-				dialog.set_df_property("party", "options", partyType);
-				dialog.set_df_property("party", "hidden", 0);
-				dialog.set_df_property("reference_doctype", "hidden", 0);
-				dialog.get_field("party").refresh();
-				dialog.get_field("reference_doctype").refresh();
-			} else {
-				dialog.set_df_property("party", "hidden", 1);
-				dialog.set_df_property("reference_doctype", "hidden", 1);
-			}
-
-			// Reset subsequent fields
-			dialog.set_value("party", "");
-			dialog.set_value("reference_doctype", "");
-			dialog.set_value("reference_name", "");
-		};
-
-		// When Reference DocType changes, filter Reference Name field
-		dialog.fields_dict.reference_doctype.df.onchange = () => {
-			const refDoctype = dialog.get_value("reference_doctype");
-			if (refDoctype) {
-				dialog.set_df_property("reference_name", "options", refDoctype);
-				dialog.set_df_property("reference_name", "hidden", 0);
-				dialog.get_field("reference_name").refresh();
-
-				// Apply set_query to filter by party and outstanding_amount > 0
-				const party = dialog.get_value("party");
-				dialog.get_field("reference_name").df.get_query = () => {
-					return {
-						filters: {
-							docstatus: 1,
-							outstanding_amount: [">", 0],
-						},
-					};
-				};
-				// For different doctypes, we need to filter by party field
-				if (party) {
-					const partyField = this._getPartyFieldName(refDoctype);
-					if (partyField) {
-						dialog.get_field("reference_name").df.get_query = () => {
-							const filters = {
-								docstatus: 1,
-								outstanding_amount: [">", 0],
-							};
-							filters[partyField] = party;
-							return { filters };
-						};
-					}
+			if (hasCategory && cfg) {
+				if (isDirectExpense) {
+					dialog.set_df_property("expense_account", "hidden", 0);
+					dialog.set_df_property("expense_account", "reqd", 1);
+					dialog.get_field("expense_account").refresh();
+					showStep3(false);
+				} else {
+					dialog.set_df_property("party_type", "hidden", 0);
+					dialog.set_df_property("party", "hidden", 0);
+					dialog.set_df_property("reference_name", "hidden", 0);
+					dialog.set_df_property("party", "reqd", 1);
+					dialog.set_df_property("reference_name", "reqd", 1);
+					dialog.set_df_property("party", "options", cfg.party_type || "Customer");
+					dialog.set_df_property("reference_name", "options", cfg.reference_doctype || "Sales Invoice");
+					dialog.get_field("party_type").refresh();
+					dialog.get_field("party").refresh();
+					dialog.get_field("reference_name").refresh();
+					hideStep3();
 				}
-			} else {
-				dialog.set_df_property("reference_name", "hidden", 1);
 			}
 
-			// Reset reference name
+			// Reset subsequent fields
+			dialog.set_value("party", "");
 			dialog.set_value("reference_name", "");
+			dialog.set_value("expense_account", "");
+			dialog.set_value("amount", 0);
+			dialog.set_value("narration", "");
+			updateConfirmState();
+		};
+
+		dialog.fields_dict.party.df.onchange = () => {
+			const refDoctype = dialog.get_value("reference_doctype");
+			const party = dialog.get_value("party");
+			dialog.set_value("reference_name", "");
+			dialog.set_value("amount", 0);
+			dialog.set_value("narration", "");
+			hideStep3();
+			if (!party || !refDoctype) {
+				updateConfirmState();
+				return;
+			}
+
+			const partyField = this._getPartyFieldName(refDoctype);
+			dialog.get_field("reference_name").df.get_query = () => {
+				const filters = { docstatus: 1 };
+				if (partyField) {
+					filters[partyField] = party;
+				}
+
+				if (refDoctype === "Sales Invoice" || refDoctype === "Purchase Invoice") {
+					filters.outstanding_amount = [">", 0];
+				} else if (refDoctype === "Custody Request") {
+					filters.unallocated_amount = [">", 0];
+					filters.status = ["in", ["Paid", "Partly Claimed", "Approved", "Partly Paid"]];
+				} else if (refDoctype === "Accountant Custody") {
+					filters.status = ["in", ["Fully Invoiced", "Partly Settled"]];
+				}
+
+				return { filters };
+			};
+			updateConfirmState();
 		};
 
 		// When Reference Name is selected, auto-fill Amount
@@ -691,23 +761,44 @@ class TreasuryCashJournal {
 			const refName = dialog.get_value("reference_name");
 			const refDoctype = dialog.get_value("reference_doctype");
 			if (refName && refDoctype) {
-				frappe.db.get_value(refDoctype, refName, "outstanding_amount", (r) => {
+				let amountField = "outstanding_amount";
+				if (refDoctype === "Custody Request") {
+					amountField = "unallocated_amount";
+				} else if (refDoctype === "Accountant Custody") {
+					amountField = "total_billed_amount";
+				}
+
+				frappe.db.get_value(refDoctype, refName, amountField, (r) => {
 					if (r.message) {
-						dialog.set_value("amount", r.message.outstanding_amount || 0);
-						// Show Step 3
-						dialog.set_df_property("step3_section", "hidden", 0);
-						dialog.set_df_property("amount", "hidden", 0);
-						dialog.set_df_property("narration", "hidden", 0);
-						dialog.get_field("step3_section").refresh();
-						dialog.get_field("amount").refresh();
-						dialog.get_field("narration").refresh();
+						dialog.set_value("amount", parseFloat(r.message[amountField]) || 0);
+						showStep3(true);
 						dialog.get_field("narration").focus();
+						updateConfirmState();
 					}
 				});
+			} else {
+				dialog.set_value("amount", 0);
+				hideStep3();
+				updateConfirmState();
 			}
 		};
 
+		dialog.fields_dict.expense_account.df.onchange = () => {
+			if (dialog.get_value("expense_account")) {
+				showStep3(false);
+				dialog.get_field("narration").focus();
+			} else {
+				dialog.set_value("amount", 0);
+				hideStep3();
+			}
+			updateConfirmState();
+		};
+
+		dialog.fields_dict.amount.df.onchange = () => updateConfirmState();
+		dialog.fields_dict.narration.df.onchange = () => updateConfirmState();
+
 		dialog.show();
+		dialog.get_primary_btn().prop("disabled", true);
 	}
 
 	_getPartyFieldName(doctype) {
@@ -722,6 +813,7 @@ class TreasuryCashJournal {
 
 	_onWizardSubmit(dialog) {
 		const values = dialog.get_values();
+		const isDirectExpense = values.transaction_category === "Direct Expense";
 
 		// Validate mandatory fields
 		if (!values.direction) {
@@ -732,20 +824,27 @@ class TreasuryCashJournal {
 			frappe.msgprint(__("Please select Category."));
 			return;
 		}
-		if (!values.party_type) {
-			frappe.msgprint(__("Please select Party Type."));
-			return;
+		if (isDirectExpense) {
+			if (!values.expense_account) {
+				frappe.msgprint(__("Please select Expense Account."));
+				return;
+			}
+		} else {
+			if (!values.party_type) {
+				frappe.msgprint(__("Please select Party Type."));
+				return;
+			}
+			if (!values.party) {
+				frappe.msgprint(__("Please select Party."));
+				return;
+			}
+			if (!values.reference_name) {
+				frappe.msgprint(__("Please select Reference Name."));
+				return;
+			}
 		}
-		if (!values.party) {
-			frappe.msgprint(__("Please select Party."));
-			return;
-		}
-		if (!values.reference_doctype) {
-			frappe.msgprint(__("Please select Reference Type."));
-			return;
-		}
-		if (!values.reference_name) {
-			frappe.msgprint(__("Please select Reference Name."));
+		if ((parseFloat(values.amount) || 0) <= 0) {
+			frappe.msgprint(__("Amount must be greater than zero."));
 			return;
 		}
 		if (!values.narration) {
@@ -759,14 +858,16 @@ class TreasuryCashJournal {
 			_id: id,
 			direction: values.direction,
 			transaction_category: values.transaction_category,
-			party_type: values.party_type,
-			party: values.party,
-			reference_doctype: values.reference_doctype,
-			reference_name: values.reference_name,
+			party_type: isDirectExpense ? "" : values.party_type,
+			party: isDirectExpense ? "" : values.party,
+			reference_doctype: isDirectExpense ? "Account" : this._inferRefDoctype(values),
+			reference_name: isDirectExpense ? values.expense_account : values.reference_name,
+			expense_account: isDirectExpense ? values.expense_account : "",
 			amount: parseFloat(values.amount) || 0,
 			narration: values.narration,
 			is_posted: 0,
 			linked_document: "",
+			linked_doctype: "",
 		});
 
 		this._updateKPIs();
@@ -785,7 +886,7 @@ class TreasuryCashJournal {
 
 	_sumOutflows() {
 		return this.rows
-			.filter((r) => r.direction === "Outbound" || r.direction === "Bank Transfer")
+			.filter((r) => r.direction === "Outbound")
 			.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
 	}
 
@@ -806,11 +907,9 @@ class TreasuryCashJournal {
 		const all = this.rows.length;
 		const outbound = this.rows.filter((r) => r.direction === "Outbound").length;
 		const inbound = this.rows.filter((r) => r.direction === "Inbound").length;
-		const bank = this.rows.filter((r) => r.direction === "Bank Transfer").length;
 		$("#badge-all").text(all);
 		$("#badge-outbound").text(outbound);
 		$("#badge-inbound").text(inbound);
-		$("#badge-bank").text(bank);
 	}
 
 	_updateRowCount() {
@@ -887,7 +986,7 @@ class TreasuryCashJournal {
 		}
 
 		frappe.confirm(
-			__("Post journal <strong>{0}</strong>? This will create Payment Entries for all unposted rows and cannot be undone.").replace("{0}", this.journalName),
+			__("Post journal <strong>{0}</strong>? This will execute vault movement posting for all unposted rows and cannot be undone.").replace("{0}", this.journalName),
 			() => this._doPost(variance, narration)
 		);
 	}
@@ -904,7 +1003,7 @@ class TreasuryCashJournal {
 				variance_narration: varianceNarration,
 			},
 			freeze: true,
-			freeze_message: __("Posting journal — creating Payment Entries..."),
+			freeze_message: __("Posting journal - executing vault movement logic..."),
 			callback: (r) => {
 				if (!r.message) return;
 				const result = r.message;
@@ -914,6 +1013,7 @@ class TreasuryCashJournal {
 					if (row) {
 						row.is_posted = l.is_posted;
 						row.linked_document = l.linked_document;
+						row.linked_doctype = l.linked_doctype || row.linked_doctype;
 					}
 				});
 

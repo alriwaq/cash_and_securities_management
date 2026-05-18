@@ -37,7 +37,7 @@ class TreasuryCashJournal(Document):
 		for line in self.journal_lines:
 			if line.direction == "Inbound":
 				total_in += flt(line.amount)
-			elif line.direction in ("Outbound", "Bank Transfer"):
+			elif line.direction == "Outbound":
 				total_out += flt(line.amount)
 		self.total_inflows = total_in
 		self.total_outflows = total_out
@@ -122,15 +122,34 @@ class TreasuryCashJournal(Document):
 
 	def _process_line(self, line, vault_account):
 		"""
-		Fork logic: maps a single journal line to a Payment Entry.
-		Returns the name of the created PE.
+		Fork logic: maps a single journal line to a Payment Entry or Journal Entry.
+		Returns the name of the created accounting document.
 		"""
+		# Special outbound case: direct expense must hit GL through Journal Entry.
+		if line.transaction_category == "Direct Expense":
+			return self._create_direct_expense_je(line, vault_account)
+
+		# Advance allocation should use Accountant Custody native settlement flow
+		# so settlement balances/status widgets remain accurate.
+		if (
+			line.direction == "Outbound"
+			and line.transaction_category == "Advance Allocation"
+			and line.reference_doctype == "Accountant Custody"
+			and line.reference_name
+		):
+			ac_doc = frappe.get_doc("Accountant Custody", line.reference_name)
+			return ac_doc.create_settlement(
+				advance_amount_allocated=flt(line.amount),
+				direct_payment_amount=0,
+				settlement_notes=line.narration or f"Settlement from Treasury Cash Journal {self.name}",
+			)
+
 		pe = frappe.new_doc("Payment Entry")
 		pe.posting_date = self.posting_date
 		pe.company = self.company
 
 		# ── FORK 1: Inbound — Customer cash receipt ──────────────────────────────
-		if line.direction == "Inbound" and line.transaction_category == "Invoice Payment":
+		if line.direction == "Inbound" and line.transaction_category == "Invoice Collection":
 			pe.payment_type = "Receive"
 			pe.party_type = line.party_type   # Customer
 			pe.party = line.party
@@ -168,23 +187,6 @@ class TreasuryCashJournal(Document):
 					"allocated_amount": flt(line.amount),
 				})
 
-		# ── FORK 4: Bank Transfer — Vault ↔ Bank ─────────────────────────────────
-		elif line.direction == "Bank Transfer":
-			pe.payment_type = "Internal Transfer"
-			if line.transaction_category == "Bank Liquidity":
-				# Bank Withdrawal → Fund Safe (Bank → Vault)
-				pe.paid_from = line.party   # Bank GL Account
-				pe.paid_to = vault_account
-			else:
-				# Bank Deposit → Drop Cash (Vault → Bank)
-				pe.paid_from = vault_account
-				pe.paid_to = line.party
-			pe.paid_amount = flt(line.amount)
-			pe.received_amount = flt(line.amount)
-			# ERPNext requires reference_no/date for Bank-type mode of payment
-			pe.reference_no = self.name
-			pe.reference_date = self.posting_date
-
 		else:
 			frappe.throw(_("Unknown direction '{0}' on row {1}.").format(line.direction, line.idx))
 
@@ -195,6 +197,47 @@ class TreasuryCashJournal(Document):
 		pe.insert()
 		pe.submit()
 		return pe.name
+
+	def _create_direct_expense_je(self, line, vault_account):
+		"""Create GL entry for direct expense movement (Dr Expense / Cr Vault)."""
+		expense_account = line.reference_name
+		if not expense_account:
+			frappe.throw(_("Direct Expense on row {0} requires an Expense Account.").format(line.idx))
+
+		account_meta = frappe.db.get_value(
+			"Account",
+			expense_account,
+			["root_type", "is_group"],
+			as_dict=True,
+		)
+		if not account_meta:
+			frappe.throw(_("Expense account '{0}' does not exist.").format(expense_account))
+		if account_meta.is_group:
+			frappe.throw(_("Expense account '{0}' must be a ledger account.").format(expense_account))
+		if account_meta.root_type != "Expense":
+			frappe.throw(_("Account '{0}' must be an Expense account.").format(expense_account))
+
+		je = frappe.new_doc("Journal Entry")
+		je.posting_date = self.posting_date
+		je.company = self.company
+		je.voucher_type = "Journal Entry"
+		je.user_remark = line.narration or f"Direct expense from Treasury Cash Journal {self.name}"
+		je.append("accounts", {
+			"account": expense_account,
+			"debit_in_account_currency": flt(line.amount),
+			"credit_in_account_currency": 0,
+			"user_remark": line.narration,
+		})
+		je.append("accounts", {
+			"account": vault_account,
+			"debit_in_account_currency": 0,
+			"credit_in_account_currency": flt(line.amount),
+			"user_remark": line.narration,
+		})
+		je.flags.ignore_permissions = True
+		je.insert()
+		je.submit()
+		return je.name
 
 	def _post_variance_entry(self, vault_account, shortage_account):
 		"""

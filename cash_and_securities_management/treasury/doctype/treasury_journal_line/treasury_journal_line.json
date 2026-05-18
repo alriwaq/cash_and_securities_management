@@ -11,6 +11,7 @@
   "column_break_1",
   "reference_doctype",
   "reference_name",
+    "expense_account",
   "amount",
   "narration",
   "posting_section",
@@ -23,7 +24,7 @@
    "fieldname": "direction",
    "fieldtype": "Select",
    "label": "Direction",
-   "options": "\nInbound\nOutbound\nBank Transfer",
+    "options": "\nInbound\nOutbound",
    "reqd": 1,
    "in_list_view": 1,
    "columns": 1
@@ -32,7 +33,7 @@
    "fieldname": "transaction_category",
    "fieldtype": "Select",
    "label": "Category",
-   "options": "\nInvoice Payment\nAdvance Allocation\nDirect Expense\nBank Liquidity",
+    "options": "\nInvoice Collection\nCustody Return\nSupplier Payment\nAdvance Allocation\nDirect Expense",
    "reqd": 1,
    "in_list_view": 1,
    "columns": 1
@@ -41,8 +42,7 @@
    "fieldname": "party_type",
    "fieldtype": "Select",
    "label": "Party Type",
-   "options": "\nCustomer\nSupplier\nCustodian\nBank Account",
-   "reqd": 1,
+    "options": "\nCustomer\nSupplier\nCustodian",
    "in_list_view": 1,
    "columns": 1
   },
@@ -51,7 +51,6 @@
    "fieldtype": "Dynamic Link",
    "label": "Party",
    "options": "party_type",
-   "reqd": 1,
    "in_list_view": 1,
    "columns": 2
   },
@@ -74,6 +73,13 @@
    "in_list_view": 1,
    "columns": 2
   },
+    {
+     "fieldname": "expense_account",
+     "fieldtype": "Link",
+     "label": "Expense Account",
+     "options": "Account",
+     "in_list_view": 0
+    },
   {
    "fieldname": "amount",
    "fieldtype": "Currency",
@@ -86,6 +92,7 @@
    "fieldname": "narration",
    "fieldtype": "Small Text",
    "label": "Narration",
+    "reqd": 1,
    "in_list_view": 1,
    "columns": 2
   },

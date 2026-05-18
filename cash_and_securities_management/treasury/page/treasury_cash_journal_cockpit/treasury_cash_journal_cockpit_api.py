@@ -7,6 +7,16 @@ from frappe import _
 from frappe.utils import flt, nowdate
 
 
+def _infer_linked_doctype(linked_document):
+	if not linked_document:
+		return ""
+	if frappe.db.exists("Payment Entry", linked_document):
+		return "Payment Entry"
+	if frappe.db.exists("Journal Entry", linked_document):
+		return "Journal Entry"
+	return ""
+
+
 @frappe.whitelist()
 def get_station_list():
 	"""Return all open Treasury Stations the current user can access."""
@@ -46,10 +56,12 @@ def get_station_data(station, posting_date=None):
 			"Treasury Journal Line",
 			filters={"parent": existing.name, "parenttype": "Treasury Cash Journal"},
 			fields=["name", "idx", "direction", "transaction_category", "party_type",
-			        "party", "reference_doctype", "reference_name", "amount",
+			        "party", "reference_doctype", "reference_name", "expense_account", "amount",
 			        "narration", "is_posted", "linked_document"],
 			order_by="idx asc",
 		)
+		for l in lines:
+			l["linked_doctype"] = _infer_linked_doctype(l.get("linked_document"))
 
 	return {
 		"station": station_doc.as_dict(),
@@ -157,6 +169,7 @@ def save_journal_draft(station, posting_date, lines, journal_name=None):
 			"party": line.get("party"),
 			"reference_doctype": line.get("reference_doctype"),
 			"reference_name": line.get("reference_name"),
+			"expense_account": line.get("expense_account"),
 			"amount": flt(line.get("amount", 0)),
 			"narration": line.get("narration", ""),
 			"is_posted": int(line.get("is_posted", 0)),
@@ -190,6 +203,24 @@ def post_journal(journal_name, actual_balance=None, variance_narration=None):
 
 	doc.save()
 	doc.post_journal_transactions()
+	doc.reload()
+
+	# Realtime event for dashboard/KPI subscribers.
+	frappe.publish_realtime(
+		"treasury_station_balance_updated",
+		{
+			"station": doc.treasury_station,
+			"journal_name": doc.name,
+			"status": doc.posting_status,
+			"opening_balance": flt(doc.opening_balance),
+			"total_inflows": flt(doc.total_inflows),
+			"total_outflows": flt(doc.total_outflows),
+			"expected_balance": flt(doc.expected_balance),
+			"actual_balance": flt(doc.actual_balance),
+			"variance": flt(doc.variance),
+		},
+		after_commit=True,
+	)
 
 	return {
 		"status": doc.posting_status,
@@ -199,6 +230,7 @@ def post_journal(journal_name, actual_balance=None, variance_narration=None):
 				"idx": l.idx,
 				"is_posted": l.is_posted,
 				"linked_document": l.linked_document,
+				"linked_doctype": _infer_linked_doctype(l.linked_document),
 				"posting_error": l.posting_error,
 			}
 			for l in doc.journal_lines
