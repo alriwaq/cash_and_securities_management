@@ -480,11 +480,13 @@ class TreasuryCashJournal {
 		}
 
 		const categoryConfig = {
-			"Invoice Collection": { party_type: "Customer", reference_doctype: "Sales Invoice", is_direct_expense: false },
-			"Custody Return": { party_type: "Custodian", reference_doctype: "Custody Request", is_direct_expense: false },
-			"Supplier Payment": { party_type: "Supplier", reference_doctype: "Purchase Invoice", is_direct_expense: false },
-			"Advance Allocation": { party_type: "Custodian", reference_doctype: "Accountant Custody", is_direct_expense: false },
-			"Direct Expense": { party_type: "", reference_doctype: "", is_direct_expense: true },
+			"Invoice Collection": { party_type: "Customer", reference_doctype: "Sales Invoice", is_direct_expense: false, is_bank_transfer: false },
+			"Custody Return": { party_type: "Custodian", reference_doctype: "Custody Request", is_direct_expense: false, is_bank_transfer: false },
+			"Supplier Payment": { party_type: "Supplier", reference_doctype: "Purchase Invoice", is_direct_expense: false, is_bank_transfer: false },
+			"Advance Allocation": { party_type: "Custodian", reference_doctype: "Accountant Custody", is_direct_expense: false, is_bank_transfer: false },
+			"Direct Expense": { party_type: "", reference_doctype: "", is_direct_expense: true, is_bank_transfer: false },
+			"Bank Withdrawal": { party_type: "Bank Account", reference_doctype: "", is_direct_expense: false, is_bank_transfer: true },
+			"Bank Deposit": { party_type: "Bank Account", reference_doctype: "", is_direct_expense: false, is_bank_transfer: true },
 		};
 
 		const wizardFields = [
@@ -499,8 +501,7 @@ class TreasuryCashJournal {
 				fieldtype: "Select",
 				fieldname: "direction",
 				label: "Direction",
-				options: ["", "Inbound", "Outbound"],
-				reqd: 1,
+				options: ["", "Inbound", "Outbound", "Bank Transfer"],
 				hidden: 0,
 			},
 			{
@@ -508,7 +509,6 @@ class TreasuryCashJournal {
 				fieldname: "transaction_category",
 				label: "Category",
 				options: [],
-				reqd: 1,
 				hidden: 1,
 			},
 
@@ -524,7 +524,6 @@ class TreasuryCashJournal {
 				fieldname: "party_type",
 				label: "Party Type",
 				options: "Party Type",
-				reqd: 1,
 				hidden: 1,
 				read_only: 1,
 			},
@@ -533,14 +532,12 @@ class TreasuryCashJournal {
 				fieldname: "party",
 				label: "Party",
 				options: "Customer",
-				reqd: 1,
 				hidden: 1,
 			},
 			{
 				fieldtype: "Data",
 				fieldname: "reference_doctype",
 				label: "Reference Type",
-				reqd: 0,
 				hidden: 1,
 				read_only: 1,
 			},
@@ -549,7 +546,6 @@ class TreasuryCashJournal {
 				fieldname: "reference_name",
 				label: "Reference Name",
 				options: "Sales Invoice",
-				reqd: 1,
 				hidden: 1,
 			},
 			{
@@ -557,7 +553,6 @@ class TreasuryCashJournal {
 				fieldname: "expense_account",
 				label: "Expense Account",
 				options: "Account",
-				reqd: 1,
 				hidden: 1,
 			},
 
@@ -572,7 +567,6 @@ class TreasuryCashJournal {
 				fieldtype: "Currency",
 				fieldname: "amount",
 				label: "Amount",
-				reqd: 1,
 				read_only: 0,
 				hidden: 1,
 			},
@@ -580,7 +574,6 @@ class TreasuryCashJournal {
 				fieldtype: "Small Text",
 				fieldname: "narration",
 				label: "Narration",
-				reqd: 1,
 				hidden: 1,
 			},
 		];
@@ -633,17 +626,25 @@ class TreasuryCashJournal {
 		};
 
 		const updateConfirmState = () => {
-			const values = dialog.get_values() || {};
-			const cfg = categoryConfig[values.transaction_category] || null;
+			// Use get_value() per-field to avoid triggering Frappe mandatory UI errors on every change
+			const direction = dialog.get_value("direction");
+			const category = dialog.get_value("transaction_category");
+			const cfg = categoryConfig[category] || null;
 			const isDirectExpense = !!(cfg && cfg.is_direct_expense);
+			const isBankTransfer = !!(cfg && cfg.is_bank_transfer);
 
-			const amount = parseFloat(values.amount) || 0;
-			const narration = (values.narration || "").trim();
-			const hasBase = !!values.direction && !!values.transaction_category;
-			const hasStandardLinks = isDirectExpense
-				? !!values.expense_account
-				: !!values.party_type && !!values.party && !!values.reference_name;
-			const canConfirm = hasBase && hasStandardLinks && amount > 0 && narration.length > 0;
+			const amount = parseFloat(dialog.get_value("amount")) || 0;
+			const narration = (dialog.get_value("narration") || "").trim();
+			const hasBase = !!direction && !!category;
+			let hasLinks = false;
+			if (isDirectExpense) {
+				hasLinks = !!dialog.get_value("expense_account");
+			} else if (isBankTransfer) {
+				hasLinks = !!dialog.get_value("party");
+			} else {
+				hasLinks = !!dialog.get_value("party_type") && !!dialog.get_value("party") && !!dialog.get_value("reference_name");
+			}
+			const canConfirm = hasBase && hasLinks && amount > 0 && narration.length > 0;
 
 			dialog.get_primary_btn().prop("disabled", !canConfirm);
 		};
@@ -659,6 +660,8 @@ class TreasuryCashJournal {
 				catOptions = ["", "Invoice Collection", "Custody Return"];
 			} else if (direction === "Outbound") {
 				catOptions = ["", "Supplier Payment", "Advance Allocation", "Direct Expense"];
+			} else if (direction === "Bank Transfer") {
+				catOptions = ["", "Bank Withdrawal", "Bank Deposit"];
 			}
 
 			dialog.set_df_property("transaction_category", "options", catOptions);
@@ -696,15 +699,20 @@ class TreasuryCashJournal {
 			if (hasCategory && cfg) {
 				if (isDirectExpense) {
 					dialog.set_df_property("expense_account", "hidden", 0);
-					dialog.set_df_property("expense_account", "reqd", 1);
 					dialog.get_field("expense_account").refresh();
 					showStep3(false);
+				} else if (cfg.is_bank_transfer) {
+					// Bank Transfer: show party (Bank Account) only, no reference doc, amount is manual
+					dialog.set_df_property("party_type", "hidden", 0);
+					dialog.set_df_property("party", "hidden", 0);
+					dialog.set_df_property("party", "options", "Bank Account");
+					dialog.get_field("party_type").refresh();
+					dialog.get_field("party").refresh();
+					hideStep3();
 				} else {
 					dialog.set_df_property("party_type", "hidden", 0);
 					dialog.set_df_property("party", "hidden", 0);
 					dialog.set_df_property("reference_name", "hidden", 0);
-					dialog.set_df_property("party", "reqd", 1);
-					dialog.set_df_property("reference_name", "reqd", 1);
 					dialog.set_df_property("party", "options", cfg.party_type || "Customer");
 					dialog.set_df_property("reference_name", "options", cfg.reference_doctype || "Sales Invoice");
 					dialog.get_field("party_type").refresh();
@@ -726,10 +734,17 @@ class TreasuryCashJournal {
 		dialog.fields_dict.party.df.onchange = () => {
 			const refDoctype = dialog.get_value("reference_doctype");
 			const party = dialog.get_value("party");
+			const cfg = categoryConfig[dialog.get_value("transaction_category")] || null;
 			dialog.set_value("reference_name", "");
 			dialog.set_value("amount", 0);
 			dialog.set_value("narration", "");
 			hideStep3();
+			// For Bank Transfer, no reference doc needed — show Step 3 for manual amount entry after party selected
+			if (cfg && cfg.is_bank_transfer) {
+				if (party) showStep3(false);
+				updateConfirmState();
+				return;
+			}
 			if (!party || !refDoctype) {
 				updateConfirmState();
 				return;
@@ -812,8 +827,9 @@ class TreasuryCashJournal {
 	}
 
 	_onWizardSubmit(dialog) {
-		const values = dialog.get_values();
+		const values = dialog.get_values(true); // true = skip mandatory highlight, we validate manually
 		const isDirectExpense = values.transaction_category === "Direct Expense";
+		const isBankTransfer = ["Bank Withdrawal", "Bank Deposit"].includes(values.transaction_category);
 
 		// Validate mandatory fields
 		if (!values.direction) {
@@ -827,6 +843,11 @@ class TreasuryCashJournal {
 		if (isDirectExpense) {
 			if (!values.expense_account) {
 				frappe.msgprint(__("Please select Expense Account."));
+				return;
+			}
+		} else if (isBankTransfer) {
+			if (!values.party) {
+				frappe.msgprint(__("Please select a Bank Account."));
 				return;
 			}
 		} else {
@@ -847,21 +868,35 @@ class TreasuryCashJournal {
 			frappe.msgprint(__("Amount must be greater than zero."));
 			return;
 		}
-		if (!values.narration) {
+		if (!(values.narration || "").trim()) {
 			frappe.msgprint(__("Narration is mandatory."));
 			return;
 		}
 
-		// Create new row
+		// Build row
 		const id = Date.now();
+		let refDoctype = "";
+		let refName = "";
+
+		if (isDirectExpense) {
+			refDoctype = "Account";
+			refName = values.expense_account;
+		} else if (isBankTransfer) {
+			refDoctype = "Bank Account";
+			refName = values.party;
+		} else {
+			refDoctype = this._inferRefDoctype(values);
+			refName = values.reference_name;
+		}
+
 		this.rows.push({
 			_id: id,
 			direction: values.direction,
 			transaction_category: values.transaction_category,
-			party_type: isDirectExpense ? "" : values.party_type,
-			party: isDirectExpense ? "" : values.party,
-			reference_doctype: isDirectExpense ? "Account" : this._inferRefDoctype(values),
-			reference_name: isDirectExpense ? values.expense_account : values.reference_name,
+			party_type: (isDirectExpense || isBankTransfer) ? "" : values.party_type,
+			party: (isDirectExpense) ? "" : values.party,
+			reference_doctype: refDoctype,
+			reference_name: refName,
 			expense_account: isDirectExpense ? values.expense_account : "",
 			amount: parseFloat(values.amount) || 0,
 			narration: values.narration,
