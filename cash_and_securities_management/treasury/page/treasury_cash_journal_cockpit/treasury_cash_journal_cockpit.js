@@ -688,6 +688,7 @@ class TreasuryCashJournal {
 			const hasCategory = !!category;
 			const cfg = categoryConfig[category] || null;
 			const isDirectExpense = !!(cfg && cfg.is_direct_expense);
+			const isBankTransfer = !!(cfg && cfg.is_bank_transfer);
 
 			dialog.set_df_property("step2_section", "hidden", hasCategory ? 0 : 1);
 			hideStep2Details();
@@ -698,27 +699,25 @@ class TreasuryCashJournal {
 
 			if (hasCategory && cfg) {
 				if (isDirectExpense) {
+					// Direct Expense: show expense account, Step 3 will show after account selected
 					dialog.set_df_property("expense_account", "hidden", 0);
 					dialog.get_field("expense_account").refresh();
-					showStep3(false);
-				} else if (cfg.is_bank_transfer) {
-					// Bank Transfer: show party (Bank Account) only, no reference doc, amount is manual
-					dialog.set_df_property("party_type", "hidden", 0);
+					hideStep3(); // Hide until account is selected
+				} else if (isBankTransfer) {
+					// Bank Transfer: show party (Bank Account) only, Step 3 will show after party selected
 					dialog.set_df_property("party", "hidden", 0);
 					dialog.set_df_property("party", "options", "Bank Account");
-					dialog.get_field("party_type").refresh();
 					dialog.get_field("party").refresh();
-					hideStep3();
+					hideStep3(); // Hide until party is selected
 				} else {
-					dialog.set_df_property("party_type", "hidden", 0);
+					// Standard categories: show party field and reference_name, Step 3 will show after reference_name selected
 					dialog.set_df_property("party", "hidden", 0);
 					dialog.set_df_property("reference_name", "hidden", 0);
 					dialog.set_df_property("party", "options", cfg.party_type || "Customer");
 					dialog.set_df_property("reference_name", "options", cfg.reference_doctype || "Sales Invoice");
-					dialog.get_field("party_type").refresh();
 					dialog.get_field("party").refresh();
 					dialog.get_field("reference_name").refresh();
-					hideStep3();
+					hideStep3(); // Hide until reference_name is selected
 				}
 			}
 
@@ -739,12 +738,14 @@ class TreasuryCashJournal {
 			dialog.set_value("amount", 0);
 			dialog.set_value("narration", "");
 			hideStep3();
+			
 			// For Bank Transfer, no reference doc needed — show Step 3 for manual amount entry after party selected
 			if (cfg && cfg.is_bank_transfer) {
 				if (party) showStep3(false);
 				updateConfirmState();
 				return;
 			}
+			
 			if (!party || !refDoctype) {
 				updateConfirmState();
 				return;
@@ -768,6 +769,7 @@ class TreasuryCashJournal {
 
 				return { filters };
 			};
+			dialog.get_field("reference_name").refresh();
 			updateConfirmState();
 		};
 
