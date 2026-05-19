@@ -462,6 +462,9 @@ class TreasuryCashJournal {
 		if (row.direction === "Inbound" && row.transaction_category === "Custody Return") {
 			return "Custody Request";
 		}
+		if (row.direction === "Bank Transfer" && ["Bank Withdrawal", "Bank Deposit"].includes(row.transaction_category)) {
+			return "Account";
+		}
 		if (row.transaction_category === "Advance Allocation") {
 			return "Accountant Custody";
 		}
@@ -555,6 +558,13 @@ class TreasuryCashJournal {
 				options: "Account",
 				hidden: 1,
 			},
+			{
+				fieldtype: "Link",
+				fieldname: "bank_account",
+				label: "Bank Account",
+				options: "Account",
+				hidden: 1,
+			},
 
 			// ─ Step 3: Financial Automation & Validation ─
 			{
@@ -592,6 +602,13 @@ class TreasuryCashJournal {
 			},
 		});
 
+		dialog.get_field("bank_account").df.get_query = () => ({
+			filters: {
+				account_type: "Bank",
+				is_group: 0,
+			},
+		});
+
 		const hideStep3 = () => {
 			dialog.set_df_property("step3_section", "hidden", 1);
 			dialog.set_df_property("amount", "hidden", 1);
@@ -606,13 +623,16 @@ class TreasuryCashJournal {
 			dialog.set_df_property("party", "hidden", 1);
 			dialog.set_df_property("reference_name", "hidden", 1);
 			dialog.set_df_property("expense_account", "hidden", 1);
+			dialog.set_df_property("bank_account", "hidden", 1);
 			dialog.set_df_property("party", "reqd", 0);
 			dialog.set_df_property("reference_name", "reqd", 0);
 			dialog.set_df_property("expense_account", "reqd", 0);
+			dialog.set_df_property("bank_account", "reqd", 0);
 			dialog.get_field("party_type").refresh();
 			dialog.get_field("party").refresh();
 			dialog.get_field("reference_name").refresh();
 			dialog.get_field("expense_account").refresh();
+			dialog.get_field("bank_account").refresh();
 		};
 
 		const showStep3 = (amountReadOnly) => {
@@ -640,7 +660,7 @@ class TreasuryCashJournal {
 			if (isDirectExpense) {
 				hasLinks = !!dialog.get_value("expense_account");
 			} else if (isBankTransfer) {
-				hasLinks = !!dialog.get_value("party");
+				hasLinks = !!dialog.get_value("bank_account");
 			} else {
 				hasLinks = !!dialog.get_value("party_type") && !!dialog.get_value("party") && !!dialog.get_value("reference_name");
 			}
@@ -675,6 +695,7 @@ class TreasuryCashJournal {
 			dialog.set_value("reference_doctype", "");
 			dialog.set_value("reference_name", "");
 			dialog.set_value("expense_account", "");
+			dialog.set_value("bank_account", "");
 			dialog.set_value("amount", 0);
 			dialog.set_value("narration", "");
 			hideStep2Details();
@@ -704,11 +725,10 @@ class TreasuryCashJournal {
 					dialog.get_field("expense_account").refresh();
 					hideStep3(); // Hide until account is selected
 				} else if (isBankTransfer) {
-					// Bank Transfer: show party (Bank Account) only, Step 3 will show after party selected
-					dialog.set_df_property("party", "hidden", 0);
-					dialog.set_df_property("party", "options", "Bank Account");
-					dialog.get_field("party").refresh();
-					hideStep3(); // Hide until party is selected
+					// Bank Transfer: select bank from Account list only, then show Step 3
+					dialog.set_df_property("bank_account", "hidden", 0);
+					dialog.get_field("bank_account").refresh();
+					hideStep3(); // Hide until bank account is selected
 				} else {
 					// Standard categories: show party field and reference_name, Step 3 will show after reference_name selected
 					dialog.set_df_property("party", "hidden", 0);
@@ -725,6 +745,7 @@ class TreasuryCashJournal {
 			dialog.set_value("party", "");
 			dialog.set_value("reference_name", "");
 			dialog.set_value("expense_account", "");
+			dialog.set_value("bank_account", "");
 			dialog.set_value("amount", 0);
 			dialog.set_value("narration", "");
 			updateConfirmState();
@@ -733,19 +754,11 @@ class TreasuryCashJournal {
 		dialog.fields_dict.party.df.onchange = () => {
 			const refDoctype = dialog.get_value("reference_doctype");
 			const party = dialog.get_value("party");
-			const cfg = categoryConfig[dialog.get_value("transaction_category")] || null;
 			dialog.set_value("reference_name", "");
 			dialog.set_value("amount", 0);
 			dialog.set_value("narration", "");
 			hideStep3();
-			
-			// For Bank Transfer, no reference doc needed — show Step 3 for manual amount entry after party selected
-			if (cfg && cfg.is_bank_transfer) {
-				if (party) showStep3(false);
-				updateConfirmState();
-				return;
-			}
-			
+
 			if (!party || !refDoctype) {
 				updateConfirmState();
 				return;
@@ -773,25 +786,49 @@ class TreasuryCashJournal {
 			updateConfirmState();
 		};
 
+		dialog.fields_dict.bank_account.df.onchange = () => {
+			if (dialog.get_value("bank_account")) {
+				showStep3(false);
+				dialog.get_field("narration").focus();
+			} else {
+				dialog.set_value("amount", 0);
+				hideStep3();
+			}
+			updateConfirmState();
+		};
+
 		// When Reference Name is selected, auto-fill Amount
 		dialog.fields_dict.reference_name.df.onchange = () => {
 			const refName = dialog.get_value("reference_name");
 			const refDoctype = dialog.get_value("reference_doctype");
 			if (refName && refDoctype) {
-				let amountField = "outstanding_amount";
-				if (refDoctype === "Custody Request") {
-					amountField = "unallocated_amount";
-				} else if (refDoctype === "Accountant Custody") {
-					amountField = "total_billed_amount";
-				}
+				// Always open Step 3 on valid reference selection; amount can still be edited if auto-fetch is empty.
+				showStep3(false);
 
-				frappe.db.get_value(refDoctype, refName, amountField, (r) => {
-					if (r.message) {
-						dialog.set_value("amount", parseFloat(r.message[amountField]) || 0);
-						showStep3(true);
-						dialog.get_field("narration").focus();
-						updateConfirmState();
+				const amountFields = [
+					"outstanding_amount",
+					"unallocated_amount",
+					"remaining_amount",
+					"total_billed_amount",
+					"grand_total",
+				];
+
+				frappe.db.get_value(refDoctype, refName, amountFields, (r) => {
+					let resolvedAmount = 0;
+					if (r && r.message) {
+						for (const field of amountFields) {
+							const v = parseFloat(r.message[field]);
+							if (!isNaN(v) && v > 0) {
+								resolvedAmount = v;
+								break;
+							}
+						}
 					}
+					dialog.set_value("amount", resolvedAmount || 0);
+					dialog.set_df_property("amount", "read_only", resolvedAmount > 0 ? 1 : 0);
+					dialog.get_field("amount").refresh();
+					dialog.get_field("narration").focus();
+					updateConfirmState();
 				});
 			} else {
 				dialog.set_value("amount", 0);
@@ -848,7 +885,7 @@ class TreasuryCashJournal {
 				return;
 			}
 		} else if (isBankTransfer) {
-			if (!values.party) {
+			if (!values.bank_account) {
 				frappe.msgprint(__("Please select a Bank Account."));
 				return;
 			}
@@ -884,8 +921,8 @@ class TreasuryCashJournal {
 			refDoctype = "Account";
 			refName = values.expense_account;
 		} else if (isBankTransfer) {
-			refDoctype = "Bank Account";
-			refName = values.party;
+			refDoctype = "Account";
+			refName = values.bank_account;
 		} else {
 			refDoctype = this._inferRefDoctype(values);
 			refName = values.reference_name;
@@ -896,7 +933,7 @@ class TreasuryCashJournal {
 			direction: values.direction,
 			transaction_category: values.transaction_category,
 			party_type: (isDirectExpense || isBankTransfer) ? "" : values.party_type,
-			party: (isDirectExpense) ? "" : values.party,
+			party: (isDirectExpense || isBankTransfer) ? "" : values.party,
 			reference_doctype: refDoctype,
 			reference_name: refName,
 			expense_account: isDirectExpense ? values.expense_account : "",
