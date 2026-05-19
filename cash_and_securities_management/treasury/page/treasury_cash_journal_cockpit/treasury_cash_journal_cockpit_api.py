@@ -222,3 +222,116 @@ def post_journal(journal_name, actual_balance=None, variance_narration=None):
 	Actual GL posting happens when the accountant submits the TCJ form.
 	"""
 	return send_for_review(journal_name)
+
+
+# ─── V4: Vault Pending Items API ──────────────────────────────────────────────
+
+@frappe.whitelist()
+def get_pending_items(station, posting_date=None):
+	"""
+	V4: Return all Pending Vault Pending Items for the given station and date.
+	Used by the cockpit to show the teller what cash movements are waiting.
+	"""
+	if not posting_date:
+		posting_date = nowdate()
+
+	items = frappe.get_all(
+		"Vault Pending Item",
+		filters={
+			"treasury_station": station,
+			"posting_date": posting_date,
+			"status": "Pending",
+		},
+		fields=[
+			"name", "direction", "transaction_category",
+			"party_type", "party", "reference_doctype", "reference_name",
+			"expense_account", "expected_amount", "actual_amount",
+			"narration", "source_document_type", "source_document",
+			"inbound_serial", "outbound_serial", "status",
+		],
+		order_by="creation asc",
+	)
+	return items
+
+
+@frappe.whitelist()
+def execute_pending_item(item_name, actual_amount=None, narration=None):
+	"""
+	V4: Called when the vault teller physically executes a pending item.
+	Marks the item as Executed, assigns serial number, records execution time.
+	Also adds the item as a row in the current day's Draft journal.
+	"""
+	item = frappe.get_doc("Vault Pending Item", item_name)
+	executed_name = item.execute(actual_amount=actual_amount, narration=narration)
+
+	# Auto-add to today's journal draft
+	station = item.treasury_station
+	posting_date = item.posting_date
+
+	existing_journal = frappe.db.get_value(
+		"Treasury Cash Journal",
+		{
+			"treasury_station": station,
+			"posting_date": posting_date,
+			"posting_status": ["in", ["Draft"]],
+		},
+		"name",
+	)
+
+	if existing_journal:
+		jdoc = frappe.get_doc("Treasury Cash Journal", existing_journal)
+	else:
+		jdoc = frappe.new_doc("Treasury Cash Journal")
+		jdoc.treasury_station = station
+		jdoc.posting_date = posting_date
+		jdoc.posting_status = "Draft"
+
+	serial = item.inbound_serial or item.outbound_serial or ""
+	jdoc.append("journal_lines", {
+		"direction":            item.direction,
+		"transaction_category": item.transaction_category,
+		"party_type":           item.party_type or "",
+		"party":                item.party or "",
+		"reference_doctype":    item.reference_doctype or "",
+		"reference_name":       item.reference_name or "",
+		"expense_account":      item.expense_account or "",
+		"amount":               flt(item.actual_amount or item.expected_amount),
+		"narration":            item.narration or "",
+		"is_posted":            0,
+		"linked_document":      item.source_document or "",
+	})
+
+	jdoc.flags.ignore_permissions = True
+	if existing_journal:
+		jdoc.save()
+	else:
+		jdoc.insert()
+
+	# Link the pending item to the journal
+	frappe.db.set_value("Vault Pending Item", item_name, {
+		"linked_journal": jdoc.name,
+		"linked_journal_line": len(jdoc.journal_lines),
+	})
+
+	return {
+		"item_name": executed_name,
+		"journal_name": jdoc.name,
+		"serial": serial,
+		"actual_amount": flt(item.actual_amount or item.expected_amount),
+	}
+
+
+@frappe.whitelist()
+def cancel_pending_item(item_name, reason=None):
+	"""
+	V4: Cancel a pending vault item (e.g., teller rejects the transaction).
+	"""
+	item = frappe.get_doc("Vault Pending Item", item_name)
+	if item.status == "Executed":
+		frappe.throw(_("Cannot cancel an already executed item."))
+	item.status = "Cancelled"
+	if reason:
+		item.narration = (item.narration or "") + f" [Cancelled: {reason}]"
+	item.flags.ignore_permissions = True
+	item.save()
+	return item.name

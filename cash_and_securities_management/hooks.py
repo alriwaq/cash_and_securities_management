@@ -121,8 +121,20 @@ doc_events = {
     },
     "Payment Entry": {
         "before_submit": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_payment_before_submit",
-        "on_submit": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_payment_submit",
-        "on_cancel": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_payment_cancel",
+        "on_submit": [
+            "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_payment_submit",
+            # V4: create Vault Pending Item for cash payments
+            "cash_and_securities_management.treasury.doctype.vault_pending_item.vault_pending_hooks.on_payment_entry_submit",
+        ],
+        "on_cancel": [
+            "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_payment_cancel",
+            # V4: cancel linked Vault Pending Item
+            "cash_and_securities_management.treasury.doctype.vault_pending_item.vault_pending_hooks.on_payment_entry_cancel",
+        ],
+    },
+    "Expense Claim": {
+        # V4: create Outbound Vault Pending Item for cash expense claims
+        "on_submit": "cash_and_securities_management.treasury.doctype.vault_pending_item.vault_pending_hooks.on_expense_claim_submit",
     },
     "Journal Entry": {
         "on_submit": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_journal_submit",

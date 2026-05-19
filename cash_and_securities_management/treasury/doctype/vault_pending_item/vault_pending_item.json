@@ -1,0 +1,269 @@
+{
+ "actions": [],
+ "autoname": "format:VPI-{treasury_station}-{YYYY}-{#####}",
+ "creation": "2026-05-19 00:00:00",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "station_section",
+  "treasury_station",
+  "posting_date",
+  "column_break_1",
+  "status",
+  "company",
+  "direction_section",
+  "direction",
+  "transaction_category",
+  "column_break_2",
+  "inbound_serial",
+  "outbound_serial",
+  "party_section",
+  "party_type",
+  "party",
+  "column_break_3",
+  "reference_doctype",
+  "reference_name",
+  "expense_section",
+  "expense_account",
+  "amount_section",
+  "expected_amount",
+  "actual_amount",
+  "column_break_4",
+  "execution_time",
+  "narration",
+  "source_section",
+  "source_document_type",
+  "source_document",
+  "column_break_5",
+  "linked_journal",
+  "linked_journal_line"
+ ],
+ "fields": [
+  {
+   "fieldname": "station_section",
+   "fieldtype": "Section Break",
+   "label": "معلومات المحطة"
+  },
+  {
+   "fieldname": "treasury_station",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "محطة الخزينة",
+   "options": "Treasury Station",
+   "reqd": 1
+  },
+  {
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "تاريخ التنفيذ المتوقع",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "الحالة",
+   "options": "Pending\nExecuted\nCancelled",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "الشركة",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "direction_section",
+   "fieldtype": "Section Break",
+   "label": "اتجاه الحركة"
+  },
+  {
+   "fieldname": "direction",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "الاتجاه",
+   "options": "\nInbound\nOutbound\nBank Transfer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "transaction_category",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "نوع المعاملة",
+   "options": "\nInvoice Collection\nCustody Return\nSupplier Payment\nCustody Advance\nCustody Settlement\nDirect Expense\nBank Withdrawal\nBank Deposit"
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "inbound_serial",
+   "fieldtype": "Data",
+   "label": "الرقم التسلسلي (وارد)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "outbound_serial",
+   "fieldtype": "Data",
+   "label": "الرقم التسلسلي (صادر)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "party_section",
+   "fieldtype": "Section Break",
+   "label": "الطرف والمرجع"
+  },
+  {
+   "fieldname": "party_type",
+   "fieldtype": "Link",
+   "label": "نوع الطرف",
+   "options": "Party Type"
+  },
+  {
+   "fieldname": "party",
+   "fieldtype": "Dynamic Link",
+   "label": "الطرف",
+   "options": "party_type"
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "نوع المرجع",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "label": "رقم المرجع",
+   "options": "reference_doctype"
+  },
+  {
+   "fieldname": "expense_section",
+   "fieldtype": "Section Break",
+   "label": "حساب المصروف (للمصروفات المباشرة)"
+  },
+  {
+   "fieldname": "expense_account",
+   "fieldtype": "Link",
+   "label": "حساب المصروف",
+   "options": "Account"
+  },
+  {
+   "fieldname": "amount_section",
+   "fieldtype": "Section Break",
+   "label": "المبالغ والتنفيذ"
+  },
+  {
+   "fieldname": "expected_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "المبلغ المتوقع"
+  },
+  {
+   "fieldname": "actual_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "المبلغ الفعلي (عند التنفيذ)"
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "execution_time",
+   "fieldtype": "Datetime",
+   "label": "وقت التنفيذ",
+   "read_only": 1
+  },
+  {
+   "fieldname": "narration",
+   "fieldtype": "Small Text",
+   "label": "البيان"
+  },
+  {
+   "fieldname": "source_section",
+   "fieldtype": "Section Break",
+   "label": "المستند المصدر"
+  },
+  {
+   "fieldname": "source_document_type",
+   "fieldtype": "Data",
+   "label": "نوع المستند المصدر",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_document",
+   "fieldtype": "Data",
+   "label": "رقم المستند المصدر",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "linked_journal",
+   "fieldtype": "Link",
+   "label": "اليومية المرتبطة",
+   "options": "Treasury Cash Journal",
+   "read_only": 1
+  },
+  {
+   "fieldname": "linked_journal_line",
+   "fieldtype": "Int",
+   "label": "سطر اليومية",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "is_submittable": 0,
+ "links": [],
+ "modified": "2026-05-19 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Treasury",
+ "name": "Vault Pending Item",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "posting_date",
+ "sort_order": "DESC",
+ "title_field": "reference_name",
+ "track_changes": 1
+}

@@ -80,6 +80,13 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
     </div>
   </div>
 
+  <!-- V4: Pending Items Alert Banner -->
+  <div id="tcj-pending-banner" class="alert alert-warning d-flex align-items-center mb-2" style="display:none !important;">
+    <i class="fa fa-clock-o mr-2"></i>
+    <span>يوجد <strong id="tcj-pending-count">0</strong> حركة نقدية معلقة تنتظر التنفيذ من مصادر خارجية.</span>
+    <a href="#tcj-pending-section" class="btn btn-xs btn-warning ml-auto">عرض الحركات المعلقة &darr;</a>
+  </div>
+
   <!-- Tab Filter Bar -->
   <ul class="nav nav-tabs mb-0" id="tcj-tabs" role="tablist" style="border-bottom:2px solid var(--primary);">
     <li class="nav-item">
@@ -188,6 +195,45 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
     </div>
   </div>
 
+  <!-- V4: Pending Items Section -->
+  <div id="tcj-pending-section" class="card mt-4" style="display:none;">
+    <div class="card-header d-flex justify-content-between align-items-center"
+         style="background:#fff3cd; border-bottom:1px solid #ffc107; cursor:pointer;"
+         id="tcj-pending-toggle">
+      <span style="font-weight:600;">
+        <i class="fa fa-clock-o mr-2" style="color:#856404;"></i>
+        الحركات المعلقة &mdash; بانتظار التنفيذ من الخزينة
+        <span class="badge badge-warning ml-2" id="tcj-pending-badge">0</span>
+      </span>
+      <i class="fa fa-chevron-down" id="tcj-pending-chevron"></i>
+    </div>
+    <div class="card-body p-0" id="tcj-pending-body">
+      <div class="alert alert-info m-3" style="font-size:0.85rem;">
+        <i class="fa fa-info-circle mr-1"></i>
+        هذه الحركات تم إنشاؤها تلقائياً من مستندات خارجية (سندات دفع، فواتير). قم بتنفيذ كل حركة بعد تسليم النقد فعلياً.
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0" id="tcj-pending-grid">
+          <thead style="background:#fff3cd;">
+            <tr>
+              <th>المستند المصدر</th>
+              <th>الاتجاه</th>
+              <th>النوع</th>
+              <th>الطرف</th>
+              <th>المرجع</th>
+              <th style="text-align:right;">المبلغ المتوقع</th>
+              <th>البيان</th>
+              <th style="text-align:center; width:180px;">الإجراء</th>
+            </tr>
+          </thead>
+          <tbody id="tcj-pending-tbody">
+            <tr><td colspan="8" class="text-center text-muted py-3">لا توجد حركات معلقة</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- Hidden journal name store -->
   <input type="hidden" id="tcj-journal-name" value="" />
   <input type="hidden" id="tcj-opening-balance" value="0" />
@@ -257,8 +303,8 @@ class TreasuryCashJournal {
 	}
 
 	_bindEvents() {
-		$("#tcj-station-select").on("change", () => this._loadJournal());
-		$("#tcj-date-input").on("change", () => this._loadJournal());
+		$("#tcj-station-select").on("change", () => { this._loadJournal(); this._loadPendingItems(); });
+		$("#tcj-date-input").on("change", () => { this._loadJournal(); this._loadPendingItems(); });
 
 		$("#tcj-tabs .nav-link").on("click", (e) => {
 			e.preventDefault();
@@ -279,6 +325,12 @@ class TreasuryCashJournal {
 			const chevron = $("#tcj-denom-chevron");
 			body.slideToggle(200);
 			chevron.toggleClass("fa-chevron-down fa-chevron-up");
+		});
+
+		// V4: Pending items panel toggle
+		$("#tcj-pending-toggle").on("click", () => {
+			$("#tcj-pending-body").slideToggle(200);
+			$("#tcj-pending-chevron").toggleClass("fa-chevron-down fa-chevron-up");
 		});
 	}
 
@@ -1093,6 +1145,161 @@ class TreasuryCashJournal {
 			? this.rows
 			: this.rows.filter((r) => r.direction === this.activeFilter);
 		$("#tcj-row-count").text(`${filtered.length} row${filtered.length !== 1 ? "s" : ""}`);
+	}
+
+	// ── V4: Pending Items ───────────────────────────────────────────────────────────────────
+
+	_loadPendingItems() {
+		const station = $("#tcj-station-select").val();
+		const date = $("#tcj-date-input").val();
+		if (!station || !date) return;
+
+		frappe.call({
+			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.get_pending_items",
+			args: { station, posting_date: date },
+			callback: (r) => {
+				const items = r.message || [];
+				this._renderPendingGrid(items);
+			},
+		});
+	}
+
+	_renderPendingGrid(items) {
+		const tbody = $("#tcj-pending-tbody");
+		const count = items.length;
+
+		// Update badges and banner
+		$("#tcj-pending-badge, #tcj-pending-count").text(count);
+		if (count > 0) {
+			$("#tcj-pending-section").show();
+			$("#tcj-pending-banner").css("display", "flex");
+		} else {
+			$("#tcj-pending-section").hide();
+			$("#tcj-pending-banner").css("display", "none");
+		}
+
+		if (count === 0) {
+			tbody.html('<tr><td colspan="8" class="text-center text-muted py-3">لا توجد حركات معلقة</td></tr>');
+			return;
+		}
+
+		const dirBadge = (d) => {
+			if (d === "Inbound") return '<span class="badge badge-success">وارد</span>';
+			if (d === "Outbound") return '<span class="badge badge-danger">صادر</span>';
+			return '<span class="badge badge-info">تحويل</span>';
+		};
+
+		let html = "";
+		items.forEach((item) => {
+			const amount = frappe.utils.format_number(item.expected_amount, null, 2);
+			const src = item.source_document
+				? `<a href="/app/${(item.source_document_type || "").toLowerCase().replace(/ /g, "-")}/${item.source_document}" target="_blank">${item.source_document}</a>`
+				: "—";
+			html += `
+				<tr data-item="${this._escapeHtml(item.name)}">
+					<td>${src}</td>
+					<td>${dirBadge(item.direction)}</td>
+					<td>${this._escapeHtml(item.transaction_category || "")}</td>
+					<td>${this._escapeHtml(item.party || "—")}</td>
+					<td>${this._escapeHtml(item.reference_name || "—")}</td>
+					<td style="text-align:right; font-weight:600;">${amount}</td>
+					<td>${this._escapeHtml(item.narration || "")}</td>
+					<td style="text-align:center;">
+						<button class="btn btn-xs btn-success mr-1 tcj-execute-btn" data-item="${this._escapeHtml(item.name)}" data-amount="${item.expected_amount}">
+							<i class="fa fa-check mr-1"></i>تنفيذ
+						</button>
+						<button class="btn btn-xs btn-danger tcj-cancel-pending-btn" data-item="${this._escapeHtml(item.name)}">
+							<i class="fa fa-times"></i>
+						</button>
+					</td>
+				</tr>`;
+		});
+		tbody.html(html);
+
+		// Bind execute button
+		tbody.off("click.pending").on("click.pending", ".tcj-execute-btn", (e) => {
+			const itemName = $(e.currentTarget).data("item");
+			const expectedAmt = parseFloat($(e.currentTarget).data("amount")) || 0;
+			this._executeVaultPendingItem(itemName, expectedAmt);
+		});
+
+		// Bind cancel button
+		tbody.on("click.pending", ".tcj-cancel-pending-btn", (e) => {
+			const itemName = $(e.currentTarget).data("item");
+			frappe.prompt(
+				[{ fieldtype: "Small Text", fieldname: "reason", label: "سبب الإلغاء", reqd: 1 }],
+				(vals) => {
+					frappe.call({
+						method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.cancel_pending_item",
+						args: { item_name: itemName, reason: vals.reason },
+						callback: () => {
+							frappe.show_alert({ message: "تم إلغاء الحركة", indicator: "orange" });
+							this._loadPendingItems();
+						},
+					});
+				},
+				"إلغاء الحركة المعلقة",
+				"تأكيد الإلغاء"
+			);
+		});
+	}
+
+	_executeVaultPendingItem(itemName, expectedAmount) {
+		const d = new frappe.ui.Dialog({
+			title: "تنفيذ حركة الخزينة",
+			fields: [
+				{
+					fieldtype: "Currency",
+					fieldname: "actual_amount",
+					label: "المبلغ الفعلي المسلّم",
+					default: expectedAmount,
+					reqd: 1,
+				},
+				{
+					fieldtype: "Small Text",
+					fieldname: "narration",
+					label: "ملاحظة التنفيذ",
+				},
+			],
+			primary_action_label: "تأكيد التنفيذ",
+			primary_action: (vals) => {
+				d.hide();
+				frappe.call({
+					method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.execute_pending_item",
+					args: {
+						item_name: itemName,
+						actual_amount: vals.actual_amount,
+						narration: vals.narration,
+					},
+					freeze: true,
+					freeze_message: "جاري تسجيل التنفيذ...",
+					callback: (r) => {
+						if (!r.message) return;
+						const res = r.message;
+						// Print the voucher for this executed item
+						const station = this.stationData
+							? (this.stationData.station_name || this.stationData.name)
+							: "";
+						this._printVoucher({
+							serial: res.serial || res.item_name,
+							station,
+							date: $("#tcj-date-input").val(),
+							direction: "",
+							transaction_category: "",
+							party: "",
+							reference_name: "",
+							amount: res.actual_amount || expectedAmount,
+							narration: vals.narration || "",
+						});
+						frappe.show_alert({ message: `تم تنفيذ الحركة وإضافتها لليومية ${res.journal_name}`, indicator: "green" });
+						// Reload both grids
+						this._loadPendingItems();
+						this._loadJournal();
+					},
+				});
+			},
+		});
+		d.show();
 	}
 
 	_updateStatusBadge() {
