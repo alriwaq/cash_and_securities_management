@@ -890,7 +890,16 @@ class TreasuryCashJournal {
 		dialog.fields_dict.narration.df.onchange = () => updateConfirmState();
 
 		dialog.show();
-		dialog.get_primary_btn().prop("disabled", true);
+		// Keep Confirm state synced while typing (not only on blur/change)
+		const amountInput = dialog.get_field("amount") && dialog.get_field("amount").$input;
+		const narrationInput = dialog.get_field("narration") && dialog.get_field("narration").$input;
+		if (amountInput && amountInput.on) {
+			amountInput.on("input", () => updateConfirmState());
+		}
+		if (narrationInput && narrationInput.on) {
+			narrationInput.on("input", () => updateConfirmState());
+		}
+		updateConfirmState();
 	}
 
 	_getPartyFieldName(doctype) {
@@ -904,7 +913,18 @@ class TreasuryCashJournal {
 	}
 
 	_onWizardSubmit(dialog) {
-		const values = dialog.get_values(true); // true = skip mandatory highlight, we validate manually
+		const values = {
+			direction: dialog.get_value("direction"),
+			transaction_category: dialog.get_value("transaction_category"),
+			party_type: dialog.get_value("party_type"),
+			party: dialog.get_value("party"),
+			reference_doctype: dialog.get_value("reference_doctype"),
+			reference_name: dialog.get_value("reference_name"),
+			expense_account: dialog.get_value("expense_account"),
+			bank_account: dialog.get_value("bank_account"),
+			amount: dialog.get_value("amount"),
+			narration: dialog.get_value("narration"),
+		};
 		const isDirectExpense = values.transaction_category === "Direct Expense";
 		const isBankTransfer = ["Bank Withdrawal", "Bank Deposit"].includes(values.transaction_category);
 
