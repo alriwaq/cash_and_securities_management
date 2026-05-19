@@ -818,47 +818,59 @@ class TreasuryCashJournal {
 			updateConfirmState();
 		};
 
-		// When Reference Name is selected, auto-fill Amount
-		dialog.fields_dict.reference_name.df.onchange = () => {
-			const refName = dialog.get_value("reference_name");
-			const refDoctype = dialog.get_value("reference_doctype");
-			const category = dialog.get_value("transaction_category");
-			if (refName && refDoctype) {
-				// Always open Step 3 on valid reference selection; amount can still be edited if auto-fetch is empty.
-				showStep3(false);
+			// When Reference Name is selected, auto-fill Amount
+			dialog.fields_dict.reference_name.df.onchange = () => {
+				const refName = dialog.get_value("reference_name");
+				const refDoctype = dialog.get_value("reference_doctype");
+				const category = dialog.get_value("transaction_category");
+				if (refName && refDoctype) {
+					// Always open Step 3 on valid reference selection.
+					showStep3(false);
 
-				const amountFieldsByKey = {
-					"Sales Invoice": ["outstanding_amount"],
-					"Purchase Invoice": ["outstanding_amount"],
-					"Custody Advance": ["remaining_to_pay", "advance_amount"],
-					"Custody Return": ["unallocated_amount", "remaining_to_pay", "advance_amount"],
-					"Accountant Custody": ["total_billed_amount", "total_amount", "advance_amount"],
-				};
-				const amountFields = amountFieldsByKey[category] || amountFieldsByKey[refDoctype] || ["grand_total"];
+					// Map category/doctype → ordered list of fields to try for the amount.
+					// frappe.db.get_value callback receives the dict directly (not r.message).
+					const amountFieldsByKey = {
+						"Sales Invoice":       ["outstanding_amount", "grand_total"],
+						"Purchase Invoice":    ["outstanding_amount", "grand_total"],
+						"Invoice Collection":  ["outstanding_amount", "grand_total"],
+						"Supplier Payment":    ["outstanding_amount", "grand_total"],
+						"Custody Advance":     ["remaining_to_pay", "advance_amount"],
+						"Custody Return":      ["unallocated_amount", "remaining_to_pay", "advance_amount"],
+						"Accountant Custody":  ["total_billed_amount", "total_amount", "advance_amount"],
+					};
 
-				frappe.db.get_value(refDoctype, refName, amountFields, (r) => {
-					let resolvedAmount = 0;
-					if (r && r.message) {
-						for (const field of amountFields) {
-							const v = parseFloat(r.message[field]);
-							if (!isNaN(v) && v > 0) {
-								resolvedAmount = v;
-								break;
+					// Prefer category key first, then fall back to refDoctype, then grand_total.
+					const amountFields = amountFieldsByKey[category]
+						|| amountFieldsByKey[refDoctype]
+						|| ["outstanding_amount", "grand_total"];
+
+					// frappe.db.get_value(doctype, name, fields, callback)
+					// callback(r) — r is the plain dict {field: value}, NOT r.message
+					frappe.db.get_value(refDoctype, refName, amountFields, (r) => {
+						let resolvedAmount = 0;
+						if (r) {
+							for (const field of amountFields) {
+								const v = parseFloat(r[field]);
+								if (!isNaN(v) && v > 0) {
+									resolvedAmount = v;
+									break;
+								}
 							}
 						}
-					}
-					dialog.set_value("amount", resolvedAmount || 0);
-					dialog.set_df_property("amount", "read_only", resolvedAmount > 0 ? 1 : 0);
-					dialog.get_field("amount").refresh();
-					dialog.get_field("narration").focus();
+						// Set amount and keep it editable so the user can adjust
+						// (e.g. partial payment against an invoice)
+						dialog.set_value("amount", resolvedAmount || 0);
+						dialog.set_df_property("amount", "read_only", 0);
+						dialog.get_field("amount").refresh();
+						dialog.get_field("narration").focus();
+						updateConfirmState();
+					});
+				} else {
+					dialog.set_value("amount", 0);
+					hideStep3();
 					updateConfirmState();
-				});
-			} else {
-				dialog.set_value("amount", 0);
-				hideStep3();
-				updateConfirmState();
-			}
-		};
+				}
+			};
 
 		dialog.fields_dict.expense_account.df.onchange = () => {
 			if (dialog.get_value("expense_account")) {
