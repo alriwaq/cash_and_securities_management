@@ -31,7 +31,7 @@ def get_station_list():
 @frappe.whitelist()
 def get_station_data(station, posting_date=None):
 	"""
-	Return the station's opening balance and any existing Draft journal
+	Return the station's opening balance and any existing Draft/Pending journal
 	for the given date so the page can pre-populate rows.
 	"""
 	if not posting_date:
@@ -39,12 +39,15 @@ def get_station_data(station, posting_date=None):
 
 	station_doc = frappe.get_doc("Treasury Station", station)
 
-	# Look for an existing Draft journal for this station + date
 	existing = frappe.db.get_value(
 		"Treasury Cash Journal",
-		{"treasury_station": station, "posting_date": posting_date, "posting_status": "Draft"},
-		["name", "opening_balance", "total_inflows", "total_outflows", "expected_balance",
-		 "actual_balance", "variance"],
+		{
+			"treasury_station": station,
+			"posting_date": posting_date,
+			"posting_status": ["in", ["Draft", "Pending Review"]],
+		},
+		["name", "opening_balance", "total_inflows", "total_outflows",
+		 "expected_balance", "actual_balance", "variance", "posting_status"],
 		as_dict=True,
 	)
 
@@ -56,8 +59,8 @@ def get_station_data(station, posting_date=None):
 			"Treasury Journal Line",
 			filters={"parent": existing.name, "parenttype": "Treasury Cash Journal"},
 			fields=["name", "idx", "direction", "transaction_category", "party_type",
-			        "party", "reference_doctype", "reference_name", "expense_account", "amount",
-			        "narration", "is_posted", "linked_document"],
+			        "party", "reference_doctype", "reference_name", "expense_account",
+			        "amount", "narration", "is_posted", "linked_document"],
 			order_by="idx asc",
 		)
 		for l in lines:
@@ -116,8 +119,8 @@ def get_open_references(party_type, party, reference_doctype):
 				"docstatus": 1,
 				"status": ["in", ["Approved", "Pending Payment"]],
 			},
-			fields=["name", "advance_amount as grand_total", "advance_amount as outstanding_amount",
-			        "request_date as posting_date"],
+			fields=["name", "advance_amount as grand_total",
+			        "advance_amount as outstanding_amount", "request_date as posting_date"],
 			order_by="request_date desc",
 			limit=50,
 		)
@@ -152,8 +155,8 @@ def save_journal_draft(station, posting_date, lines, journal_name=None):
 
 	if journal_name:
 		doc = frappe.get_doc("Treasury Cash Journal", journal_name)
-		if doc.posting_status == "Posted":
-			frappe.throw(_("Cannot edit a Posted journal."))
+		if doc.posting_status in ("Posted", "Closed"):
+			frappe.throw(_("Cannot edit a Posted or Closed journal."))
 		doc.journal_lines = []
 	else:
 		doc = frappe.new_doc("Treasury Cash Journal")
@@ -163,17 +166,17 @@ def save_journal_draft(station, posting_date, lines, journal_name=None):
 
 	for line in lines:
 		doc.append("journal_lines", {
-			"direction": line.get("direction"),
-			"transaction_category": line.get("transaction_category"),
-			"party_type": line.get("party_type"),
-			"party": line.get("party"),
-			"reference_doctype": line.get("reference_doctype"),
-			"reference_name": line.get("reference_name"),
-			"expense_account": line.get("expense_account"),
-			"amount": flt(line.get("amount", 0)),
-			"narration": line.get("narration", ""),
-			"is_posted": int(line.get("is_posted", 0)),
-			"linked_document": line.get("linked_document", ""),
+			"direction":             line.get("direction"),
+			"transaction_category":  line.get("transaction_category"),
+			"party_type":            line.get("party_type"),
+			"party":                 line.get("party"),
+			"reference_doctype":     line.get("reference_doctype"),
+			"reference_name":        line.get("reference_name"),
+			"expense_account":       line.get("expense_account"),
+			"amount":                flt(line.get("amount", 0)),
+			"narration":             line.get("narration", ""),
+			"is_posted":             int(line.get("is_posted", 0)),
+			"linked_document":       line.get("linked_document", ""),
 		})
 
 	doc.flags.ignore_permissions = True
@@ -186,53 +189,36 @@ def save_journal_draft(station, posting_date, lines, journal_name=None):
 
 
 @frappe.whitelist()
-def post_journal(journal_name, actual_balance=None, variance_narration=None):
+def send_for_review(journal_name):
 	"""
-	Trigger the Post Journal engine on the given Treasury Cash Journal.
-	Optionally sets actual_balance and variance_narration before posting.
+	Called by the cockpit 'Post Journal' button.
+	Sets the journal status to 'Pending Review' WITHOUT creating any GL entries.
+	The accountant then reviews the Dr/Cr lines in the TCJ form and submits.
 	"""
 	doc = frappe.get_doc("Treasury Cash Journal", journal_name)
 
-	if doc.posting_status == "Posted":
-		frappe.throw(_("Journal {0} is already posted.").format(journal_name))
+	if doc.posting_status in ("Posted", "Closed"):
+		frappe.throw(_("Journal {0} is already {1}.").format(journal_name, doc.posting_status))
 
-	if actual_balance is not None:
-		doc.actual_balance = flt(actual_balance)
-	if variance_narration:
-		doc.variance_narration = variance_narration
+	if not doc.journal_lines:
+		frappe.throw(_("Cannot send an empty journal for review."))
 
+	doc.posting_status = "Pending Review"
+	doc.flags.ignore_permissions = True
 	doc.save()
-	doc.post_journal_transactions()
-	doc.reload()
-
-	# Realtime event for dashboard/KPI subscribers.
-	frappe.publish_realtime(
-		"treasury_station_balance_updated",
-		{
-			"station": doc.treasury_station,
-			"journal_name": doc.name,
-			"status": doc.posting_status,
-			"opening_balance": flt(doc.opening_balance),
-			"total_inflows": flt(doc.total_inflows),
-			"total_outflows": flt(doc.total_outflows),
-			"expected_balance": flt(doc.expected_balance),
-			"actual_balance": flt(doc.actual_balance),
-			"variance": flt(doc.variance),
-		},
-		after_commit=True,
-	)
 
 	return {
-		"status": doc.posting_status,
 		"journal_name": doc.name,
-		"lines": [
-			{
-				"idx": l.idx,
-				"is_posted": l.is_posted,
-				"linked_document": l.linked_document,
-				"linked_doctype": _infer_linked_doctype(l.linked_document),
-				"posting_error": l.posting_error,
-			}
-			for l in doc.journal_lines
-		],
+		"status": doc.posting_status,
+		"url": frappe.utils.get_url_to_form("Treasury Cash Journal", doc.name),
 	}
+
+
+@frappe.whitelist()
+def post_journal(journal_name, actual_balance=None, variance_narration=None):
+	"""
+	Legacy method kept for backward compatibility.
+	Now delegates to send_for_review (sets Pending Review, no GL).
+	Actual GL posting happens when the accountant submits the TCJ form.
+	"""
+	return send_for_review(journal_name)

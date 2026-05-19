@@ -9,9 +9,10 @@ class TreasuryCashJournal(Document):
 	SAP FBCJ-style daily cash journal for a Treasury Station.
 
 	Lifecycle:
-	  Draft   → teller enters rows, KPIs update dynamically
-	  Posted  → Post Journal button loops rows and creates Payment Entries
-	  Closed  → end-of-day denomination verified, station balance updated
+	  Draft          → teller enters rows via cockpit, KPIs update dynamically
+	  Pending Review → cockpit "Post Journal" pressed; accountant reviews Dr/Cr lines
+	  Posted         → accountant submits the form; GL entries created
+	  Closed         → vault day closed; Treasury Station.status = Closed
 	"""
 
 	# ─── Validate ────────────────────────────────────────────────────────────────
@@ -22,10 +23,6 @@ class TreasuryCashJournal(Document):
 		self._recalculate_variance()
 
 	def _fetch_opening_balance(self):
-		"""
-		Pull the opening balance from the station's current_balance field.
-		Only set it when creating a new journal (don't overwrite on re-save).
-		"""
 		if not self.opening_balance:
 			self.opening_balance = flt(
 				frappe.db.get_value("Treasury Station", self.treasury_station, "current_balance")
@@ -47,13 +44,20 @@ class TreasuryCashJournal(Document):
 		if self.actual_balance is not None:
 			self.variance = flt(self.actual_balance) - flt(self.expected_balance)
 
-	# ─── On Submit ───────────────────────────────────────────────────────────────
+	# ─── On Submit (ERPNext standard submit button) ───────────────────────────────
 
 	def on_submit(self):
 		"""
-		Called when the user submits the journal from the standard ERPNext form.
-		Delegates to the same post_journal_transactions engine used by the page.
+		Triggered when the accountant clicks Submit on the TCJ form.
+		Only allowed when status is 'Pending Review'.
+		Runs the full GL posting engine and closes the vault day.
 		"""
+		if self.posting_status not in ("Pending Review", "Draft"):
+			frappe.throw(
+				_("Journal can only be submitted when status is 'Pending Review'. Current status: {0}").format(
+					self.posting_status
+				)
+			)
 		self.post_journal_transactions()
 
 	# ─── Post Journal Engine ─────────────────────────────────────────────────────
@@ -63,9 +67,8 @@ class TreasuryCashJournal(Document):
 		"""
 		Loops through all journal_lines and maps each row to a native ERPNext
 		Payment Entry based on direction and transaction_category.
-
-		Uses a single database transaction: if any row fails, all are rolled back.
 		Rows with is_posted=1 are skipped (idempotent re-run safety).
+		On full success: sets status to Posted/Closed and closes the vault day.
 		"""
 		if self.posting_status == "Posted":
 			frappe.throw(_("This journal has already been posted."))
@@ -95,17 +98,18 @@ class TreasuryCashJournal(Document):
 			except Exception as e:
 				errors.append(f"Variance entry: {e}")
 
-		self.posting_status = "Posted" if not errors else "Draft"
-		self.db_update()
-
-		# Update station balance
 		if not errors:
+			self.posting_status = "Closed"
+			self.db_update()
+			# Close the vault day
 			frappe.db.set_value("Treasury Station", self.treasury_station, {
 				"current_balance": flt(self.expected_balance),
 				"last_closing_date": self.posting_date,
+				"status": "Closed",
 			})
-
-		if errors:
+		else:
+			self.posting_status = "Pending Review"
+			self.db_update()
 			frappe.throw(
 				_("Journal posted with errors. The following lines failed:\n\n{0}").format(
 					"\n".join(errors)
@@ -113,24 +117,123 @@ class TreasuryCashJournal(Document):
 			)
 
 		frappe.msgprint(
-			_("Journal {0} posted successfully. {1} transaction(s) created.").format(
+			_("Journal {0} posted successfully. {1} transaction(s) created. Vault day closed.").format(
 				self.name,
-				sum(1 for l in self.journal_lines if l.is_posted)
+				sum(1 for l in self.journal_lines if l.is_posted),
 			),
 			indicator="green",
 		)
 
+	# ─── Accounting Preview (for TCJ form review tab) ────────────────────────────
+
+	@frappe.whitelist()
+	def preview_accounting_lines(self):
+		"""
+		Returns a list of dicts describing the Dr/Cr impact of each journal line
+		WITHOUT creating any GL entries. Used by the TCJ form review section.
+		"""
+		station = frappe.get_doc("Treasury Station", self.treasury_station)
+		vault_account = station.vault_account
+		preview = []
+
+		for line in self.journal_lines:
+			entry = self._preview_line(line, vault_account)
+			if entry:
+				preview.append(entry)
+
+		# Variance line
+		if flt(self.variance) != 0 and station.shortage_account:
+			variance = flt(self.variance)
+			if variance < 0:
+				preview.append({
+					"idx": "V",
+					"direction": "Outbound",
+					"category": _("Cash Shortage"),
+					"party": "",
+					"reference": "",
+					"amount": abs(variance),
+					"debit_account": station.shortage_account,
+					"credit_account": vault_account,
+					"narration": self.variance_narration or _("Cash variance"),
+					"doc_type": "Journal Entry",
+				})
+			else:
+				preview.append({
+					"idx": "V",
+					"direction": "Inbound",
+					"category": _("Cash Overage"),
+					"party": "",
+					"reference": "",
+					"amount": variance,
+					"debit_account": vault_account,
+					"credit_account": station.shortage_account,
+					"narration": self.variance_narration or _("Cash variance"),
+					"doc_type": "Journal Entry",
+				})
+
+		return preview
+
+	def _preview_line(self, line, vault_account):
+		"""Returns a single preview dict for one journal line."""
+		amount = flt(line.amount)
+		party_label = line.party or ""
+		ref_label = line.reference_name or ""
+
+		if line.transaction_category == "Direct Expense":
+			expense_account = line.reference_name or line.expense_account
+			if not expense_account:
+				return None
+			return {
+				"idx": line.idx,
+				"direction": line.direction,
+				"category": line.transaction_category,
+				"party": party_label,
+				"reference": ref_label,
+				"amount": amount,
+				"debit_account": expense_account,
+				"credit_account": vault_account,
+				"narration": line.narration or "",
+				"doc_type": "Journal Entry",
+			}
+
+		if line.direction == "Inbound":
+			# Cash received → Dr Vault / Cr AR (party receivable)
+			return {
+				"idx": line.idx,
+				"direction": line.direction,
+				"category": line.transaction_category,
+				"party": party_label,
+				"reference": ref_label,
+				"amount": amount,
+				"debit_account": vault_account,
+				"credit_account": _("Accounts Receivable ({0})").format(party_label),
+				"narration": line.narration or "",
+				"doc_type": "Payment Entry",
+			}
+
+		if line.direction == "Outbound":
+			# Cash paid → Dr AP (party payable) / Cr Vault
+			return {
+				"idx": line.idx,
+				"direction": line.direction,
+				"category": line.transaction_category,
+				"party": party_label,
+				"reference": ref_label,
+				"amount": amount,
+				"debit_account": _("Accounts Payable ({0})").format(party_label),
+				"credit_account": vault_account,
+				"narration": line.narration or "",
+				"doc_type": "Payment Entry",
+			}
+
+		return None
+
+	# ─── Process Line (GL creation) ──────────────────────────────────────────────
+
 	def _process_line(self, line, vault_account):
-		"""
-		Fork logic: maps a single journal line to a Payment Entry or Journal Entry.
-		Returns the name of the created accounting document.
-		"""
-		# Special outbound case: direct expense must hit GL through Journal Entry.
 		if line.transaction_category == "Direct Expense":
 			return self._create_direct_expense_je(line, vault_account)
 
-		# Advance allocation should use Accountant Custody native settlement flow
-		# so settlement balances/status widgets remain accurate.
 		if (
 			line.direction == "Outbound"
 			and line.transaction_category == "Advance Allocation"
@@ -148,10 +251,9 @@ class TreasuryCashJournal(Document):
 		pe.posting_date = self.posting_date
 		pe.company = self.company
 
-		# ── FORK 1: Inbound — Customer cash receipt ──────────────────────────────
 		if line.direction == "Inbound" and line.transaction_category == "Invoice Collection":
 			pe.payment_type = "Receive"
-			pe.party_type = line.party_type   # Customer
+			pe.party_type = line.party_type
 			pe.party = line.party
 			pe.paid_to = vault_account
 			pe.received_amount = flt(line.amount)
@@ -163,7 +265,6 @@ class TreasuryCashJournal(Document):
 					"allocated_amount": flt(line.amount),
 				})
 
-		# ── FORK 2: Inbound — Direct receipt (no invoice) ────────────────────────
 		elif line.direction == "Inbound":
 			pe.payment_type = "Receive"
 			pe.party_type = line.party_type
@@ -172,10 +273,9 @@ class TreasuryCashJournal(Document):
 			pe.received_amount = flt(line.amount)
 			pe.paid_amount = flt(line.amount)
 
-		# ── FORK 3: Outbound — Supplier/Custodian payment ────────────────────────
 		elif line.direction == "Outbound":
 			pe.payment_type = "Pay"
-			pe.party_type = line.party_type   # Supplier or Custodian
+			pe.party_type = line.party_type
 			pe.party = line.party
 			pe.paid_from = vault_account
 			pe.paid_amount = flt(line.amount)
@@ -199,16 +299,12 @@ class TreasuryCashJournal(Document):
 		return pe.name
 
 	def _create_direct_expense_je(self, line, vault_account):
-		"""Create GL entry for direct expense movement (Dr Expense / Cr Vault)."""
-		expense_account = line.reference_name
+		expense_account = line.reference_name or line.expense_account
 		if not expense_account:
 			frappe.throw(_("Direct Expense on row {0} requires an Expense Account.").format(line.idx))
 
 		account_meta = frappe.db.get_value(
-			"Account",
-			expense_account,
-			["root_type", "is_group"],
-			as_dict=True,
+			"Account", expense_account, ["root_type", "is_group"], as_dict=True,
 		)
 		if not account_meta:
 			frappe.throw(_("Expense account '{0}' does not exist.").format(expense_account))
@@ -240,45 +336,20 @@ class TreasuryCashJournal(Document):
 		return je.name
 
 	def _post_variance_entry(self, vault_account, shortage_account):
-		"""
-		Creates a Journal Entry to record cash shortage (debit shortage account)
-		or overage (credit shortage account).
-		"""
 		variance = flt(self.variance)
 		je = frappe.new_doc("Journal Entry")
 		je.posting_date = self.posting_date
 		je.company = self.company
 		je.voucher_type = "Journal Entry"
 		je.user_remark = (
-			self.variance_narration
-			or f"Cash variance for Treasury Journal {self.name}"
+			self.variance_narration or f"Cash variance for Treasury Journal {self.name}"
 		)
-
 		if variance < 0:
-			# Shortage: vault is short → debit shortage account, credit vault
-			je.append("accounts", {
-				"account": shortage_account,
-				"debit_in_account_currency": abs(variance),
-				"credit_in_account_currency": 0,
-			})
-			je.append("accounts", {
-				"account": vault_account,
-				"debit_in_account_currency": 0,
-				"credit_in_account_currency": abs(variance),
-			})
+			je.append("accounts", {"account": shortage_account, "debit_in_account_currency": abs(variance), "credit_in_account_currency": 0})
+			je.append("accounts", {"account": vault_account, "debit_in_account_currency": 0, "credit_in_account_currency": abs(variance)})
 		else:
-			# Overage: vault has extra → debit vault, credit shortage account
-			je.append("accounts", {
-				"account": vault_account,
-				"debit_in_account_currency": variance,
-				"credit_in_account_currency": 0,
-			})
-			je.append("accounts", {
-				"account": shortage_account,
-				"debit_in_account_currency": 0,
-				"credit_in_account_currency": variance,
-			})
-
+			je.append("accounts", {"account": vault_account, "debit_in_account_currency": variance, "credit_in_account_currency": 0})
+			je.append("accounts", {"account": shortage_account, "debit_in_account_currency": 0, "credit_in_account_currency": variance})
 		je.flags.ignore_permissions = True
 		je.insert()
 		je.submit()

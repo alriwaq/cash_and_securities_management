@@ -17,29 +17,29 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
     <div class="col-auto">
       <h4 class="mb-0" style="font-weight:600;">
         <i class="fa fa-university mr-2" style="color:var(--primary);"></i>
-        Treasury Cash Journal
+        يومية نقدية الخزينة
       </h4>
     </div>
     <div class="col-auto ml-3">
       <select id="tcj-station-select" class="form-control form-control-sm" style="min-width:200px;">
-        <option value="">— Select Station —</option>
+        <option value="">— اختر المحطة —</option>
       </select>
     </div>
     <div class="col-auto">
       <input type="date" id="tcj-date-input" class="form-control form-control-sm" style="min-width:140px;" />
     </div>
     <div class="col-auto">
-      <span id="tcj-status-badge" class="badge badge-secondary" style="font-size:0.85rem; padding:6px 12px;">Draft</span>
+      <span id="tcj-status-badge" class="badge badge-secondary" style="font-size:0.85rem; padding:6px 12px;">مسودة</span>
     </div>
     <div class="col-auto ml-auto">
       <button id="tcj-add-txn-btn" class="btn btn-sm btn-success mr-2">
-				<i class="fa fa-plus mr-1"></i> Record Vault Movement
+				<i class="fa fa-plus mr-1"></i> تسجيل حركة خزينة
       </button>
       <button id="tcj-save-btn" class="btn btn-sm btn-default mr-2">
-        <i class="fa fa-save mr-1"></i> Save Draft
+        <i class="fa fa-save mr-1"></i> حفظ مسودة
       </button>
       <button id="tcj-post-btn" class="btn btn-sm btn-primary">
-        <i class="fa fa-check-circle mr-1"></i> Post Journal
+        <i class="fa fa-paper-plane mr-1"></i> إرسال للمراجعة
       </button>
     </div>
   </div>
@@ -49,7 +49,7 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
     <div class="col-md-3 col-sm-6 mb-2">
       <div class="tcj-kpi-card card shadow-sm" style="border-left:4px solid #6c757d;">
         <div class="card-body py-2 px-3">
-          <div class="tcj-kpi-label text-muted" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em;">Opening Balance</div>
+          <div class="tcj-kpi-label text-muted" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em;">الرصيد الافتتاحي</div>
           <div class="tcj-kpi-value" id="kpi-opening" style="font-size:1.4rem; font-weight:700; color:#495057;">0.00</div>
         </div>
       </div>
@@ -57,7 +57,7 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
     <div class="col-md-3 col-sm-6 mb-2">
       <div class="tcj-kpi-card card shadow-sm" style="border-left:4px solid #28a745;">
         <div class="card-body py-2 px-3">
-          <div class="tcj-kpi-label text-muted" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em;">Total Inflows</div>
+          <div class="tcj-kpi-label text-muted" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em;">إجمالي الوارد</div>
           <div class="tcj-kpi-value" id="kpi-inflows" style="font-size:1.4rem; font-weight:700; color:#28a745;">0.00</div>
         </div>
       </div>
@@ -65,7 +65,7 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
     <div class="col-md-3 col-sm-6 mb-2">
       <div class="tcj-kpi-card card shadow-sm" style="border-left:4px solid #dc3545;">
         <div class="card-body py-2 px-3">
-          <div class="tcj-kpi-label text-muted" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em;">Total Outflows</div>
+          <div class="tcj-kpi-label text-muted" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em;">إجمالي الصادر</div>
           <div class="tcj-kpi-value" id="kpi-outflows" style="font-size:1.4rem; font-weight:700; color:#dc3545;">0.00</div>
         </div>
       </div>
@@ -73,7 +73,7 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
     <div class="col-md-3 col-sm-6 mb-2">
       <div class="tcj-kpi-card card shadow-sm" style="border-left:4px solid var(--primary);">
         <div class="card-body py-2 px-3">
-          <div class="tcj-kpi-label text-muted" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em;">Expected Balance</div>
+          <div class="tcj-kpi-label text-muted" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em;">الرصيد المتوقع</div>
           <div class="tcj-kpi-value" id="kpi-expected" style="font-size:1.4rem; font-weight:700; color:var(--primary);">0.00</div>
         </div>
       </div>
@@ -84,24 +84,24 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
   <ul class="nav nav-tabs mb-0" id="tcj-tabs" role="tablist" style="border-bottom:2px solid var(--primary);">
     <li class="nav-item">
       <a class="nav-link active" id="tab-all" data-filter="all" href="#" role="tab">
-        All <span class="badge badge-secondary ml-1" id="badge-all">0</span>
+        الكل <span class="badge badge-secondary ml-1" id="badge-all">0</span>
       </a>
     </li>
     <li class="nav-item">
       <a class="nav-link" id="tab-outbound" data-filter="Outbound" href="#" role="tab">
-        <span style="color:#dc3545;">&#8595;</span> Outbound
+        <span style="color:#dc3545;">&#8595;</span> صادر
         <span class="badge badge-danger ml-1" id="badge-outbound">0</span>
       </a>
     </li>
     <li class="nav-item">
       <a class="nav-link" id="tab-inbound" data-filter="Inbound" href="#" role="tab">
-        <span style="color:#28a745;">&#8593;</span> Inbound
+        <span style="color:#28a745;">&#8593;</span> وارد
         <span class="badge badge-success ml-1" id="badge-inbound">0</span>
       </a>
     </li>
 		<li class="nav-item">
-			<a class="nav-link" id="tab-bank" data-filter="Bank Transfer" href="#" role="tab">
-				<i class="fa fa-exchange"></i> Bank
+      <a class="nav-link" id="tab-bank" data-filter="Bank Transfer" href="#" role="tab">
+				<i class="fa fa-exchange"></i> تحويل بنكي
 				<span class="badge badge-info ml-1" id="badge-bank">0</span>
 			</a>
 		</li>
@@ -113,14 +113,14 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
       <thead style="background:var(--subtle-fg); position:sticky; top:0; z-index:10;">
         <tr>
           <th style="width:30px;">#</th>
-          <th style="width:110px;">Direction</th>
-          <th style="width:150px;">Category</th>
-          <th style="width:120px;">Party Type</th>
-          <th style="width:180px;">Party</th>
-          <th style="width:160px;">Reference</th>
-          <th style="width:120px; text-align:right;">Amount</th>
-          <th>Narration</th>
-          <th style="width:80px; text-align:center;">Status</th>
+          <th style="width:110px;">الاتجاه</th>
+          <th style="width:150px;">النوع</th>
+          <th style="width:120px;">نوع الطرف</th>
+          <th style="width:180px;">الطرف</th>
+          <th style="width:160px;">المرجع</th>
+          <th style="width:120px; text-align:right;">المبلغ</th>
+          <th>البيان</th>
+          <th style="width:80px; text-align:center;">الحالة</th>
           <th style="width:40px;"></th>
         </tr>
       </thead>
@@ -131,8 +131,8 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
 
   <!-- Read-only Row Count Indicator -->
   <div class="tcj-toolbar mt-2 mb-3 d-flex align-items-center">
-		<span class="text-muted small"><i class="fa fa-info-circle mr-1"></i> <strong>Read-Only Table:</strong> Use "Record Vault Movement" to add entries through the wizard.</span>
-    <span class="text-muted small ml-auto" id="tcj-row-count">0 rows</span>
+		<span class="text-muted small"><i class="fa fa-info-circle mr-1"></i> <strong>جدول للقراءة فقط:</strong> استخدم "تسجيل حركة خزينة" لإضافة القيود عبر المعالج.</span>
+    <span class="text-muted small ml-auto" id="tcj-row-count">0 سطر</span>
   </div>
 
   <!-- End-of-Day Denomination Drawer -->
@@ -140,7 +140,7 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
     <div class="card-header d-flex justify-content-between align-items-center"
          style="cursor:pointer; background:var(--subtle-fg);"
          id="tcj-denomination-toggle">
-      <span><i class="fa fa-calculator mr-2"></i> End-of-Day Denomination Count</span>
+      <span><i class="fa fa-calculator mr-2"></i> جرد الأوراق النقدية - نهاية اليوم</span>
       <i class="fa fa-chevron-down" id="tcj-denom-chevron"></i>
     </div>
     <div class="card-body" id="tcj-denomination-body">
@@ -149,15 +149,15 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
           <table class="table table-sm" id="tcj-denom-table">
             <thead>
               <tr>
-                <th>Denomination</th>
-                <th style="width:100px;">Count</th>
-                <th style="width:120px; text-align:right;">Total</th>
+                <th>الفئة</th>
+                <th style="width:100px;">العدد</th>
+                <th style="width:120px; text-align:right;">الإجمالي</th>
               </tr>
             </thead>
             <tbody id="tcj-denom-tbody"></tbody>
             <tfoot>
               <tr style="font-weight:700; border-top:2px solid #dee2e6;">
-                <td colspan="2">Physical Count Total</td>
+                <td colspan="2">إجمالي العد الفعلي</td>
                 <td style="text-align:right;" id="tcj-denom-total">0.00</td>
               </tr>
             </tfoot>
@@ -166,21 +166,21 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
         <div class="col-md-6">
           <div class="card bg-light p-3">
             <div class="row mb-2">
-              <div class="col-6 text-muted">Expected Balance:</div>
+              <div class="col-6 text-muted">الرصيد المتوقع:</div>
               <div class="col-6 text-right font-weight-bold" id="tcj-denom-expected">0.00</div>
             </div>
             <div class="row mb-2">
-              <div class="col-6 text-muted">Actual (Counted):</div>
+              <div class="col-6 text-muted">الرصيد الفعلي (العد):</div>
               <div class="col-6 text-right font-weight-bold" id="tcj-denom-actual">0.00</div>
             </div>
             <div class="row mb-3">
-              <div class="col-6 text-muted">Variance:</div>
+              <div class="col-6 text-muted">الفرق:</div>
               <div class="col-6 text-right font-weight-bold" id="tcj-denom-variance" style="color:#dc3545;">0.00</div>
             </div>
             <div class="form-group mb-2">
-              <label class="small text-muted">Variance Narration (required if variance &ne; 0)</label>
+              <label class="small text-muted">بيان الفرق (مطلوب إذا كان الفرق ≠ 0)</label>
               <textarea id="tcj-variance-narration" class="form-control form-control-sm" rows="2"
-                        placeholder="Explain the reason for shortage or overage..."></textarea>
+                        placeholder="اذكر سبب العجز أو الزيادة..."></textarea>
             </div>
           </div>
         </div>
@@ -218,9 +218,13 @@ class TreasuryCashJournal {
 		this.rows = [];
 		this.activeFilter = "all";
 		this.journalName = null;
+		this.journalStatus = "Draft";
 		this.openingBalance = 0;
 		this.stationData = null;
 		this.posted = false;
+		// Separate serial counters for inbound and outbound vouchers
+		this._inboundSerial = 0;
+		this._outboundSerial = 0;
 
 		this._initDatePicker();
 		this._loadStations();
@@ -331,10 +335,12 @@ class TreasuryCashJournal {
 				this.stationData = data.station;
 				this.openingBalance = data.opening_balance || 0;
 				this.journalName = data.journal_name || null;
-				this.posted = data.existing && data.existing.posting_status === "Posted";
+				this.journalStatus = (data.existing && data.existing.posting_status) || "Draft";
+				this.posted = this.journalStatus === "Posted" || this.journalStatus === "Closed";
 
 				this.rows = (data.lines || []).map((l, i) => ({
 					_id: i,
+					voucher_serial: l.voucher_serial || "",
 					direction: l.direction || "",
 					transaction_category: l.transaction_category || "",
 					party_type: l.party_type || "",
@@ -348,6 +354,9 @@ class TreasuryCashJournal {
 					linked_document: l.linked_document || "",
 					linked_doctype: l.linked_doctype || "",
 				}));
+				// Restore serial counters from loaded rows
+				this._inboundSerial = this.rows.filter(r => r.direction === "Inbound").length;
+				this._outboundSerial = this.rows.filter(r => r.direction === "Outbound").length;
 
 				this._updateKPIs();
 				this._renderGrid();
@@ -507,20 +516,20 @@ class TreasuryCashJournal {
 			{
 				fieldtype: "Section Break",
 				fieldname: "step1_section",
-				label: "Step 1: Transaction Classification",
+				label: "الخطوة 1: تصنيف المعاملة",
 				hidden: 0,
 			},
 			{
 				fieldtype: "Select",
 				fieldname: "direction",
-				label: "Direction",
+				label: "اتجاه الحركة",
 				options: ["", "Inbound", "Outbound", "Bank Transfer"],
 				hidden: 0,
 			},
 			{
 				fieldtype: "Select",
 				fieldname: "transaction_category",
-				label: "Category",
+				label: "نوع المعاملة",
 				options: [],
 				hidden: 1,
 			},
@@ -529,13 +538,13 @@ class TreasuryCashJournal {
 			{
 				fieldtype: "Section Break",
 				fieldname: "step2_section",
-				label: "Step 2: Link & Party Information",
+				label: "الخطوة 2: الطرف والمرجع",
 				hidden: 1,
 			},
 			{
 				fieldtype: "Link",
 				fieldname: "party_type",
-				label: "Party Type",
+				label: "نوع الطرف",
 				options: "Party Type",
 				hidden: 1,
 				read_only: 1,
@@ -543,35 +552,35 @@ class TreasuryCashJournal {
 			{
 				fieldtype: "Link",
 				fieldname: "party",
-				label: "Party",
+				label: "الطرف",
 				options: "Customer",
 				hidden: 1,
 			},
 			{
 				fieldtype: "Data",
 				fieldname: "reference_doctype",
-				label: "Reference Type",
+				label: "نوع المرجع",
 				hidden: 1,
 				read_only: 1,
 			},
 			{
 				fieldtype: "Link",
 				fieldname: "reference_name",
-				label: "Reference Name",
+				label: "رقم المرجع",
 				options: "Sales Invoice",
 				hidden: 1,
 			},
 			{
 				fieldtype: "Link",
 				fieldname: "expense_account",
-				label: "Expense Account",
+				label: "حساب المصروف",
 				options: "Account",
 				hidden: 1,
 			},
 			{
 				fieldtype: "Link",
 				fieldname: "bank_account",
-				label: "Bank Account",
+				label: "حساب بنكي",
 				options: "Account",
 				hidden: 1,
 			},
@@ -580,29 +589,31 @@ class TreasuryCashJournal {
 			{
 				fieldtype: "Section Break",
 				fieldname: "step3_section",
-				label: "Step 3: Amount & Narration",
+				label: "الخطوة 3: المبلغ والبيان",
 				hidden: 1,
 			},
 			{
 				fieldtype: "Currency",
 				fieldname: "amount",
-				label: "Amount",
+				label: "المبلغ",
 				read_only: 0,
 				hidden: 1,
 			},
 			{
 				fieldtype: "Small Text",
 				fieldname: "narration",
-				label: "Narration",
+				label: "البيان / الوصف",
 				hidden: 1,
 			},
 		];
 
 		const dialog = new frappe.ui.Dialog({
-			title: "Record Vault Movement",
+			title: "تسجيل حركة خزينة",
 			fields: wizardFields,
-			primary_action_label: __("Confirm"),
+			primary_action_label: "تأكيد وإضافة",
 			primary_action: () => this._onWizardSubmit(dialog),
+			secondary_action_label: "طباعة سند الحركة",
+			secondary_action: () => this._printVoucherFromDialog(dialog),
 		});
 
 		dialog.get_field("expense_account").df.get_query = () => ({
@@ -677,7 +688,13 @@ class TreasuryCashJournal {
 			const canConfirm = hasBase && hasLinks && amount > 0 && narration.length > 0;
 
 			dialog.get_primary_btn().prop("disabled", !canConfirm);
+			// Also enable/disable the print button based on whether we have enough info
+			if (dialog.get_secondary_btn) {
+				dialog.get_secondary_btn().prop("disabled", !(hasBase && amount > 0));
+			}
 		};
+		// Delayed confirm state re-check after Frappe Link field internal async resolution
+		const deferredConfirmState = () => setTimeout(updateConfirmState, 350);
 
 		const setReferenceQuery = (refDoctype, party, category) => {
 			dialog.get_field("reference_name").df.get_query = () => {
@@ -808,6 +825,7 @@ class TreasuryCashJournal {
 
 			setReferenceQuery(refDoctype, party, category);
 			updateConfirmState();
+			deferredConfirmState();
 		};
 
 		dialog.fields_dict.bank_account.df.onchange = () => {
@@ -866,14 +884,15 @@ class TreasuryCashJournal {
 						dialog.set_df_property("amount", "read_only", 0);
 						dialog.get_field("amount").refresh();
 						dialog.get_field("narration").focus();
-						updateConfirmState();
-					});
-				} else {
-					dialog.set_value("amount", 0);
-					hideStep3();
 					updateConfirmState();
-				}
-			};
+					deferredConfirmState();
+				});
+			} else {
+				dialog.set_value("amount", 0);
+				hideStep3();
+				updateConfirmState();
+			}
+		};
 
 		dialog.fields_dict.expense_account.df.onchange = () => {
 			if (dialog.get_value("expense_account")) {
@@ -894,11 +913,20 @@ class TreasuryCashJournal {
 		const amountInput = dialog.get_field("amount") && dialog.get_field("amount").$input;
 		const narrationInput = dialog.get_field("narration") && dialog.get_field("narration").$input;
 		if (amountInput && amountInput.on) {
-			amountInput.on("input", () => updateConfirmState());
+			amountInput.on("input", () => { updateConfirmState(); deferredConfirmState(); });
 		}
 		if (narrationInput && narrationInput.on) {
-			narrationInput.on("input", () => updateConfirmState());
+			narrationInput.on("input", () => { updateConfirmState(); deferredConfirmState(); });
 		}
+		// Attach input listeners to all Link field inputs for real-time Confirm enable
+		setTimeout(() => {
+			["party", "reference_name", "expense_account", "bank_account"].forEach((fn) => {
+				const f = dialog.get_field(fn);
+				if (f && f.$input) {
+					f.$input.on("input blur", () => { updateConfirmState(); deferredConfirmState(); });
+				}
+			});
+		}, 400);
 		updateConfirmState();
 	}
 
@@ -986,8 +1014,22 @@ class TreasuryCashJournal {
 			refName = values.reference_name;
 		}
 
+		// Assign serial number per direction
+		const year = new Date().getFullYear();
+		let voucherSerial = "";
+		if (values.direction === "Inbound") {
+			this._inboundSerial++;
+			voucherSerial = `IN-${year}-${String(this._inboundSerial).padStart(4, "0")}`;
+		} else if (values.direction === "Outbound") {
+			this._outboundSerial++;
+			voucherSerial = `OUT-${year}-${String(this._outboundSerial).padStart(4, "0")}`;
+		} else {
+			voucherSerial = `BNK-${year}-${String(this._inboundSerial + this._outboundSerial + 1).padStart(4, "0")}`;
+		}
+
 		this.rows.push({
 			_id: id,
+			voucher_serial: voucherSerial,
 			direction: values.direction,
 			transaction_category: values.transaction_category,
 			party_type: (isDirectExpense || isBankTransfer) ? "" : values.party_type,
@@ -1055,13 +1097,22 @@ class TreasuryCashJournal {
 
 	_updateStatusBadge() {
 		const badge = $("#tcj-status-badge");
-		badge.removeClass("badge-secondary badge-success badge-warning");
-		if (this.posted) {
-			badge.addClass("badge-success").text("Posted");
+		badge.removeClass("badge-secondary badge-success badge-warning badge-info");
+		const statusMap = {
+			"Draft":          ["badge-secondary", "مسودة"],
+			"Pending Review": ["badge-warning",   "قيد المراجعة"],
+			"Posted":         ["badge-success",   "مرحّل"],
+			"Closed":         ["badge-info",      "مغلق"],
+		};
+		const [cls, label] = statusMap[this.journalStatus || (this.posted ? "Posted" : "Draft")] || ["badge-secondary", "مسودة"];
+		badge.addClass(cls).text(label);
+		const locked = ["Pending Review", "Posted", "Closed"].includes(this.journalStatus);
+		if (locked) {
 			$("#tcj-save-btn, #tcj-add-txn-btn").prop("disabled", true).hide();
+			$("#tcj-post-btn").prop("disabled", true).hide();
 		} else {
-			badge.addClass("badge-secondary").text("Draft");
 			$("#tcj-save-btn, #tcj-add-txn-btn").prop("disabled", false).show();
+			$("#tcj-post-btn").prop("disabled", false).show();
 		}
 	}
 
@@ -1073,11 +1124,11 @@ class TreasuryCashJournal {
 
 	// ── Save Draft ────────────────────────────────────────────────────────────
 
-	_saveDraft() {
+	_saveDraft(cb) {
 		const station = $("#tcj-station-select").val();
 		const date = $("#tcj-date-input").val();
 		if (!station || !date) {
-			frappe.msgprint(__("Please select a station and date first."));
+			frappe.msgprint({ title: "تحذير", message: "يرجى اختيار المحطة والتاريخ أولاً.", indicator: "orange" });
 			return;
 		}
 
@@ -1093,7 +1144,8 @@ class TreasuryCashJournal {
 				if (r.message) {
 					this.journalName = r.message;
 					$("#tcj-journal-name").val(r.message);
-					frappe.show_alert({ message: __("Draft saved: {0}").replace("{0}", r.message), indicator: "green" });
+					frappe.show_alert({ message: `تم حفظ المسودة: ${r.message}`, indicator: "green" });
+					if (typeof cb === "function") cb(r.message);
 				}
 			},
 		});
@@ -1103,11 +1155,16 @@ class TreasuryCashJournal {
 
 	_confirmPost() {
 		if (!this.journalName) {
-			frappe.msgprint(__("Please save the draft first before posting."));
+			// Auto-save first, then send for review
+			this._saveDraft(() => this._doSendForReview());
 			return;
 		}
-		if (this.rows.filter((r) => !r.is_posted).length === 0) {
-			frappe.msgprint(__("All rows are already posted."));
+		if (this.rows.length === 0) {
+			frappe.msgprint({
+				title: "تحذير",
+				message: "لا يمكن إرسال يومية فارغة للمراجعة.",
+				indicator: "orange",
+			});
 			return;
 		}
 
@@ -1115,55 +1172,191 @@ class TreasuryCashJournal {
 		const narration = $("#tcj-variance-narration").val();
 
 		if (Math.abs(variance) > 0.01 && !narration) {
-			frappe.msgprint(__("A variance of {0} was detected. Please enter a Variance Narration before posting.").replace("{0}", variance));
+			frappe.msgprint({
+				title: "فرق في الرصيد",
+				message: `تم اكتشاف فرق بقيمة <strong>${variance}</strong>. يرجى إدخال بيان الفرق قبل الإرسال.`,
+				indicator: "red",
+			});
 			return;
 		}
 
 		frappe.confirm(
-			__("Post journal <strong>{0}</strong>? This will execute vault movement posting for all unposted rows and cannot be undone.").replace("{0}", this.journalName),
-			() => this._doPost(variance, narration)
+			`إرسال اليومية <strong>${this.journalName}</strong> لمراجعة المحاسب؟<br/>
+			<span class="text-muted small">سيتم إغلاق الكوكبيت وستظهر اليومية في نموذج Treasury Cash Journal للمراجعة والتقديم.</span>`,
+			() => this._doSendForReview()
 		);
 	}
 
-	_doPost(actualBalance, varianceNarration) {
-		const expected = this.openingBalance + this._sumInflows() - this._sumOutflows();
-		const actual = actualBalance !== 0 ? expected + actualBalance : expected;
+	_doSendForReview() {
+		const saveThenSend = (jname) => {
+			frappe.call({
+				method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.send_for_review",
+				args: { journal_name: jname },
+				freeze: true,
+				freeze_message: "جاري إرسال اليومية للمراجعة...",
+				callback: (r) => {
+					if (!r.message) return;
+					const result = r.message;
+					this.journalStatus = "Pending Review";
+					this.posted = false;
+					this._updateStatusBadge();
 
-		frappe.call({
-			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.post_journal",
-			args: {
-				journal_name: this.journalName,
-				actual_balance: actual,
-				variance_narration: varianceNarration,
-			},
-			freeze: true,
-			freeze_message: __("Posting journal - executing vault movement logic..."),
-			callback: (r) => {
-				if (!r.message) return;
-				const result = r.message;
-
-				result.lines.forEach((l) => {
-					const row = this.rows.find((r) => r._id == l.idx - 1 || r.idx == l.idx);
-					if (row) {
-						row.is_posted = l.is_posted;
-						row.linked_document = l.linked_document;
-						row.linked_doctype = l.linked_doctype || row.linked_doctype;
-					}
-				});
-
-				this.posted = result.status === "Posted";
-				this._updateKPIs();
-				this._renderGrid();
-				this._updateStatusBadge();
-
-				if (result.status === "Posted") {
-					frappe.show_alert({
-						message: __("Journal {0} posted successfully!").replace("{0}", this.journalName),
+					// Show success with link to TCJ form
+					const link = result.url
+						? `<a href="${result.url}" target="_blank" class="btn btn-xs btn-primary ml-2">
+							<i class="fa fa-external-link mr-1"></i>فتح اليومية</a>`
+						: "";
+					frappe.msgprint({
+						title: "تم الإرسال بنجاح ✔️",
+						message: `تم إرسال اليومية <strong>${result.journal_name}</strong> لمراجعة المحاسب.
+							<br/>يمكن للمحاسب مراجعة القيود وتقديمها من نموذج Treasury Cash Journal.${link}`,
 						indicator: "green",
 					});
-				}
-			},
+				},
+			});
+		};
+
+		if (!this.journalName) {
+			this._saveDraft((jname) => saveThenSend(jname));
+		} else {
+			saveThenSend(this.journalName);
+		}
+	}
+
+	// ── Print Voucher ────────────────────────────────────────────────────────
+
+	_printVoucherFromDialog(dialog) {
+		const values = {
+			direction:            dialog.get_value("direction"),
+			transaction_category: dialog.get_value("transaction_category"),
+			party:                dialog.get_value("party") || "",
+			reference_name:       dialog.get_value("reference_name") || dialog.get_value("expense_account") || dialog.get_value("bank_account") || "",
+			amount:               parseFloat(dialog.get_value("amount")) || 0,
+			narration:            dialog.get_value("narration") || "",
+		};
+
+		const station = this.stationData
+			? (this.stationData.station_name || this.stationData.name)
+			: ($("#tcj-station-select option:selected").text() || "");
+
+		// Compute a preview serial (not yet committed)
+		const year = new Date().getFullYear();
+		let previewSerial = "";
+		if (values.direction === "Inbound") {
+			previewSerial = `IN-${year}-${String(this._inboundSerial + 1).padStart(4, "0")}`;
+		} else if (values.direction === "Outbound") {
+			previewSerial = `OUT-${year}-${String(this._outboundSerial + 1).padStart(4, "0")}`;
+		} else {
+			previewSerial = `BNK-${year}-PREVIEW`;
+		}
+
+		this._printVoucher({
+			serial:   previewSerial,
+			station:  station,
+			date:     $("#tcj-date-input").val(),
+			...values,
 		});
+	}
+
+	_printVoucher(data) {
+		const now = new Date();
+		const timeStr = now.toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+		const dateStr = data.date || frappe.datetime.get_today();
+		const user = frappe.session.user_fullname || frappe.session.user || "";
+
+		const directionAr = { "Inbound": "وارد / Inbound", "Outbound": "صادر / Outbound", "Bank Transfer": "تحويل بنكي / Bank Transfer" };
+		const dirLabel = directionAr[data.direction] || data.direction || "";
+		const dirColor = data.direction === "Inbound" ? "#155724" : data.direction === "Outbound" ? "#721c24" : "#004085";
+
+		const html = `
+<!DOCTYPE html>
+<html lang="ar" dir="ltr">
+<head>
+<meta charset="UTF-8"/>
+<title>سند حركة خزينة - ${data.serial}</title>
+<style>
+  @media print { body { margin: 0; } .no-print { display: none; } }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #212529; background: #fff; }
+  .voucher { width: 480px; margin: 20px auto; border: 2px solid #343a40; border-radius: 6px; overflow: hidden; }
+  .voucher-header { background: #343a40; color: #fff; padding: 12px 16px; text-align: center; }
+  .voucher-header h2 { margin: 0; font-size: 1.1rem; letter-spacing: 1px; }
+  .voucher-header p  { margin: 4px 0 0; font-size: 0.8rem; opacity: 0.8; }
+  .voucher-body { padding: 14px 18px; }
+  .row-item { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #f0f0f0; }
+  .row-item:last-child { border-bottom: none; }
+  .lbl { color: #6c757d; font-size: 0.82rem; min-width: 160px; }
+  .val { font-weight: 600; text-align: right; }
+  .direction-badge { display: inline-block; padding: 3px 12px; border-radius: 20px; font-weight: 700; font-size: 0.9rem; color: #fff; background: ${dirColor}; }
+  .amount-row .val { font-size: 1.2rem; color: ${dirColor}; }
+  .voucher-footer { background: #f8f9fa; border-top: 1px solid #dee2e6; padding: 10px 18px; font-size: 0.78rem; color: #6c757d; }
+  .sig-line { border-top: 1px solid #adb5bd; width: 160px; margin-top: 20px; padding-top: 4px; text-align: center; }
+  .print-btn { display: block; margin: 12px auto; padding: 8px 24px; background: #343a40; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<div class="voucher">
+  <div class="voucher-header">
+    <h2>سند حركة خزينة &nbsp;|&nbsp; VAULT MOVEMENT VOUCHER</h2>
+    <p>${data.station || ""}</p>
+  </div>
+  <div class="voucher-body">
+    <div class="row-item">
+      <span class="lbl">الرقم التسلسلي / Serial</span>
+      <span class="val">${data.serial}</span>
+    </div>
+    <div class="row-item">
+      <span class="lbl">التاريخ / Date</span>
+      <span class="val">${dateStr}</span>
+    </div>
+    <div class="row-item">
+      <span class="lbl">الوقت / Time</span>
+      <span class="val">${timeStr}</span>
+    </div>
+    <div class="row-item">
+      <span class="lbl">اتجاه الحركة / Direction</span>
+      <span class="val"><span class="direction-badge">${dirLabel}</span></span>
+    </div>
+    <div class="row-item">
+      <span class="lbl">نوع المعاملة / Category</span>
+      <span class="val">${data.transaction_category || ""}</span>
+    </div>
+    <div class="row-item">
+      <span class="lbl">الطرف / Party</span>
+      <span class="val">${data.party || "—"}</span>
+    </div>
+    <div class="row-item">
+      <span class="lbl">المرجع / Reference</span>
+      <span class="val">${data.reference_name || "—"}</span>
+    </div>
+    <div class="row-item amount-row">
+      <span class="lbl">المبلغ / Amount</span>
+      <span class="val">${frappe.utils.format_number(data.amount, null, 2)}</span>
+    </div>
+    <div class="row-item">
+      <span class="lbl">البيان / Narration</span>
+      <span class="val" style="max-width:240px;text-align:right;word-break:break-word;">${data.narration || "—"}</span>
+    </div>
+  </div>
+  <div class="voucher-footer" style="display:flex; justify-content:space-between; align-items:flex-end;">
+    <div>
+      <div>أعده / Prepared by: <strong>${user}</strong></div>
+      <div style="margin-top:2px;">${timeStr}</div>
+    </div>
+    <div class="sig-line">توقيع المستلم / Recipient Signature</div>
+  </div>
+</div>
+<button class="print-btn no-print" onclick="window.print(); window.close();">&#128438; طباعة / Print</button>
+</body>
+</html>`;
+
+		const win = window.open("", "_blank", "width=560,height=700,scrollbars=yes");
+		if (win) {
+			win.document.write(html);
+			win.document.close();
+			win.focus();
+		} else {
+			frappe.msgprint({ title: "تحذير", message: "تعذّر فتح نافذة الطباعة. يرجى السماح بالنوافذ المنبثقة.", indicator: "orange" });
+		}
 	}
 
 	// ── Helpers ───────────────────────────────────────────────────────────────
