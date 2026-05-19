@@ -688,7 +688,12 @@ class TreasuryCashJournal {
 				}
 
 				if (refDoctype === "Sales Invoice" || refDoctype === "Purchase Invoice") {
+					// Only show invoices that still have an outstanding balance.
+					// outstanding_amount > 0 is the primary guard; payment_status != Paid
+					// is an extra belt-and-suspenders check so fully-settled invoices
+					// never appear in the selection list.
 					filters.outstanding_amount = [">", 0];
+					filters.payment_status = ["!=", "Paid"];
 				} else if (refDoctype === "Custody Request") {
 					if (category === "Custody Advance") {
 						filters.remaining_to_pay = [">", 0];
