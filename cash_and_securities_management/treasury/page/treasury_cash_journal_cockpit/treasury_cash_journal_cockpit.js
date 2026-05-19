@@ -99,6 +99,12 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
         <span class="badge badge-success ml-1" id="badge-inbound">0</span>
       </a>
     </li>
+		<li class="nav-item">
+			<a class="nav-link" id="tab-bank" data-filter="Bank Transfer" href="#" role="tab">
+				<i class="fa fa-exchange"></i> Bank
+				<span class="badge badge-info ml-1" id="badge-bank">0</span>
+			</a>
+		</li>
   </ul>
 
   <!-- Transaction Grid -->
@@ -669,6 +675,27 @@ class TreasuryCashJournal {
 			dialog.get_primary_btn().prop("disabled", !canConfirm);
 		};
 
+		const setReferenceQuery = (refDoctype, party) => {
+			dialog.get_field("reference_name").df.get_query = () => {
+				const filters = { docstatus: 1 };
+				const partyField = this._getPartyFieldName(refDoctype);
+				if (party && partyField) {
+					filters[partyField] = party;
+				}
+
+				if (refDoctype === "Sales Invoice" || refDoctype === "Purchase Invoice") {
+					filters.outstanding_amount = [">", 0];
+				} else if (refDoctype === "Custody Request") {
+					filters.status = ["in", ["Approved", "Pending Payment", "Paid", "Partly Claimed", "Partly Paid"]];
+				} else if (refDoctype === "Accountant Custody") {
+					filters.status = ["in", ["Fully Invoiced", "Partly Settled"]];
+				}
+
+				return { filters };
+			};
+			dialog.get_field("reference_name").refresh();
+		};
+
 		// ─ Event Handlers for Dynamic Field Updates ─
 
 		// When Direction changes, update Category options and visibility
@@ -736,7 +763,7 @@ class TreasuryCashJournal {
 					dialog.set_df_property("party", "options", cfg.party_type || "Customer");
 					dialog.set_df_property("reference_name", "options", cfg.reference_doctype || "Sales Invoice");
 					dialog.get_field("party").refresh();
-					dialog.get_field("reference_name").refresh();
+					setReferenceQuery(cfg.reference_doctype || "Sales Invoice", dialog.get_value("party"));
 					hideStep3(); // Hide until reference_name is selected
 				}
 			}
@@ -760,29 +787,12 @@ class TreasuryCashJournal {
 			hideStep3();
 
 			if (!party || !refDoctype) {
+				setReferenceQuery(refDoctype, party);
 				updateConfirmState();
 				return;
 			}
 
-			const partyField = this._getPartyFieldName(refDoctype);
-			dialog.get_field("reference_name").df.get_query = () => {
-				const filters = { docstatus: 1 };
-				if (partyField) {
-					filters[partyField] = party;
-				}
-
-				if (refDoctype === "Sales Invoice" || refDoctype === "Purchase Invoice") {
-					filters.outstanding_amount = [">", 0];
-				} else if (refDoctype === "Custody Request") {
-					filters.unallocated_amount = [">", 0];
-					filters.status = ["in", ["Paid", "Partly Claimed", "Approved", "Partly Paid"]];
-				} else if (refDoctype === "Accountant Custody") {
-					filters.status = ["in", ["Fully Invoiced", "Partly Settled"]];
-				}
-
-				return { filters };
-			};
-			dialog.get_field("reference_name").refresh();
+			setReferenceQuery(refDoctype, party);
 			updateConfirmState();
 		};
 
@@ -805,13 +815,13 @@ class TreasuryCashJournal {
 				// Always open Step 3 on valid reference selection; amount can still be edited if auto-fetch is empty.
 				showStep3(false);
 
-				const amountFields = [
-					"outstanding_amount",
-					"unallocated_amount",
-					"remaining_amount",
-					"total_billed_amount",
-					"grand_total",
-				];
+				const amountFieldsByDoctype = {
+					"Sales Invoice": ["outstanding_amount", "grand_total"],
+					"Purchase Invoice": ["outstanding_amount", "grand_total"],
+					"Custody Request": ["unallocated_amount", "remaining_to_pay", "advance_amount"],
+					"Accountant Custody": ["total_billed_amount", "total_amount", "advance_amount"],
+				};
+				const amountFields = amountFieldsByDoctype[refDoctype] || ["grand_total"];
 
 				frappe.db.get_value(refDoctype, refName, amountFields, (r) => {
 					let resolvedAmount = 0;
@@ -981,9 +991,11 @@ class TreasuryCashJournal {
 		const all = this.rows.length;
 		const outbound = this.rows.filter((r) => r.direction === "Outbound").length;
 		const inbound = this.rows.filter((r) => r.direction === "Inbound").length;
+		const bank = this.rows.filter((r) => r.direction === "Bank Transfer").length;
 		$("#badge-all").text(all);
 		$("#badge-outbound").text(outbound);
 		$("#badge-inbound").text(inbound);
+		$("#badge-bank").text(bank);
 	}
 
 	_updateRowCount() {
