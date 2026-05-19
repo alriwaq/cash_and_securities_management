@@ -465,13 +465,16 @@ class TreasuryCashJournal {
 		if (row.direction === "Outbound" && row.transaction_category === "Supplier Payment") {
 			return "Purchase Invoice";
 		}
+		if (row.direction === "Outbound" && row.transaction_category === "Custody Advance") {
+			return "Custody Request";
+		}
 		if (row.direction === "Inbound" && row.transaction_category === "Custody Return") {
 			return "Custody Request";
 		}
 		if (row.direction === "Bank Transfer" && ["Bank Withdrawal", "Bank Deposit"].includes(row.transaction_category)) {
 			return "Account";
 		}
-		if (row.transaction_category === "Advance Allocation") {
+		if (["Custody Settlement", "Advance Allocation"].includes(row.transaction_category)) {
 			return "Accountant Custody";
 		}
 		if (row.transaction_category === "Direct Expense") {
@@ -492,7 +495,8 @@ class TreasuryCashJournal {
 			"Invoice Collection": { party_type: "Customer", reference_doctype: "Sales Invoice", is_direct_expense: false, is_bank_transfer: false },
 			"Custody Return": { party_type: "Custodian", reference_doctype: "Custody Request", is_direct_expense: false, is_bank_transfer: false },
 			"Supplier Payment": { party_type: "Supplier", reference_doctype: "Purchase Invoice", is_direct_expense: false, is_bank_transfer: false },
-			"Advance Allocation": { party_type: "Custodian", reference_doctype: "Accountant Custody", is_direct_expense: false, is_bank_transfer: false },
+			"Custody Advance": { party_type: "Custodian", reference_doctype: "Custody Request", is_direct_expense: false, is_bank_transfer: false },
+			"Custody Settlement": { party_type: "Custodian", reference_doctype: "Accountant Custody", is_direct_expense: false, is_bank_transfer: false },
 			"Direct Expense": { party_type: "", reference_doctype: "", is_direct_expense: true, is_bank_transfer: false },
 			"Bank Withdrawal": { party_type: "Bank Account", reference_doctype: "", is_direct_expense: false, is_bank_transfer: true },
 			"Bank Deposit": { party_type: "Bank Account", reference_doctype: "", is_direct_expense: false, is_bank_transfer: true },
@@ -675,7 +679,7 @@ class TreasuryCashJournal {
 			dialog.get_primary_btn().prop("disabled", !canConfirm);
 		};
 
-		const setReferenceQuery = (refDoctype, party) => {
+		const setReferenceQuery = (refDoctype, party, category) => {
 			dialog.get_field("reference_name").df.get_query = () => {
 				const filters = { docstatus: 1 };
 				const partyField = this._getPartyFieldName(refDoctype);
@@ -686,9 +690,15 @@ class TreasuryCashJournal {
 				if (refDoctype === "Sales Invoice" || refDoctype === "Purchase Invoice") {
 					filters.outstanding_amount = [">", 0];
 				} else if (refDoctype === "Custody Request") {
-					filters.status = ["in", ["Approved", "Pending Payment", "Paid", "Partly Claimed", "Partly Paid"]];
+					if (category === "Custody Advance") {
+						filters.remaining_to_pay = [">", 0];
+						filters.status = ["in", ["Approved", "Pending Payment", "Partly Paid"]];
+					} else {
+						filters.unallocated_amount = [">", 0];
+						filters.status = ["in", ["Paid", "Partly Claimed", "Partly Paid"]];
+					}
 				} else if (refDoctype === "Accountant Custody") {
-					filters.status = ["in", ["Fully Invoiced", "Partly Settled"]];
+					filters.status = ["in", ["Fully Received", "Partly Invoiced"]];
 				}
 
 				return { filters };
@@ -706,7 +716,7 @@ class TreasuryCashJournal {
 			if (direction === "Inbound") {
 				catOptions = ["", "Invoice Collection", "Custody Return"];
 			} else if (direction === "Outbound") {
-				catOptions = ["", "Supplier Payment", "Advance Allocation", "Direct Expense"];
+				catOptions = ["", "Supplier Payment", "Custody Advance", "Custody Settlement", "Direct Expense"];
 			} else if (direction === "Bank Transfer") {
 				catOptions = ["", "Bank Withdrawal", "Bank Deposit"];
 			}
@@ -763,7 +773,7 @@ class TreasuryCashJournal {
 					dialog.set_df_property("party", "options", cfg.party_type || "Customer");
 					dialog.set_df_property("reference_name", "options", cfg.reference_doctype || "Sales Invoice");
 					dialog.get_field("party").refresh();
-					setReferenceQuery(cfg.reference_doctype || "Sales Invoice", dialog.get_value("party"));
+					setReferenceQuery(cfg.reference_doctype || "Sales Invoice", dialog.get_value("party"), category);
 					hideStep3(); // Hide until reference_name is selected
 				}
 			}
@@ -781,18 +791,19 @@ class TreasuryCashJournal {
 		dialog.fields_dict.party.df.onchange = () => {
 			const refDoctype = dialog.get_value("reference_doctype");
 			const party = dialog.get_value("party");
+			const category = dialog.get_value("transaction_category");
 			dialog.set_value("reference_name", "");
 			dialog.set_value("amount", 0);
 			dialog.set_value("narration", "");
 			hideStep3();
 
 			if (!party || !refDoctype) {
-				setReferenceQuery(refDoctype, party);
+				setReferenceQuery(refDoctype, party, category);
 				updateConfirmState();
 				return;
 			}
 
-			setReferenceQuery(refDoctype, party);
+			setReferenceQuery(refDoctype, party, category);
 			updateConfirmState();
 		};
 
@@ -811,17 +822,19 @@ class TreasuryCashJournal {
 		dialog.fields_dict.reference_name.df.onchange = () => {
 			const refName = dialog.get_value("reference_name");
 			const refDoctype = dialog.get_value("reference_doctype");
+			const category = dialog.get_value("transaction_category");
 			if (refName && refDoctype) {
 				// Always open Step 3 on valid reference selection; amount can still be edited if auto-fetch is empty.
 				showStep3(false);
 
-				const amountFieldsByDoctype = {
-					"Sales Invoice": ["outstanding_amount", "grand_total"],
-					"Purchase Invoice": ["outstanding_amount", "grand_total"],
-					"Custody Request": ["unallocated_amount", "remaining_to_pay", "advance_amount"],
+				const amountFieldsByKey = {
+					"Sales Invoice": ["outstanding_amount"],
+					"Purchase Invoice": ["outstanding_amount"],
+					"Custody Advance": ["remaining_to_pay", "advance_amount"],
+					"Custody Return": ["unallocated_amount", "remaining_to_pay", "advance_amount"],
 					"Accountant Custody": ["total_billed_amount", "total_amount", "advance_amount"],
 				};
-				const amountFields = amountFieldsByDoctype[refDoctype] || ["grand_total"];
+				const amountFields = amountFieldsByKey[category] || amountFieldsByKey[refDoctype] || ["grand_total"];
 
 				frappe.db.get_value(refDoctype, refName, amountFields, (r) => {
 					let resolvedAmount = 0;
