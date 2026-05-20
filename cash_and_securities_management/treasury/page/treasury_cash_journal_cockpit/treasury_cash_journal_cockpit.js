@@ -289,14 +289,36 @@ class TreasuryCashJournal {
 		frappe.call({
 			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.get_station_list",
 			callback: (r) => {
-				if (!r.message) return;
+				const stations = (r && r.message) ? r.message : [];
+
+				if (stations.length === 0) {
+					// No station assigned to this user — show locked state
+					$("#tcj-station-select").prop("disabled", true);
+					$("#tcj-date-input").prop("disabled", true);
+					$("#tcj-add-txn-btn, #tcj-save-btn, #tcj-post-btn").prop("disabled", true);
+					// Show Arabic access-denied message
+					const $main = $("#tcj-main-area");
+					$main.prepend(`
+						<div class="alert alert-warning text-center" style="font-size:1.1rem;margin-bottom:16px;">
+							<i class="fa fa-lock" style="margin-left:6px;"></i>
+							<strong>لا يوجد لديك صلاحية لأي محطة خزينة مفتوحة.</strong><br>
+							<small>يرجى التواصل مع مدير الحسابات لتعيين مسؤولية خزينة لحسابك.</small>
+						</div>
+					`);
+					return;
+				}
+
 				const sel = $("#tcj-station-select");
-				r.message.forEach((s) => {
-					sel.append(`<option value="${s.name}">${s.station_name}</option>`);
+				stations.forEach((s) => {
+					const label = s.responsible_employee
+						? `${s.station_name} — ${s.responsible_employee}`
+						: s.station_name;
+					sel.append(`<option value="${s.name}">${label}</option>`);
 				});
-				if (r.message.length === 1) {
-					sel.val(r.message[0].name);
+				if (stations.length === 1) {
+					sel.val(stations[0].name);
 					this._loadJournal();
+					this._loadPendingItems();
 				}
 			},
 		});

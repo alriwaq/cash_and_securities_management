@@ -19,11 +19,26 @@ def _infer_linked_doctype(linked_document):
 
 @frappe.whitelist()
 def get_station_list():
-	"""Return all open Treasury Stations the current user can access."""
+	"""
+	Return Treasury Stations the current user can access.
+	- Accounts Manager, System Manager, Administrator → see all submitted stations
+	- All other users → only stations where responsible_user = current user
+	Only submitted (docstatus=1) stations are returned (draft stations are not operational).
+	"""
+	user = frappe.session.user
+	roles = frappe.get_roles(user)
+	manager_roles = {"System Manager", "Accounts Manager"}
+
+	base_filters = {"docstatus": 1}  # Only submitted stations
+
+	if user != "Administrator" and not manager_roles.intersection(roles):
+		base_filters["responsible_user"] = user
+
 	return frappe.get_all(
 		"Treasury Station",
-		filters={"status": "Open"},
-		fields=["name", "station_name", "vault_account", "current_balance", "company"],
+		filters=base_filters,
+		fields=["name", "station_name", "vault_account", "current_balance", "company",
+				"responsible_employee", "responsible_user", "status"],
 		order_by="station_name asc",
 	)
 

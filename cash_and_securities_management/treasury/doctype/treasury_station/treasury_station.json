@@ -4,14 +4,18 @@
  "creation": "2024-01-01 00:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
+ "is_submittable": 1,
  "field_order": [
   "station_name",
   "company",
-  "column_break_1",
-  "responsible_user",
-  "responsible_employee",
-  "status",
   "is_default",
+  "column_break_1",
+  "status",
+  "handover_date",
+  "responsibility_section",
+  "responsible_employee",
+  "responsible_user",
+  "column_break_resp",
   "vault_section",
   "create_vault_account",
   "parent_account",
@@ -22,7 +26,9 @@
   "opening_balance",
   "column_break_balance",
   "current_balance",
-  "last_closing_date"
+  "last_closing_date",
+  "transfer_log_section",
+  "responsibility_log"
  ],
  "fields": [
   {
@@ -39,24 +45,19 @@
    "label": "Company",
    "options": "Company",
    "reqd": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "allow_on_submit": 0
+  },
+  {
+   "fieldname": "is_default",
+   "fieldtype": "Check",
+   "label": "Default Station for Company",
+   "description": "When checked, the Cash Mode of Payment for this company will use this vault account by default. Only one station can be default per company.",
+   "default": "0"
   },
   {
    "fieldname": "column_break_1",
    "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "responsible_user",
-   "fieldtype": "Link",
-   "label": "Responsible User (Cashier)",
-   "options": "User"
-  },
-  {
-   "fieldname": "responsible_employee",
-   "fieldtype": "Link",
-   "label": "Responsible Employee",
-   "options": "Employee",
-   "description": "The employee (teller/cashier) assigned to this station. Used as the mandatory accounting dimension on all vault GL entries when the vault account requires an Employee dimension."
   },
   {
    "default": "Open",
@@ -64,14 +65,43 @@
    "fieldtype": "Select",
    "label": "Status",
    "options": "\nOpen\nClosed",
+   "in_list_view": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "handover_date",
+   "fieldtype": "Datetime",
+   "label": "Responsibility Since",
+   "read_only": 1,
+   "description": "Date and time the current responsible employee took over this vault."
+  },
+  {
+   "fieldname": "responsibility_section",
+   "fieldtype": "Section Break",
+   "label": "Current Responsibility"
+  },
+  {
+   "fieldname": "responsible_employee",
+   "fieldtype": "Link",
+   "label": "Responsible Employee",
+   "options": "Employee",
+   "reqd": 1,
+   "allow_on_submit": 1,
+   "description": "The employee currently holding physical responsibility for this vault. Only this employee's linked user can operate the cockpit for this station.",
    "in_list_view": 1
   },
   {
-   "fieldname": "is_default",
-   "fieldtype": "Check",
-   "label": "Default Station for Company",
-   "description": "When checked, Payment Entries for this company will create pending items on this station automatically.",
-   "default": "0"
+   "fieldname": "responsible_user",
+   "fieldtype": "Link",
+   "label": "Responsible User",
+   "options": "User",
+   "read_only": 1,
+   "allow_on_submit": 1,
+   "description": "Auto-populated from the employee's User ID. This user has exclusive cockpit access for this station."
+  },
+  {
+   "fieldname": "column_break_resp",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "vault_section",
@@ -82,7 +112,7 @@
    "fieldname": "create_vault_account",
    "fieldtype": "Check",
    "label": "Create New Vault Account",
-   "description": "Check to auto-create a dedicated Cash GL account for this vault under the selected parent account. Leave unchecked to select an existing account.",
+   "description": "Check to auto-create a dedicated Cash GL account for this vault under the selected parent account.",
    "default": "0"
   },
   {
@@ -101,7 +131,8 @@
    "options": "Account",
    "reqd": 0,
    "depends_on": "eval:doc.create_vault_account == 0",
-   "description": "The GL Cash Account representing the physical vault/safe of this station. All cash transactions debit or credit this account."
+   "allow_on_submit": 0,
+   "description": "The GL Cash Account representing the physical vault. Locked after submit. All cash transactions debit or credit this account."
   },
   {
    "fieldname": "column_break_vault",
@@ -112,7 +143,7 @@
    "fieldtype": "Link",
    "label": "Shortage / Overage Account",
    "options": "Account",
-   "description": "GL Account used to post cash variance (shortage or overage) discovered during end-of-day denomination count."
+   "description": "GL Account used to post cash variance discovered during end-of-day denomination count."
   },
   {
    "fieldname": "balance_section",
@@ -124,7 +155,7 @@
    "fieldtype": "Currency",
    "label": "Opening Balance",
    "read_only": 1,
-   "description": "Balance carried forward from the last closed journal."
+   "description": "Fetched from the actual GL balance of the vault account at day open."
   },
   {
    "fieldname": "column_break_balance",
@@ -141,6 +172,19 @@
    "fieldtype": "Date",
    "label": "Last Closing Date",
    "read_only": 1
+  },
+  {
+   "fieldname": "transfer_log_section",
+   "fieldtype": "Section Break",
+   "label": "Responsibility Transfer Log"
+  },
+  {
+   "fieldname": "responsibility_log",
+   "fieldtype": "Table",
+   "label": "Responsibility Log",
+   "options": "Vault Responsibility Log",
+   "read_only": 1,
+   "description": "Immutable audit trail of all vault responsibility transfers."
   }
  ],
  "links": [],
@@ -161,6 +205,9 @@
    "report": 1,
    "role": "System Manager",
    "share": 1,
+   "submit": 1,
+   "cancel": 1,
+   "amend": 0,
    "write": 1
   },
   {
@@ -173,6 +220,9 @@
    "report": 1,
    "role": "Accounts Manager",
    "share": 1,
+   "submit": 1,
+   "cancel": 0,
+   "amend": 0,
    "write": 1
   },
   {
@@ -185,6 +235,9 @@
    "report": 0,
    "role": "Accounts User",
    "share": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
    "write": 0
   }
  ],
