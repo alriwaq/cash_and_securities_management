@@ -596,6 +596,15 @@ class TreasuryCashJournal {
 	// ── Path A: Inbound Cash Receipt ──────────────────────────────────────────
 
 	_showInboundWizard() {
+		// Party type → reference doctype map for inbound receipts
+		const inboundRefMap = {
+			"Customer":  { doctype: "Sales Invoice",    party_field: "customer" },
+			"Supplier":  { doctype: "Purchase Invoice",  party_field: "supplier" },
+			"Employee":  { doctype: "Expense Claim",     party_field: "employee" },
+			"Student":   { doctype: "Fees",              party_field: "student" },
+			"Other":     { doctype: "",                  party_field: "" },
+		};
+
 		const dialog = new frappe.ui.Dialog({
 			title: "📥 استلام نقدي",
 			fields: [
@@ -604,16 +613,23 @@ class TreasuryCashJournal {
 					label: "بيانات الاستلام",
 				},
 				{
-					fieldtype: "Link",
-					fieldname: "customer",
-					label: "العميل (اختياري)",
-					options: "Customer",
+					fieldtype: "Select",
+					fieldname: "party_type",
+					label: "نوع الطرف",
+					options: ["Customer", "Supplier", "Employee", "Student", "Other"],
+					default: "Customer",
+				},
+				{
+					fieldtype: "Dynamic Link",
+					fieldname: "party",
+					label: "الطرف (اختياري)",
+					options: "party_type",
 				},
 				{
 					fieldtype: "Link",
 					fieldname: "reference_name",
-					label: "فاتورة مرجعية (اختياري)",
-					options: "Sales Invoice",
+					label: "مستند مرجعي (اختياري)",
+					options: "Sales Invoice",   // updated dynamically
 				},
 				{
 					fieldtype: "Column Break",
@@ -639,13 +655,15 @@ class TreasuryCashJournal {
 				if (!(vals.narration || "").trim()) {
 					frappe.msgprint("البيان إلزامي."); return;
 				}
+				const ptype = vals.party_type || "";
+				const refMeta = inboundRefMap[ptype] || { doctype: "", party_field: "" };
 				dialog.hide();
 				this._commitImmediateVPI({
 					direction: "Inbound",
 					transaction_category: "Invoice Collection",
-					party_type: vals.customer ? "Customer" : "",
-					party: vals.customer || "",
-					reference_doctype: vals.reference_name ? "Sales Invoice" : "",
+					party_type: ptype !== "Other" ? ptype : "",
+					party: vals.party || "",
+					reference_doctype: vals.reference_name ? (refMeta.doctype || "") : "",
 					reference_name: vals.reference_name || "",
 					expense_account: "",
 					amount: parseFloat(vals.amount),
@@ -664,7 +682,7 @@ class TreasuryCashJournal {
 					date: $("#tcj-date-input").val(),
 					direction: "Inbound",
 					transaction_category: "Invoice Collection",
-					party: vals.customer || "",
+					party: (vals.party_type !== "Other" ? vals.party_type + ": " : "") + (vals.party || ""),
 					reference_name: vals.reference_name || "",
 					amount: parseFloat(vals.amount) || 0,
 					narration: vals.narration || "",
@@ -672,26 +690,47 @@ class TreasuryCashJournal {
 			},
 		});
 
-		// When customer changes, filter reference_name to that customer's open invoices
-		dialog.fields_dict.customer.df.onchange = () => {
-			const cust = dialog.get_value("customer");
-			dialog.get_field("reference_name").df.get_query = () => ({
-				filters: {
-					docstatus: 1,
-					outstanding_amount: [">", 0],
-					...(cust ? { customer: cust } : {}),
-				},
-			});
-			dialog.get_field("reference_name").refresh();
+		// When party_type changes: update reference_name doctype and clear party/reference
+		dialog.fields_dict.party_type.df.onchange = () => {
+			const ptype = dialog.get_value("party_type");
+			const refMeta = inboundRefMap[ptype] || { doctype: "", party_field: "" };
+			// Update reference_name link options
+			const refField = dialog.get_field("reference_name");
+			refField.df.options = refMeta.doctype || "Sales Invoice";
+			refField.df.hidden = !refMeta.doctype;
+			refField.refresh();
+			dialog.set_value("party", "");
 			dialog.set_value("reference_name", "");
 			dialog.set_value("amount", 0);
 		};
 
-		// When reference_name is selected, auto-fill amount from outstanding_amount
+		// When party changes: filter reference_name to that party's open documents
+		dialog.fields_dict.party.df.onchange = () => {
+			const ptype = dialog.get_value("party_type");
+			const party = dialog.get_value("party");
+			const refMeta = inboundRefMap[ptype] || { doctype: "", party_field: "" };
+			if (!refMeta.doctype || !party) return;
+			const refField = dialog.get_field("reference_name");
+			refField.df.get_query = () => ({
+				filters: {
+					docstatus: 1,
+					outstanding_amount: [">", 0],
+					[refMeta.party_field]: party,
+				},
+			});
+			refField.refresh();
+			dialog.set_value("reference_name", "");
+			dialog.set_value("amount", 0);
+		};
+
+		// When reference_name is selected: auto-fill amount from outstanding_amount
 		dialog.fields_dict.reference_name.df.onchange = () => {
 			const ref = dialog.get_value("reference_name");
 			if (!ref) return;
-			frappe.db.get_value("Sales Invoice", ref, ["outstanding_amount", "grand_total"], (r) => {
+			const ptype = dialog.get_value("party_type");
+			const refMeta = inboundRefMap[ptype] || { doctype: "Sales Invoice" };
+			const doctype = refMeta.doctype || "Sales Invoice";
+			frappe.db.get_value(doctype, ref, ["outstanding_amount", "grand_total"], (r) => {
 				if (r) {
 					const amt = parseFloat(r.outstanding_amount) || parseFloat(r.grand_total) || 0;
 					if (amt > 0) dialog.set_value("amount", amt);

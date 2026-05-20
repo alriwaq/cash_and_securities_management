@@ -5,10 +5,19 @@ These hooks fire on ERPNext document events and automatically create
 Vault Pending Items so the vault teller can see what cash needs to be
 physically exchanged before end-of-day journal submission.
 
+Routing Logic (Fix 1):
+  Each Treasury Station has a dedicated vault_account (GL Cash Account).
+  When a Payment Entry is submitted, the hook matches the PE's cash account
+  (paid_to for Pay, paid_from for Receive) against the vault_account of each
+  open Treasury Station. Only the matching station receives the pending item.
+  This ensures each teller only sees payments routed through their vault.
+
+  Fallback: if no station matches by account, falls back to the company's
+  default station (is_default=1), then to any open station for the company.
+
 Supported source documents:
   - Payment Entry (Receive / Pay)  → creates Inbound / Outbound pending item
-  - Sales Invoice (on_submit)      → creates Inbound pending item if payment mode is Cash
-  - Purchase Invoice (on_submit)   → creates Outbound pending item if payment mode is Cash
+  - Expense Claim (on_submit)      → creates Outbound pending item
 """
 
 import frappe
@@ -18,20 +27,36 @@ from frappe.utils import flt, nowdate
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def _get_vault_station(company):
-	"""Return the default open Treasury Station for the given company, or None."""
+def _get_vault_station_for_account(company, cash_account):
+	"""
+	Return the open Treasury Station whose vault_account matches cash_account.
+	Falls back to default station, then any open station for the company.
+	"""
+	if cash_account:
+		# Primary: match by vault account (exact routing)
+		station = frappe.db.get_value(
+			"Treasury Station",
+			{"company": company, "status": "Open", "vault_account": cash_account},
+			"name",
+		)
+		if station:
+			return station
+
+	# Fallback 1: default station for company
 	station = frappe.db.get_value(
 		"Treasury Station",
 		{"company": company, "status": "Open", "is_default": 1},
 		"name",
 	)
-	if not station:
-		station = frappe.db.get_value(
-			"Treasury Station",
-			{"company": company, "status": "Open"},
-			"name",
-		)
-	return station
+	if station:
+		return station
+
+	# Fallback 2: any open station for company
+	return frappe.db.get_value(
+		"Treasury Station",
+		{"company": company, "status": "Open"},
+		"name",
+	)
 
 
 def _already_has_pending(source_doctype, source_name):
@@ -70,33 +95,38 @@ def _create_pending_item(station, company, direction, category, party_type, part
 def on_payment_entry_submit(doc, method=None):
 	"""
 	When a Payment Entry is submitted and its mode of payment is Cash,
-	create a Vault Pending Item so the teller knows cash needs to move.
+	create a Vault Pending Item routed to the station whose vault_account
+	matches the PE's cash account (paid_to for Pay, paid_from for Receive).
 	"""
-	# Only act on Cash mode of payment
 	if not _is_cash_payment(doc):
 		return
 
 	if _already_has_pending("Payment Entry", doc.name):
 		return
 
-	station = _get_vault_station(doc.company)
+	# Determine which GL account the cash moves through
+	# For Pay: cash leaves from paid_from account
+	# For Receive: cash arrives into paid_to account
+	if doc.payment_type == "Receive":
+		direction = "Inbound"
+		category = "Invoice Collection"
+		cash_account = doc.paid_to  # cash received into this account
+	elif doc.payment_type == "Pay":
+		direction = "Outbound"
+		category = "Supplier Payment"
+		cash_account = doc.paid_from  # cash paid out of this account
+	else:
+		return  # Internal transfer — not handled here
+
+	station = _get_vault_station_for_account(doc.company, cash_account)
 	if not station:
 		frappe.log_error(
-			f"No open Treasury Station found for company {doc.company}. "
+			f"No open Treasury Station found for company {doc.company} "
+			f"with vault_account={cash_account}. "
 			f"Vault Pending Item not created for Payment Entry {doc.name}.",
 			"Vault Pending Hook"
 		)
 		return
-
-	# Payment Type: Receive = cash coming in (Inbound), Pay = cash going out (Outbound)
-	if doc.payment_type == "Receive":
-		direction = "Inbound"
-		category = "Invoice Collection"
-	elif doc.payment_type == "Pay":
-		direction = "Outbound"
-		category = "Supplier Payment"
-	else:
-		return  # Internal transfer — not handled here
 
 	party_type = doc.party_type or ""
 	party = doc.party or ""
@@ -117,8 +147,8 @@ def on_payment_entry_submit(doc, method=None):
 		amount, narration, "Payment Entry", doc.name
 	)
 	frappe.msgprint(
-		_("Vault Pending Item {0} created for Payment Entry {1}").format(
-			f"<b>{pending_name}</b>", f"<b>{doc.name}</b>"
+		_("Vault Pending Item {0} created for Payment Entry {1} → Station {2}").format(
+			f"<b>{pending_name}</b>", f"<b>{doc.name}</b>", f"<b>{station}</b>"
 		),
 		indicator="blue",
 		alert=True,
@@ -141,23 +171,29 @@ def on_payment_entry_cancel(doc, method=None):
 		)
 
 
-# ─── Direct Expense Hook ──────────────────────────────────────────────────────
+# ─── Expense Claim Hook ───────────────────────────────────────────────────────
 
 def on_expense_claim_submit(doc, method=None):
 	"""
 	When an Expense Claim is submitted and paid in cash,
-	create an Outbound Vault Pending Item.
+	create an Outbound Vault Pending Item routed to the default station.
+	Expense claims don't have a specific cash account, so we use the
+	default station for the company.
 	"""
-	if not _already_has_pending("Expense Claim", doc.name):
-		station = _get_vault_station(doc.company)
-		if station:
-			_create_pending_item(
-				station, doc.company, "Outbound", "Direct Expense",
-				"Employee", doc.employee, "Expense Claim", doc.name,
-				flt(doc.total_claimed_amount),
-				f"Expense Claim {doc.name}",
-				"Expense Claim", doc.name,
-			)
+	if _already_has_pending("Expense Claim", doc.name):
+		return
+
+	station = _get_vault_station_for_account(doc.company, None)
+	if not station:
+		return
+
+	_create_pending_item(
+		station, doc.company, "Outbound", "Direct Expense",
+		"Employee", doc.employee, "Expense Claim", doc.name,
+		flt(doc.total_claimed_amount),
+		f"Expense Claim {doc.name}",
+		"Expense Claim", doc.name,
+	)
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -166,14 +202,15 @@ def _is_cash_payment(doc):
 	"""Return True if the Payment Entry uses a Cash mode of payment."""
 	if not doc.mode_of_payment:
 		return False
-	account_type = frappe.db.get_value(
+	# Check the account linked to this mode of payment for the company
+	mop_account = frappe.db.get_value(
 		"Mode of Payment Account",
 		{"parent": doc.mode_of_payment, "company": doc.company},
-		"account",
+		"default_account",
 	)
-	if not account_type:
-		# Fallback: check mode_of_payment type field
-		mop_type = frappe.db.get_value("Mode of Payment", doc.mode_of_payment, "type")
-		return mop_type == "Cash"
-	root_type = frappe.db.get_value("Account", account_type, "account_type")
-	return root_type == "Cash"
+	if mop_account:
+		account_type = frappe.db.get_value("Account", mop_account, "account_type")
+		return account_type == "Cash"
+	# Fallback: check the mode_of_payment type field directly
+	mop_type = frappe.db.get_value("Mode of Payment", doc.mode_of_payment, "type")
+	return mop_type == "Cash"

@@ -10,7 +10,10 @@
   "column_break_1",
   "responsible_user",
   "status",
+  "is_default",
   "vault_section",
+  "create_vault_account",
+  "parent_account",
   "vault_account",
   "column_break_vault",
   "shortage_account",
@@ -56,16 +59,40 @@
    "in_list_view": 1
   },
   {
+   "fieldname": "is_default",
+   "fieldtype": "Check",
+   "label": "Default Station for Company",
+   "description": "When checked, Payment Entries for this company will create pending items on this station automatically.",
+   "default": "0"
+  },
+  {
    "fieldname": "vault_section",
    "fieldtype": "Section Break",
    "label": "Vault GL Accounts"
+  },
+  {
+   "fieldname": "create_vault_account",
+   "fieldtype": "Check",
+   "label": "Create New Vault Account",
+   "description": "Check to auto-create a dedicated Cash GL account for this vault under the selected parent account. Leave unchecked to select an existing account.",
+   "default": "0"
+  },
+  {
+   "fieldname": "parent_account",
+   "fieldtype": "Link",
+   "label": "Parent Account (for new account)",
+   "options": "Account",
+   "depends_on": "eval:doc.create_vault_account == 1",
+   "description": "The parent Cash-in-Hand account group under which the new vault account will be created.",
+   "get_query": "{ filters: { account_type: 'Cash', is_group: 1 } }"
   },
   {
    "fieldname": "vault_account",
    "fieldtype": "Link",
    "label": "Vault Cash Account",
    "options": "Account",
-   "reqd": 1,
+   "reqd": 0,
+   "depends_on": "eval:doc.create_vault_account == 0",
    "description": "The GL Cash Account representing the physical vault/safe of this station. All cash transactions debit or credit this account."
   },
   {
