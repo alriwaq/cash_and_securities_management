@@ -84,7 +84,7 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
   <div id="tcj-pending-banner" class="alert alert-warning d-flex align-items-center mb-2" style="display:none !important;">
     <i class="fa fa-clock-o mr-2"></i>
     <span>يوجد <strong id="tcj-pending-count">0</strong> حركة نقدية معلقة تنتظر التنفيذ من مصادر خارجية.</span>
-    <a href="#tcj-pending-section" class="btn btn-xs btn-warning ml-auto">عرض الحركات المعلقة &darr;</a>
+    <button type="button" class="btn btn-xs btn-warning ml-auto" id="tcj-scroll-to-pending">عرض الحركات المعلقة &darr;</button>
   </div>
 
   <!-- Tab Filter Bar -->
@@ -331,6 +331,17 @@ class TreasuryCashJournal {
 		$("#tcj-pending-toggle").on("click", () => {
 			$("#tcj-pending-body").slideToggle(200);
 			$("#tcj-pending-chevron").toggleClass("fa-chevron-down fa-chevron-up");
+		});
+
+		// V4: Scroll-to-pending button in alert banner (no href routing)
+		$(document).on("click", "#tcj-scroll-to-pending", (e) => {
+			e.preventDefault();
+			const $section = $("#tcj-pending-section");
+			$section.show();
+			$("#tcj-pending-body").slideDown(200);
+			$("#tcj-pending-chevron").removeClass("fa-chevron-up").addClass("fa-chevron-down");
+			const el = $section[0];
+			if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
 		});
 	}
 
@@ -596,13 +607,21 @@ class TreasuryCashJournal {
 	// ── Path A: Inbound Cash Receipt ──────────────────────────────────────────
 
 	_showInboundWizard() {
-		// Party type → reference doctype map for inbound receipts
+		// Static fallback map for common party types
 		const inboundRefMap = {
 			"Customer":  { doctype: "Sales Invoice",    party_field: "customer" },
 			"Supplier":  { doctype: "Purchase Invoice",  party_field: "supplier" },
 			"Employee":  { doctype: "Expense Claim",     party_field: "employee" },
 			"Student":   { doctype: "Fees",              party_field: "student" },
-			"Other":     { doctype: "",                  party_field: "" },
+		};
+		// Resolve ref meta from Party Type doc (account_type field) or static map
+		const getRefMeta = (ptype, cb) => {
+			if (!ptype) { cb({ doctype: "", party_field: "" }); return; }
+			if (inboundRefMap[ptype]) { cb(inboundRefMap[ptype]); return; }
+			// Fetch from Party Type doctype (has field: account_type)
+			frappe.db.get_value("Party Type", ptype, ["account_type"], (r) => {
+				cb({ doctype: "", party_field: "" }); // generic — no reference doc
+			});
 		};
 
 		const dialog = new frappe.ui.Dialog({
@@ -613,11 +632,12 @@ class TreasuryCashJournal {
 					label: "بيانات الاستلام",
 				},
 				{
-					fieldtype: "Select",
+					fieldtype: "Link",
 					fieldname: "party_type",
 					label: "نوع الطرف",
-					options: ["Customer", "Supplier", "Employee", "Student", "Other"],
+					options: "Party Type",
 					default: "Customer",
+					reqd: 0,
 				},
 				{
 					fieldtype: "Dynamic Link",
@@ -693,34 +713,35 @@ class TreasuryCashJournal {
 		// When party_type changes: update reference_name doctype and clear party/reference
 		dialog.fields_dict.party_type.df.onchange = () => {
 			const ptype = dialog.get_value("party_type");
-			const refMeta = inboundRefMap[ptype] || { doctype: "", party_field: "" };
-			// Update reference_name link options
-			const refField = dialog.get_field("reference_name");
-			refField.df.options = refMeta.doctype || "Sales Invoice";
-			refField.df.hidden = !refMeta.doctype;
-			refField.refresh();
-			dialog.set_value("party", "");
-			dialog.set_value("reference_name", "");
-			dialog.set_value("amount", 0);
+			getRefMeta(ptype, (refMeta) => {
+				const refField = dialog.get_field("reference_name");
+				refField.df.options = refMeta.doctype || "";
+				refField.df.hidden = !refMeta.doctype;
+				refField.refresh();
+				dialog.set_value("party", "");
+				dialog.set_value("reference_name", "");
+				dialog.set_value("amount", 0);
+			});
 		};
 
 		// When party changes: filter reference_name to that party's open documents
 		dialog.fields_dict.party.df.onchange = () => {
 			const ptype = dialog.get_value("party_type");
 			const party = dialog.get_value("party");
-			const refMeta = inboundRefMap[ptype] || { doctype: "", party_field: "" };
-			if (!refMeta.doctype || !party) return;
-			const refField = dialog.get_field("reference_name");
-			refField.df.get_query = () => ({
-				filters: {
-					docstatus: 1,
-					outstanding_amount: [">", 0],
-					[refMeta.party_field]: party,
-				},
+			getRefMeta(ptype, (refMeta) => {
+				if (!refMeta.doctype || !party) return;
+				const refField = dialog.get_field("reference_name");
+				refField.df.get_query = () => ({
+					filters: {
+						docstatus: 1,
+						outstanding_amount: [">", 0],
+						...(refMeta.party_field ? { [refMeta.party_field]: party } : {}),
+					},
+				});
+				refField.refresh();
+				dialog.set_value("reference_name", "");
+				dialog.set_value("amount", 0);
 			});
-			refField.refresh();
-			dialog.set_value("reference_name", "");
-			dialog.set_value("amount", 0);
 		};
 
 		// When reference_name is selected: auto-fill amount from outstanding_amount
@@ -728,13 +749,14 @@ class TreasuryCashJournal {
 			const ref = dialog.get_value("reference_name");
 			if (!ref) return;
 			const ptype = dialog.get_value("party_type");
-			const refMeta = inboundRefMap[ptype] || { doctype: "Sales Invoice" };
-			const doctype = refMeta.doctype || "Sales Invoice";
-			frappe.db.get_value(doctype, ref, ["outstanding_amount", "grand_total"], (r) => {
-				if (r) {
-					const amt = parseFloat(r.outstanding_amount) || parseFloat(r.grand_total) || 0;
-					if (amt > 0) dialog.set_value("amount", amt);
-				}
+			getRefMeta(ptype, (refMeta) => {
+				const doctype = refMeta.doctype || "Sales Invoice";
+				frappe.db.get_value(doctype, ref, ["outstanding_amount", "grand_total"], (r) => {
+					if (r) {
+						const amt = parseFloat(r.outstanding_amount) || parseFloat(r.grand_total) || 0;
+						if (amt > 0) dialog.set_value("amount", amt);
+					}
+				});
 			});
 		};
 
