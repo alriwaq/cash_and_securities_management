@@ -9,6 +9,7 @@
   "company",
   "column_break_1",
   "responsible_user",
+  "responsible_employee",
   "status",
   "is_default",
   "vault_section",
@@ -49,6 +50,13 @@
    "fieldtype": "Link",
    "label": "Responsible User (Cashier)",
    "options": "User"
+  },
+  {
+   "fieldname": "responsible_employee",
+   "fieldtype": "Link",
+   "label": "Responsible Employee",
+   "options": "Employee",
+   "description": "The employee (teller/cashier) assigned to this station. Used as the mandatory accounting dimension on all vault GL entries when the vault account requires an Employee dimension."
   },
   {
    "default": "Open",

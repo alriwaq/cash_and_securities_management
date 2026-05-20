@@ -76,6 +76,8 @@ class TreasuryCashJournal(Document):
 		station = frappe.get_doc("Treasury Station", self.treasury_station)
 		vault_account = station.vault_account
 		shortage_account = station.shortage_account
+		# Responsible employee for mandatory accounting dimension on vault account
+		responsible_employee = station.get("responsible_employee") or None
 
 		errors = []
 
@@ -83,7 +85,7 @@ class TreasuryCashJournal(Document):
 			if line.is_posted:
 				continue
 			try:
-				pe_name = self._process_line(line, vault_account)
+				pe_name = self._process_line(line, vault_account, responsible_employee)
 				line.linked_document = pe_name
 				line.is_posted = 1
 				line.posting_error = ""
@@ -94,7 +96,7 @@ class TreasuryCashJournal(Document):
 		# Post variance entry if needed
 		if flt(self.variance) != 0 and shortage_account:
 			try:
-				self._post_variance_entry(vault_account, shortage_account)
+				self._post_variance_entry(vault_account, shortage_account, responsible_employee)
 			except Exception as e:
 				errors.append(f"Variance entry: {e}")
 
@@ -230,9 +232,9 @@ class TreasuryCashJournal(Document):
 
 	# ─── Process Line (GL creation) ──────────────────────────────────────────────
 
-	def _process_line(self, line, vault_account):
+	def _process_line(self, line, vault_account, responsible_employee=None):
 		if line.transaction_category == "Direct Expense":
-			return self._create_direct_expense_je(line, vault_account)
+			return self._create_direct_expense_je(line, vault_account, responsible_employee)
 
 		if (
 			line.direction == "Outbound"
@@ -292,13 +294,25 @@ class TreasuryCashJournal(Document):
 
 		pe.remarks = line.narration or f"Treasury Cash Journal {self.name} — Row {line.idx}"
 		pe.custom_source_document_type = "Treasury Cash Journal"
+
+		# Inject responsible_employee as accounting dimension on the vault account row
+		# ERPNext Payment Entry stores custom dimensions as direct fields on the PE doc
+		if responsible_employee:
+			pe.custom_employee = responsible_employee
+			# Also set on the GL accounts table rows after insert via after_insert hook
+			# by storing on pe so the dimension validator picks it up
+			try:
+				pe.employee = responsible_employee
+			except Exception:
+				pass
+
 		pe.flags.ignore_permissions = True
 		pe.flags.ignore_mandatory = True
 		pe.insert()
 		pe.submit()
 		return pe.name
 
-	def _create_direct_expense_je(self, line, vault_account):
+	def _create_direct_expense_je(self, line, vault_account, responsible_employee=None):
 		expense_account = line.reference_name or line.expense_account
 		if not expense_account:
 			frappe.throw(_("Direct Expense on row {0} requires an Expense Account.").format(line.idx))
@@ -318,24 +332,33 @@ class TreasuryCashJournal(Document):
 		je.company = self.company
 		je.voucher_type = "Journal Entry"
 		je.user_remark = line.narration or f"Direct expense from Treasury Cash Journal {self.name}"
-		je.append("accounts", {
+
+		expense_row = {
 			"account": expense_account,
 			"debit_in_account_currency": flt(line.amount),
 			"credit_in_account_currency": 0,
 			"user_remark": line.narration,
-		})
-		je.append("accounts", {
+		}
+		vault_row = {
 			"account": vault_account,
 			"debit_in_account_currency": 0,
 			"credit_in_account_currency": flt(line.amount),
 			"user_remark": line.narration,
-		})
+		}
+
+		# Inject employee dimension on the vault account row if required
+		if responsible_employee:
+			vault_row["employee"] = responsible_employee
+			expense_row["employee"] = responsible_employee
+
+		je.append("accounts", expense_row)
+		je.append("accounts", vault_row)
 		je.flags.ignore_permissions = True
 		je.insert()
 		je.submit()
 		return je.name
 
-	def _post_variance_entry(self, vault_account, shortage_account):
+	def _post_variance_entry(self, vault_account, shortage_account, responsible_employee=None):
 		variance = flt(self.variance)
 		je = frappe.new_doc("Journal Entry")
 		je.posting_date = self.posting_date
@@ -344,12 +367,24 @@ class TreasuryCashJournal(Document):
 		je.user_remark = (
 			self.variance_narration or f"Cash variance for Treasury Journal {self.name}"
 		)
+
+		def _row(account, debit, credit):
+			r = {
+				"account": account,
+				"debit_in_account_currency": debit,
+				"credit_in_account_currency": credit,
+			}
+			if responsible_employee:
+				r["employee"] = responsible_employee
+			return r
+
 		if variance < 0:
-			je.append("accounts", {"account": shortage_account, "debit_in_account_currency": abs(variance), "credit_in_account_currency": 0})
-			je.append("accounts", {"account": vault_account, "debit_in_account_currency": 0, "credit_in_account_currency": abs(variance)})
+			je.append("accounts", _row(shortage_account, abs(variance), 0))
+			je.append("accounts", _row(vault_account, 0, abs(variance)))
 		else:
-			je.append("accounts", {"account": vault_account, "debit_in_account_currency": variance, "credit_in_account_currency": 0})
-			je.append("accounts", {"account": shortage_account, "debit_in_account_currency": 0, "credit_in_account_currency": variance})
+			je.append("accounts", _row(vault_account, variance, 0))
+			je.append("accounts", _row(shortage_account, 0, variance))
+
 		je.flags.ignore_permissions = True
 		je.insert()
 		je.submit()
