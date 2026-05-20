@@ -229,8 +229,10 @@ def post_journal(journal_name, actual_balance=None, variance_narration=None):
 @frappe.whitelist()
 def get_pending_items(station, posting_date=None):
 	"""
-	V4: Return all Pending Vault Pending Items for the given station and date.
-	Used by the cockpit to show the teller what cash movements are waiting.
+	V4: Return Pending Vault Pending Items for the given station and date.
+	Only shows items that originated from approved Payment Entries (outbound)
+	or Sales Invoice Payment Entries (inbound) — NOT manual/immediate items.
+	Used by the cockpit Pending Items panel.
 	"""
 	if not posting_date:
 		posting_date = nowdate()
@@ -241,6 +243,7 @@ def get_pending_items(station, posting_date=None):
 			"treasury_station": station,
 			"posting_date": posting_date,
 			"status": "Pending",
+			"source_document_type": ["in", ["Payment Entry", "Expense Claim"]],
 		},
 		fields=[
 			"name", "direction", "transaction_category",
@@ -335,3 +338,122 @@ def cancel_pending_item(item_name, reason=None):
 	item.flags.ignore_permissions = True
 	item.save()
 	return item.name
+
+
+@frappe.whitelist()
+def create_and_execute_immediate(
+	station, posting_date, direction, transaction_category,
+	party_type="", party="", reference_doctype="", reference_name="",
+	expense_account="", amount=0, narration=""
+):
+	"""
+	V4 — Paths A & C (Inbound Receipt / Direct Expense).
+	Creates a Vault Pending Item, immediately marks it Executed,
+	assigns the correct serial number, and adds a row to the
+	current day's Draft Treasury Cash Journal.
+	Returns {serial, actual_amount, journal_name}.
+	"""
+	from frappe.utils import now_datetime
+
+	if not posting_date:
+		posting_date = nowdate()
+
+	# Resolve company from station
+	company = frappe.db.get_value("Treasury Station", station, "company")
+	if not company:
+		frappe.throw(_("Treasury Station {0} has no company set.").format(station))
+
+	# Assign serial number — count existing executed items for this station/date/direction
+	serial_prefix = "IN" if direction == "Inbound" else "OUT"
+	existing_count = frappe.db.count(
+		"Vault Pending Item",
+		filters={
+			"treasury_station": station,
+			"posting_date": posting_date,
+			"direction": direction,
+			"status": "Executed",
+		},
+	)
+	year = str(posting_date)[:4]
+	serial = f"{serial_prefix}-{year}-{str(existing_count + 1).zfill(4)}"
+
+	# Create the VPI
+	vpi = frappe.new_doc("Vault Pending Item")
+	vpi.treasury_station = station
+	vpi.company = company
+	vpi.posting_date = posting_date
+	vpi.status = "Executed"
+	vpi.direction = direction
+	vpi.transaction_category = transaction_category
+	vpi.party_type = party_type or ""
+	vpi.party = party or ""
+	vpi.reference_doctype = reference_doctype or ""
+	vpi.reference_name = reference_name or ""
+	vpi.expense_account = expense_account or ""
+	vpi.expected_amount = flt(amount)
+	vpi.actual_amount = flt(amount)
+	vpi.narration = narration or ""
+	vpi.execution_time = now_datetime()
+	vpi.source_document_type = "Manual"
+	vpi.source_document = ""
+
+	if direction == "Inbound":
+		vpi.inbound_serial = serial
+	else:
+		vpi.outbound_serial = serial
+
+	vpi.flags.ignore_permissions = True
+	vpi.insert()
+
+	# Find or create today's Draft journal
+	existing_journal = frappe.db.get_value(
+		"Treasury Cash Journal",
+		{
+			"treasury_station": station,
+			"posting_date": posting_date,
+			"posting_status": "Draft",
+		},
+		"name",
+	)
+
+	if existing_journal:
+		jdoc = frappe.get_doc("Treasury Cash Journal", existing_journal)
+	else:
+		jdoc = frappe.new_doc("Treasury Cash Journal")
+		jdoc.treasury_station = station
+		jdoc.posting_date = posting_date
+		jdoc.posting_status = "Draft"
+
+	jdoc.append("journal_lines", {
+		"direction":            direction,
+		"transaction_category": transaction_category,
+		"party_type":           party_type or "",
+		"party":                party or "",
+		"reference_doctype":    reference_doctype or "",
+		"reference_name":       reference_name or "",
+		"expense_account":      expense_account or "",
+		"amount":               flt(amount),
+		"narration":            narration or "",
+		"is_posted":            0,
+		"linked_document":      vpi.name,
+		"voucher_serial":       serial,
+	})
+
+	jdoc.flags.ignore_permissions = True
+	if existing_journal:
+		jdoc.save()
+	else:
+		jdoc.insert()
+
+	# Link VPI back to the journal
+	frappe.db.set_value("Vault Pending Item", vpi.name, {
+		"linked_journal": jdoc.name,
+		"linked_journal_line": len(jdoc.journal_lines),
+	})
+
+	return {
+		"serial": serial,
+		"actual_amount": flt(amount),
+		"journal_name": jdoc.name,
+		"vpi_name": vpi.name,
+	}

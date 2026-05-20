@@ -544,9 +544,309 @@ class TreasuryCashJournal {
 		return "";
 	}
 
-	// ── Multi-Step Wizard Dialog ────────────────────────────────────────────
+	// ── Multi-Step Wizard Dialog (V4: Two-Path) ──────────────────────────────
 
 	_showAddTransactionWizard() {
+		if (this.posted) {
+			frappe.msgprint(__("This journal is already posted. No new rows can be added."));
+			return;
+		}
+		// Show path-selector first, then open the appropriate wizard
+		this._showPathSelector();
+	}
+
+	_showPathSelector() {
+		const d = new frappe.ui.Dialog({
+			title: "تسجيل حركة خزينة — اختر النوع",
+			fields: [
+				{
+					fieldtype: "HTML",
+					fieldname: "path_selector_html",
+					options: `
+						<div style="display:flex; gap:16px; justify-content:center; padding:16px 0;">
+							<button id="path-inbound" class="btn btn-lg" style="flex:1; padding:24px 16px; border:2px solid #28a745; border-radius:10px; background:#f6fff8; cursor:pointer;">
+								<div style="font-size:2rem;">📥</div>
+								<div style="font-weight:700; font-size:1rem; color:#155724; margin-top:8px;">استلام نقدي</div>
+								<div style="font-size:0.78rem; color:#6c757d; margin-top:4px;">تسجيل مبلغ وارد للخزينة</div>
+							</button>
+							<button id="path-expense" class="btn btn-lg" style="flex:1; padding:24px 16px; border:2px solid #dc3545; border-radius:10px; background:#fff8f8; cursor:pointer;">
+								<div style="font-size:2rem;">💸</div>
+								<div style="font-weight:700; font-size:1rem; color:#721c24; margin-top:8px;">مصروف مباشر</div>
+								<div style="font-size:0.78rem; color:#6c757d; margin-top:4px;">صرف مبلغ من الخزينة مباشرةً</div>
+							</button>
+						</div>
+					`,
+				},
+			],
+		});
+		d.show();
+		// Bind path buttons after dialog renders
+		setTimeout(() => {
+			d.$wrapper.find("#path-inbound").on("click", () => {
+				d.hide();
+				this._showInboundWizard();
+			});
+			d.$wrapper.find("#path-expense").on("click", () => {
+				d.hide();
+				this._showDirectExpenseWizard();
+			});
+		}, 200);
+	}
+
+	// ── Path A: Inbound Cash Receipt ──────────────────────────────────────────
+
+	_showInboundWizard() {
+		const dialog = new frappe.ui.Dialog({
+			title: "📥 استلام نقدي",
+			fields: [
+				{
+					fieldtype: "Section Break",
+					label: "بيانات الاستلام",
+				},
+				{
+					fieldtype: "Link",
+					fieldname: "customer",
+					label: "العميل (اختياري)",
+					options: "Customer",
+				},
+				{
+					fieldtype: "Link",
+					fieldname: "reference_name",
+					label: "فاتورة مرجعية (اختياري)",
+					options: "Sales Invoice",
+				},
+				{
+					fieldtype: "Column Break",
+				},
+				{
+					fieldtype: "Currency",
+					fieldname: "amount",
+					label: "المبلغ المستلم",
+					reqd: 1,
+				},
+				{
+					fieldtype: "Small Text",
+					fieldname: "narration",
+					label: "البيان",
+					reqd: 1,
+				},
+			],
+			primary_action_label: "تأكيد الاستلام",
+			primary_action: (vals) => {
+				if ((parseFloat(vals.amount) || 0) <= 0) {
+					frappe.msgprint("المبلغ يجب أن يكون أكبر من صفر."); return;
+				}
+				if (!(vals.narration || "").trim()) {
+					frappe.msgprint("البيان إلزامي."); return;
+				}
+				dialog.hide();
+				this._commitImmediateVPI({
+					direction: "Inbound",
+					transaction_category: "Invoice Collection",
+					party_type: vals.customer ? "Customer" : "",
+					party: vals.customer || "",
+					reference_doctype: vals.reference_name ? "Sales Invoice" : "",
+					reference_name: vals.reference_name || "",
+					expense_account: "",
+					amount: parseFloat(vals.amount),
+					narration: vals.narration,
+				});
+			},
+			secondary_action_label: "معاينة وطباعة",
+			secondary_action: () => {
+				const vals = dialog.get_values(true);
+				const year = new Date().getFullYear();
+				const previewSerial = `IN-${year}-${String(this._inboundSerial + 1).padStart(4, "0")}`;
+				const station = this.stationData ? (this.stationData.station_name || this.stationData.name) : "";
+				this._printVoucher({
+					serial: previewSerial,
+					station,
+					date: $("#tcj-date-input").val(),
+					direction: "Inbound",
+					transaction_category: "Invoice Collection",
+					party: vals.customer || "",
+					reference_name: vals.reference_name || "",
+					amount: parseFloat(vals.amount) || 0,
+					narration: vals.narration || "",
+				});
+			},
+		});
+
+		// When customer changes, filter reference_name to that customer's open invoices
+		dialog.fields_dict.customer.df.onchange = () => {
+			const cust = dialog.get_value("customer");
+			dialog.get_field("reference_name").df.get_query = () => ({
+				filters: {
+					docstatus: 1,
+					outstanding_amount: [">", 0],
+					...(cust ? { customer: cust } : {}),
+				},
+			});
+			dialog.get_field("reference_name").refresh();
+			dialog.set_value("reference_name", "");
+			dialog.set_value("amount", 0);
+		};
+
+		// When reference_name is selected, auto-fill amount from outstanding_amount
+		dialog.fields_dict.reference_name.df.onchange = () => {
+			const ref = dialog.get_value("reference_name");
+			if (!ref) return;
+			frappe.db.get_value("Sales Invoice", ref, ["outstanding_amount", "grand_total"], (r) => {
+				if (r) {
+					const amt = parseFloat(r.outstanding_amount) || parseFloat(r.grand_total) || 0;
+					if (amt > 0) dialog.set_value("amount", amt);
+				}
+			});
+		};
+
+		dialog.show();
+	}
+
+	// ── Path C: Direct Expense ─────────────────────────────────────────────────
+
+	_showDirectExpenseWizard() {
+		const dialog = new frappe.ui.Dialog({
+			title: "💸 مصروف مباشر",
+			fields: [
+				{
+					fieldtype: "Section Break",
+					label: "بيانات الصرف",
+				},
+				{
+					fieldtype: "Link",
+					fieldname: "expense_account",
+					label: "حساب المصروف",
+					options: "Account",
+					reqd: 1,
+					get_query: () => ({ filters: { root_type: "Expense", is_group: 0 } }),
+				},
+				{
+					fieldtype: "Data",
+					fieldname: "beneficiary",
+					label: "المستفيد",
+				},
+				{
+					fieldtype: "Column Break",
+				},
+				{
+					fieldtype: "Currency",
+					fieldname: "amount",
+					label: "المبلغ المصروف",
+					reqd: 1,
+				},
+				{
+					fieldtype: "Small Text",
+					fieldname: "narration",
+					label: "البيان",
+					reqd: 1,
+				},
+			],
+			primary_action_label: "تأكيد الصرف",
+			primary_action: (vals) => {
+				if (!vals.expense_account) {
+					frappe.msgprint("يرجى تحديد حساب المصروف."); return;
+				}
+				if ((parseFloat(vals.amount) || 0) <= 0) {
+					frappe.msgprint("المبلغ يجب أن يكون أكبر من صفر."); return;
+				}
+				if (!(vals.narration || "").trim()) {
+					frappe.msgprint("البيان إلزامي."); return;
+				}
+				dialog.hide();
+				const narration = vals.beneficiary
+					? `${vals.narration} — ${vals.beneficiary}`
+					: vals.narration;
+				this._commitImmediateVPI({
+					direction: "Outbound",
+					transaction_category: "Direct Expense",
+					party_type: "",
+					party: vals.beneficiary || "",
+					reference_doctype: "Account",
+					reference_name: vals.expense_account,
+					expense_account: vals.expense_account,
+					amount: parseFloat(vals.amount),
+					narration,
+				});
+			},
+			secondary_action_label: "معاينة وطباعة",
+			secondary_action: () => {
+				const vals = dialog.get_values(true);
+				const year = new Date().getFullYear();
+				const previewSerial = `OUT-${year}-${String(this._outboundSerial + 1).padStart(4, "0")}`;
+				const station = this.stationData ? (this.stationData.station_name || this.stationData.name) : "";
+				this._printVoucher({
+					serial: previewSerial,
+					station,
+					date: $("#tcj-date-input").val(),
+					direction: "Outbound",
+					transaction_category: "مصروف مباشر / Direct Expense",
+					party: vals.beneficiary || "",
+					reference_name: vals.expense_account || "",
+					amount: parseFloat(vals.amount) || 0,
+					narration: vals.narration || "",
+				});
+			},
+		});
+		dialog.show();
+	}
+
+	// ── Immediate VPI Commit (Paths A & C) ────────────────────────────────────
+	// Creates a VPI, immediately marks it Executed, assigns serial, adds to TCJ.
+
+	_commitImmediateVPI(data) {
+		const station = $("#tcj-station-select").val();
+		const date = $("#tcj-date-input").val();
+		if (!station || !date) {
+			frappe.msgprint("يرجى تحديد المحطة والتاريخ أولاً.");
+			return;
+		}
+
+		frappe.call({
+			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.create_and_execute_immediate",
+			args: {
+				station,
+				posting_date: date,
+				direction: data.direction,
+				transaction_category: data.transaction_category,
+				party_type: data.party_type || "",
+				party: data.party || "",
+				reference_doctype: data.reference_doctype || "",
+				reference_name: data.reference_name || "",
+				expense_account: data.expense_account || "",
+				amount: data.amount,
+				narration: data.narration,
+			},
+			freeze: true,
+			freeze_message: "جاري تسجيل الحركة...",
+			callback: (r) => {
+				if (!r.message) return;
+				const res = r.message;
+				// Print the final voucher with the confirmed serial
+				const station_name = this.stationData
+					? (this.stationData.station_name || this.stationData.name)
+					: "";
+				this._printVoucher({
+					serial: res.serial,
+					station: station_name,
+					date,
+					direction: data.direction,
+					transaction_category: data.transaction_category,
+					party: data.party || "",
+					reference_name: data.reference_name || data.expense_account || "",
+					amount: res.actual_amount || data.amount,
+					narration: data.narration,
+				});
+				frappe.show_alert({ message: `تم تسجيل الحركة ${res.serial} وإضافتها لليومية`, indicator: "green" });
+				// Update serial counters
+				if (data.direction === "Inbound") this._inboundSerial++;
+				else this._outboundSerial++;
+				// Reload journal grid
+				this._loadJournal();
+			},
+		});
+	}
+
+	_showAddTransactionWizardLegacy() {
 		if (this.posted) {
 			frappe.msgprint(__("This journal is already posted. No new rows can be added."));
 			return;
