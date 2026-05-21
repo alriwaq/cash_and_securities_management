@@ -290,6 +290,22 @@ class TreasuryCashJournal(Document):
 		pe.custom_source_document_type = "Treasury Cash Journal"
 		pe.flags.ignore_permissions = True
 		pe.flags.ignore_mandatory = True
+		# V4: flag so CustodyPaymentEntry.before_submit() allows TCJ-triggered GL posting
+		pe.flags.submitted_by_tcj = True
+
+		# V4: if this line already has a linked PE (from vault pending item execution),
+		# reuse it instead of creating a duplicate
+		if line.linked_document and frappe.db.exists("Payment Entry", line.linked_document):
+			existing_pe = frappe.get_doc("Payment Entry", line.linked_document)
+			if existing_pe.docstatus == 0:  # Still draft
+				existing_pe.flags.ignore_permissions = True
+				existing_pe.flags.ignore_mandatory = True
+				existing_pe.flags.submitted_by_tcj = True
+				existing_pe.submit()
+				return existing_pe.name
+			elif existing_pe.docstatus == 1:  # Already submitted
+				return existing_pe.name
+
 		pe.insert()
 		pe.submit()
 		return pe.name

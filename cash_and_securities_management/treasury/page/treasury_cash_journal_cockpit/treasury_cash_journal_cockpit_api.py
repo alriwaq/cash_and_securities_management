@@ -75,7 +75,7 @@ def get_station_data(station, posting_date=None):
 			filters={"parent": existing.name, "parenttype": "Treasury Cash Journal"},
 			fields=["name", "idx", "direction", "transaction_category", "party_type",
 			        "party", "reference_doctype", "reference_name", "expense_account",
-			        "amount", "narration", "is_posted", "linked_document"],
+			        "amount", "narration", "is_posted", "linked_document", "voucher_serial"],
 			order_by="idx asc",
 		)
 		for l in lines:
@@ -330,6 +330,20 @@ def execute_pending_item(item_name, actual_amount=None, narration=None):
 		"linked_journal": jdoc.name,
 		"linked_journal_line": len(jdoc.journal_lines),
 	})
+
+	# V4: If this VPI came from a Payment Entry, mark it as Vault Approved
+	# so the TCJ can submit it to GL without triggering the before_submit guard.
+	if item.source_document_type == "Payment Entry" and item.source_document:
+		pe_exists = frappe.db.exists("Payment Entry", item.source_document)
+		if pe_exists:
+			pe_docstatus = frappe.db.get_value("Payment Entry", item.source_document, "docstatus")
+			if pe_docstatus == 0:  # Still draft — update workflow state
+				frappe.db.set_value(
+					"Payment Entry",
+					item.source_document,
+					"workflow_state",
+					"Vault Approved",
+				)
 
 	return {
 		"item_name": executed_name,

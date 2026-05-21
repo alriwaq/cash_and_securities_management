@@ -1,0 +1,88 @@
+{
+ "creation": "2026-05-21 00:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Workflow",
+ "document_type": "Payment Entry",
+ "is_active": 1,
+ "modified": "2026-05-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Treasury",
+ "name": "Cash Payment Vault Approval",
+ "owner": "Administrator",
+ "send_email_alert": 0,
+ "states": [
+  {
+   "allow_edit": "Accounts User",
+   "doc_status": "0",
+   "is_optional_state": 0,
+   "state": "Draft",
+   "update_field": "workflow_state",
+   "update_value": "Draft"
+  },
+  {
+   "allow_edit": "Accounts User",
+   "doc_status": "0",
+   "is_optional_state": 0,
+   "state": "Pending Vault Approval",
+   "update_field": "workflow_state",
+   "update_value": "Pending Vault Approval"
+  },
+  {
+   "allow_edit": "Treasury Vault User",
+   "doc_status": "0",
+   "is_optional_state": 0,
+   "state": "Vault Approved",
+   "update_field": "workflow_state",
+   "update_value": "Vault Approved"
+  },
+  {
+   "allow_edit": "Accounts Manager",
+   "doc_status": "1",
+   "is_optional_state": 0,
+   "state": "Submitted to GL",
+   "update_field": "workflow_state",
+   "update_value": "Submitted to GL"
+  },
+  {
+   "allow_edit": "Accounts User",
+   "doc_status": "0",
+   "is_optional_state": 1,
+   "state": "Rejected",
+   "update_field": "workflow_state",
+   "update_value": "Rejected"
+  }
+ ],
+ "transitions": [
+  {
+   "action": "إرسال للموافقة",
+   "allowed": "Accounts User",
+   "allow_self_approval": 0,
+   "condition": "doc.mode_of_payment == 'Cash'",
+   "next_state": "Pending Vault Approval",
+   "state": "Draft"
+  },
+  {
+   "action": "موافقة الخزينة",
+   "allowed": "Treasury Vault User",
+   "allow_self_approval": 0,
+   "next_state": "Vault Approved",
+   "state": "Pending Vault Approval"
+  },
+  {
+   "action": "رفض",
+   "allowed": "Treasury Vault User",
+   "allow_self_approval": 0,
+   "next_state": "Rejected",
+   "state": "Pending Vault Approval"
+  },
+  {
+   "action": "Submit to GL",
+   "allowed": "Accounts Manager",
+   "allow_self_approval": 1,
+   "next_state": "Submitted to GL",
+   "state": "Vault Approved"
+  }
+ ],
+ "workflow_name": "Cash Payment Vault Approval",
+ "workflow_state_field": "workflow_state"
+}

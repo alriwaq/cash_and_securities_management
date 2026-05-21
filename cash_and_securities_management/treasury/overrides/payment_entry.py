@@ -164,6 +164,52 @@ class CustodyPaymentEntry(PaymentEntry):
 				for ref in preserved_references:
 					self.append("references", ref)
 
+	# ─── V4: Vault Workflow Guard ────────────────────────────────────────────────
+
+	def _is_vault_cash_payment(self):
+		"""
+		Return True if this PE is a cash payment that must go through the
+		Vault Approval workflow before being submitted to the GL.
+		Custody Internal Transfer PEs are exempt (handled by the custody module).
+		"""
+		if self._is_custody_mode():
+			return False
+		mode = (self.get("mode_of_payment") or "").strip().lower()
+		return mode == "cash"
+
+	def before_submit(self):
+		"""
+		V4: Block direct GL submission of cash Payment Entries.
+		Cash PEs must be approved by the vault responsible user first.
+		The actual GL submission is triggered by the Treasury Cash Journal submit.
+		"""
+		if self._is_vault_cash_payment():
+			wf_state = (self.get("workflow_state") or "").strip()
+			# Allow submit only if:
+			# 1. Vault has approved it (workflow_state = 'Vault Approved')
+			# 2. OR it is being submitted programmatically by the TCJ (flag set)
+			# 3. OR the user is System Manager / Administrator
+			if self.flags.get("submitted_by_tcj"):
+				return  # TCJ-triggered submit — allow
+			if frappe.session.user == "Administrator":
+				return  # Administrator bypass
+			if "System Manager" in frappe.get_roles(frappe.session.user):
+				return  # System Manager bypass
+			if wf_state == "Vault Approved":
+				return  # Vault has approved — allow
+			# Block all other direct submissions
+			frappe.throw(
+				_(
+					"لا يمكن ترحيل قيد الدفع النقدي مباشرة إلى دفتر الأستاذ. "
+					"يجب أن تتم الموافقة عليه من مسؤول الخزينة أولاً، "
+					"ثم يُرحَّل عبر سجل يومية الخزينة النقدية في نهاية اليوم.\n\n"
+					"Cash Payment Entry cannot be submitted directly to the GL. "
+					"It must first be approved by the Vault Responsible User, "
+					"then posted via the Treasury Cash Journal at end of day."
+				),
+				title=_("Vault Approval Required / مطلوب موافقة الخزينة"),
+			)
+
 	def validate_party_accounts(self):
 		"""Skip party-type/account-type matching check for custody PEs."""
 		if self._is_custody_mode():

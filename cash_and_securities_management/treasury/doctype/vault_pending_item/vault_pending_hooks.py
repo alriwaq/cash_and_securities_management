@@ -90,14 +90,39 @@ def _create_pending_item(station, company, direction, category, party_type, part
 	return doc.name
 
 
-# ─── Payment Entry Hook ───────────────────────────────────────────────────────
+# ───# ─── Payment Entry Hook ────────────────────────────────────────────────
+
+def on_payment_entry_workflow_action(doc, method=None, workflow_action=None):
+	"""
+	V4: Fires when the AP clerk clicks "إرسال للموافقة" on a Cash Payment Entry.
+	Creates a Vault Pending Item so the vault teller can see it in the cockpit.
+	The PE stays in Draft (docstatus=0) until the TCJ submits it to GL.
+	"""
+	if workflow_action != "إرسال للموافقة":
+		return
+	_create_vpi_from_pe(doc)
+
 
 def on_payment_entry_submit(doc, method=None):
 	"""
-	When a Payment Entry is submitted and its mode of payment is Cash,
-	create a Vault Pending Item routed to the station whose vault_account
-	matches the PE's cash account (paid_to for Pay, paid_from for Receive).
-	"""
+	V4: Fires on PE submit (docstatus 0 → 1).
+	For cash PEs that went through the workflow, the VPI is already created.
+	This is a fallback for non-workflow cash PEs (e.g. created by TCJ directly).
+	If a VPI already exists for this PE, skip creation.
+	"""""
+	if not _is_cash_payment(doc):
+		return
+	# Fallback: only create VPI on submit if not already created via workflow action
+	if _already_has_pending("Payment Entry", doc.name):
+		return
+	# Skip if this submit is triggered by TCJ (VPI already executed)
+	if doc.flags.get("submitted_by_tcj"):
+		return
+	_create_vpi_from_pe(doc)
+
+
+def _create_vpi_from_pe(doc):
+	"""Shared logic: create a Vault Pending Item from a Cash Payment Entry."""
 	if not _is_cash_payment(doc):
 		return
 
@@ -105,16 +130,14 @@ def on_payment_entry_submit(doc, method=None):
 		return
 
 	# Determine which GL account the cash moves through
-	# For Pay: cash leaves from paid_from account
-	# For Receive: cash arrives into paid_to account
 	if doc.payment_type == "Receive":
 		direction = "Inbound"
 		category = "Invoice Collection"
-		cash_account = doc.paid_to  # cash received into this account
+		cash_account = doc.paid_to
 	elif doc.payment_type == "Pay":
 		direction = "Outbound"
 		category = "Supplier Payment"
-		cash_account = doc.paid_from  # cash paid out of this account
+		cash_account = doc.paid_from
 	else:
 		return  # Internal transfer — not handled here
 
@@ -133,7 +156,6 @@ def on_payment_entry_submit(doc, method=None):
 	amount = flt(doc.paid_amount)
 	narration = doc.remarks or f"Payment Entry {doc.name}"
 
-	# Reference: find the first linked invoice
 	ref_doctype = ""
 	ref_name = ""
 	if doc.references:

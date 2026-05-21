@@ -120,6 +120,7 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
       <thead style="background:var(--subtle-fg); position:sticky; top:0; z-index:10;">
         <tr>
           <th style="width:30px;">#</th>
+          <th style="width:110px;">الرقم التسلسلي</th>
           <th style="width:110px;">الاتجاه</th>
           <th style="width:150px;">النوع</th>
           <th style="width:120px;">نوع الطرف</th>
@@ -479,12 +480,12 @@ class TreasuryCashJournal {
 
 		if (filtered.length === 0) {
 			tbody.append(`
-				<tr>
-					<td colspan="10" class="text-center text-muted py-4">
-						<i class="fa fa-inbox fa-2x mb-2 d-block"></i>
-						No rows yet. Click <strong>Record Vault Movement</strong> to begin.
-					</td>
-				</tr>
+			<tr>
+				<td colspan="11" class="text-center text-muted py-4">
+					<i class="fa fa-inbox fa-2x mb-2 d-block"></i>
+					لا توجد سجلات. اضغط على "تسجيل حركة خزينة" للبدء.
+				</td>
+			</tr>
 			`);
 		} else {
 			filtered.forEach((row, idx) => {
@@ -528,6 +529,7 @@ class TreasuryCashJournal {
 		return `
 			<tr id="row-${row._id}" class="${rowClass}" data-id="${row._id}">
 				<td class="text-muted small">${idx}</td>
+				<td><code style="font-size:0.78rem;">${row.voucher_serial || "—"}</code></td>
 				<td><span class="badge badge-light">${row.direction || "—"}</span></td>
 				<td><span>${row.transaction_category || "—"}</span></td>
 				<td><span>${row.party_type || "—"}</span></td>
@@ -1939,14 +1941,41 @@ class TreasuryCashJournal {
 </body>
 </html>`;
 
-		const win = window.open("", "_blank", "width=560,height=700,scrollbars=yes");
-		if (win) {
-			win.document.write(html);
-			win.document.close();
-			win.focus();
-		} else {
-			frappe.msgprint({ title: "تحذير", message: "تعذّر فتح نافذة الطباعة. يرجى السماح بالنوافذ المنبثقة.", indicator: "orange" });
-		}
+		// Use frappe dialog iframe to avoid popup blocker
+		const printDialog = new frappe.ui.Dialog({
+			title: `سند حركة خزينة - ${data.serial}`,
+			size: "large",
+			fields: [
+				{
+					fieldtype: "HTML",
+					fieldname: "voucher_html",
+					options: html,
+				},
+			],
+			primary_action_label: "&#128438; طباعة / Print",
+			primary_action: () => {
+				// Print only the voucher content
+				const printContent = printDialog.fields_dict.voucher_html.$wrapper.html();
+				const printWin = window.open("", "_blank", "width=600,height=700");
+				if (printWin) {
+					printWin.document.write(html);
+					printWin.document.close();
+					printWin.focus();
+					setTimeout(() => { printWin.print(); }, 500);
+				} else {
+					// Fallback: print the dialog area
+					const $area = printDialog.fields_dict.voucher_html.$wrapper;
+					const orig = document.body.innerHTML;
+					document.body.innerHTML = $area.html();
+					window.print();
+					document.body.innerHTML = orig;
+					location.reload();
+				}
+			},
+			secondary_action_label: "إغلاق",
+			secondary_action: () => printDialog.hide(),
+		});
+		printDialog.show();
 	}
 
 	// ── Helpers ───────────────────────────────────────────────────────────────

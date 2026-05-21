@@ -80,6 +80,28 @@ fixtures = [
             ["name", "=", "Custodian"]
         ],
     },
+    # ── V4: workflow_state custom field on Payment Entry ──────────────────────
+    {
+        "doctype": "Custom Field",
+        "filters": [
+            ["dt", "=", "Payment Entry"],
+            ["fieldname", "=", "workflow_state"],
+        ],
+    },
+    # ── V4: Treasury Vault User role ──────────────────────────────────────────
+    {
+        "doctype": "Role",
+        "filters": [
+            ["name", "=", "Treasury Vault User"]
+        ],
+    },
+    # ── V4: Cash Payment Vault Approval workflow ──────────────────────────────
+    {
+        "doctype": "Workflow",
+        "filters": [
+            ["name", "=", "Cash Payment Vault Approval"]
+        ],
+    },
 ]
 
 # ─── Client Scripts on Standard Doctypes ────────────────────────────────────
@@ -123,7 +145,7 @@ doc_events = {
         "before_submit": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_payment_before_submit",
         "on_submit": [
             "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_payment_submit",
-            # V4: create Vault Pending Item for cash payments
+            # V4: fallback VPI creation for non-workflow cash PEs
             "cash_and_securities_management.treasury.doctype.vault_pending_item.vault_pending_hooks.on_payment_entry_submit",
         ],
         "on_cancel": [
@@ -131,6 +153,8 @@ doc_events = {
             # V4: cancel linked Vault Pending Item
             "cash_and_securities_management.treasury.doctype.vault_pending_item.vault_pending_hooks.on_payment_entry_cancel",
         ],
+        # V4: workflow action hook — fires when AP clerk sends PE for vault approval
+        "on_workflow_action": "cash_and_securities_management.treasury.doctype.vault_pending_item.vault_pending_hooks.on_payment_entry_workflow_action",
     },
     "Expense Claim": {
         # V4: create Outbound Vault Pending Item for cash expense claims
