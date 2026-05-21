@@ -9,6 +9,7 @@
   "modified": "2026-05-21 00:00:00.000000",
   "modified_by": "Administrator",
   "name": "Treasury Vault User",
+  "role_name": "Treasury Vault User",
   "owner": "Administrator",
   "restrict_to_domain": "",
   "two_factor_auth": 0

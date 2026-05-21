@@ -80,7 +80,8 @@ fixtures = [
             ["name", "=", "Custodian"]
         ],
     },
-    # ── V4: workflow_state custom field on Payment Entry ──────────────────────
+    # ── V4: workflow_state custom field on Payment Entry (exported from DB after first install)
+    # The actual field is created via fixtures/pe_workflow_custom_fields.json on first migrate
     {
         "doctype": "Custom Field",
         "filters": [
@@ -88,20 +89,10 @@ fixtures = [
             ["fieldname", "=", "workflow_state"],
         ],
     },
-    # ── V4: Treasury Vault User role ──────────────────────────────────────────
-    {
-        "doctype": "Role",
-        "filters": [
-            ["name", "=", "Treasury Vault User"]
-        ],
-    },
-    # ── V4: Cash Payment Vault Approval workflow ──────────────────────────────
-    {
-        "doctype": "Workflow",
-        "filters": [
-            ["name", "=", "Cash Payment Vault Approval"]
-        ],
-    },
+    # NOTE: Treasury Vault User role and Cash Payment Vault Approval workflow are
+    # imported from fixtures/treasury_vault_user_role.json and
+    # fixtures/cash_payment_vault_approval.json respectively.
+    # They do NOT need filter-based export entries here.
 ]
 
 # ─── Client Scripts on Standard Doctypes ────────────────────────────────────
