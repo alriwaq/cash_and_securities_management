@@ -403,7 +403,7 @@ def create_and_execute_immediate(
 			"status": "Executed",
 		},
 	)
-	year = str(posting_date)[:4]
+        year = frappe.utils.getdate(posting_date).year
 	serial = f"{serial_prefix}-{year}-{str(existing_count + 1).zfill(4)}"
 
 	# Create the VPI

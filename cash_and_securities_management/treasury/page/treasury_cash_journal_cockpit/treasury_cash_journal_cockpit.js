@@ -273,18 +273,21 @@ class TreasuryCashJournal {
 		this._inboundSerial = 0;
 		this._outboundSerial = 0;
 
-		this._initDatePicker();
-		this._loadStations();
-		this._bindEvents();
-		this._initDenomTable();
-	}
+			this._initDatePicker();
+			this._loadStations();
+			this._bindEvents();
+			this._initDenomTable();
+		}
 
-	// ── Initialisation ────────────────────────────────────────────────────────
+		// ── Initialisation ────────────────────────────────────────────────────────
 
-	_initDatePicker() {
-		const today = frappe.datetime.get_today();
-		$("#tcj-date-input").val(today);
-	}
+		_initDatePicker() {
+			let date = frappe.datetime.get_today();
+			if (frappe.route_options && frappe.route_options.date) {
+				date = frappe.route_options.date;
+			}
+			$("#tcj-date-input").val(date);
+		}
 
 	_loadStations() {
 		frappe.call({
@@ -309,19 +312,26 @@ class TreasuryCashJournal {
 					return;
 				}
 
-				const sel = $("#tcj-station-select");
-				stations.forEach((s) => {
-					const label = s.responsible_employee
-						? `${s.station_name} — ${s.responsible_employee}`
-						: s.station_name;
-					sel.append(`<option value="${s.name}">${label}</option>`);
-				});
-				if (stations.length === 1) {
-					sel.val(stations[0].name);
-					this._loadJournal();
-					this._loadPendingItems();
-				}
-			},
+					const sel = $("#tcj-station-select");
+					stations.forEach((s) => {
+						const label = s.responsible_employee
+							? `${s.station_name} — ${s.responsible_employee}`
+							: s.station_name;
+						sel.append(`<option value="${s.name}">${label}</option>`);
+					});
+
+					// Handle route_options or single station
+					if (frappe.route_options && frappe.route_options.station) {
+						sel.val(frappe.route_options.station);
+						frappe.route_options.station = null; // Clear after use
+						this._loadJournal();
+						this._loadPendingItems();
+					} else if (stations.length === 1) {
+						sel.val(stations[0].name);
+						this._loadJournal();
+						this._loadPendingItems();
+					}
+				},
 		});
 	}
 
@@ -921,12 +931,16 @@ class TreasuryCashJournal {
 					amount: res.actual_amount || data.amount,
 					narration: data.narration,
 				});
-				frappe.show_alert({ message: `تم تسجيل الحركة ${res.serial} وإضافتها لليومية`, indicator: "green" });
-				// Update serial counters
-				if (data.direction === "Inbound") this._inboundSerial++;
-				else this._outboundSerial++;
-				// Reload journal grid
-				this._loadJournal();
+					// Success: Update state and close
+					frappe.show_alert({ message: `تم تسجيل الحركة ${res.serial} وإضافتها لليومية`, indicator: "green" });
+					if (res && res.journal_name) {
+						this.journalName = res.journal_name;
+					}
+					// Update serial counters
+					if (data.direction === "Inbound") this._inboundSerial++;
+					else this._outboundSerial++;
+					// Reload journal grid
+					this._loadJournal();
 			},
 		});
 	}
@@ -1954,23 +1968,18 @@ class TreasuryCashJournal {
 			],
 			primary_action_label: "&#128438; طباعة / Print",
 			primary_action: () => {
-				// Print only the voucher content
-				const printContent = printDialog.fields_dict.voucher_html.$wrapper.html();
-				const printWin = window.open("", "_blank", "width=600,height=700");
-				if (printWin) {
-					printWin.document.write(html);
-					printWin.document.close();
-					printWin.focus();
-					setTimeout(() => { printWin.print(); }, 500);
-				} else {
-					// Fallback: print the dialog area
-					const $area = printDialog.fields_dict.voucher_html.$wrapper;
-					const orig = document.body.innerHTML;
-					document.body.innerHTML = $area.html();
-					window.print();
-					document.body.innerHTML = orig;
-					location.reload();
-				}
+				// Create a hidden iframe for printing to bypass popup blockers
+				const iframe = document.createElement('iframe');
+				iframe.style.display = 'none';
+				document.body.appendChild(iframe);
+				const doc = iframe.contentDocument || iframe.contentWindow.document;
+				doc.open();
+				doc.write(html);
+				doc.close();
+				setTimeout(() => {
+					try { iframe.contentWindow.print(); } catch (e) { console.warn('Print error', e); }
+				}, 300);
+				setTimeout(() => { document.body.removeChild(iframe); }, 1000);
 			},
 			secondary_action_label: "إغلاق",
 			secondary_action: () => printDialog.hide(),

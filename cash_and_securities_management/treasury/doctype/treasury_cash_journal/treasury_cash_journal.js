@@ -39,9 +39,13 @@ frappe.ui.form.on("Treasury Cash Journal", {
 
 		// Open cockpit link
 		if (frm.doc.treasury_station) {
-			frm.add_custom_button(__("فتح الكوكبيت"), () => {
-				frappe.set_route("treasury-cash-journal-cockpit");
-			}, __("الإجراءات"));
+				frm.add_custom_button(__("فتح الكوكبيت"), () => {
+					frappe.route_options = {
+						station: frm.doc.treasury_station,
+						date: frm.doc.posting_date
+					};
+					frappe.set_route("treasury-cash-journal-cockpit");
+				}, __("الإجراءات"));
 		}
 	},
 
