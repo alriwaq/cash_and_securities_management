@@ -1612,7 +1612,7 @@ class TreasuryCashJournal {
 				const dir = item.direction || "Outbound";
 				const amtColor = dir === "Inbound" ? "#28a745" : dir === "Outbound" ? "#dc3545" : "#17a2b8";
 				const dirArrow = dir === "Inbound" ? "↑ وارد" : dir === "Outbound" ? "↓ صادر" : "⇄ تحويل";
-				const amount = frappe.utils.format_number(item.expected_amount || 0, null, 2);
+				const amount = this._fmtNum(item.expected_amount);
 
 				// Source document link
 				const srcDoctype = (item.source_document_type || "").toLowerCase().replace(/ /g, "-");
@@ -1716,6 +1716,19 @@ class TreasuryCashJournal {
 		}
 	}
 
+	// Safe number formatter that never throws
+	_fmtNum(value) {
+		try {
+			const n = parseFloat(value) || 0;
+			if (typeof frappe !== "undefined" && frappe.utils && typeof frappe.utils.format_number === "function") {
+				return frappe.utils.format_number(n, null, 2);
+			}
+			return n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+		} catch (e) {
+			return (parseFloat(value) || 0).toFixed(2);
+		}
+	}
+
 	// Safe HTML escape that never throws
 	_safeEscape(value) {
 		if (!value) return "";
@@ -1810,7 +1823,7 @@ class TreasuryCashJournal {
 						${bankRow}
 						<tr>
 							<td class="text-muted">المبلغ المتوقع</td>
-							<td><strong style="font-size:1.1rem; color:${dirColor};">${frappe.utils.format_number(expectedAmount, null, 2)}</strong></td>
+							<td><strong style="font-size:1.1rem; color:${dirColor};">${this._fmtNum(expectedAmount)}</strong></td>
 						</tr>
 						${item.narration ? `<tr>
 							<td class="text-muted">البيان</td>
