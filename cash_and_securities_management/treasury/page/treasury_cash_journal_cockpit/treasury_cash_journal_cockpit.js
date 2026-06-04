@@ -1569,6 +1569,9 @@ class TreasuryCashJournal {
 			args: { station, posting_date: date },
 			callback: (r) => {
 				const items = r.message || [];
+				// Store for lookup in execute dialog
+				this._pendingItemsMap = {};
+				items.forEach((it) => { this._pendingItemsMap[it.name] = it; });
 				this._renderPendingGrid(items);
 			},
 		});
@@ -1609,14 +1612,15 @@ class TreasuryCashJournal {
 
 		const colHeaders = `
 			<tr>
-				<th>المستند المصدر</th>
-				<th>التاريخ</th>
-				<th>النوع</th>
-				<th>الطرف</th>
-				<th>المرجع</th>
-				<th style="text-align:right;">المبلغ المتوقع</th>
+				<th style="width:130px;">رقم المستند</th>
+				<th style="width:100px;">التاريخ</th>
+				<th style="width:130px;">النوع</th>
+				<th style="width:110px;">نوع الطرف</th>
+				<th style="width:170px;">الطرف / المستفيد</th>
+				<th style="width:150px;">المرجع</th>
+				<th style="width:120px; text-align:right;">المبلغ المتوقع</th>
 				<th>البيان</th>
-				<th style="text-align:center; width:180px;">الإجراء</th>
+				<th style="text-align:center; width:160px;">الإجراء</th>
 			</tr>`;
 
 		let html = '<div class="alert alert-info m-3" style="font-size:0.85rem;"><i class="fa fa-info-circle mr-1"></i>هذه الحركات تم إنشاؤها تلقائياً من مستندات خارجية. قم بتنفيذ كل حركة بعد تسليم النقد فعلياً.</div>';
@@ -1630,30 +1634,83 @@ class TreasuryCashJournal {
 			let rows = "";
 			dirItems.forEach((item) => {
 				const amount = frappe.utils.format_number(item.expected_amount, null, 2);
-				const src = item.source_document
-					? `<a href="/app/${(item.source_document_type || "").toLowerCase().replace(/ /g, "-")}/${item.source_document}" target="_blank">${item.source_document}</a>`
+
+				// Payment / source document number with link
+				const srcDoctype = (item.source_document_type || "").toLowerCase().replace(/ /g, "-");
+				const srcLink = item.source_document
+					? `<a href="/app/${srcDoctype}/${item.source_document}" target="_blank" title="${item.source_document_type || ''}">
+						   <code style="font-size:0.8rem;">${item.source_document}</code>
+					   </a>`
 					: "—";
+
+				// Pre-existing serial if available
+				const serialBadge = (item.inbound_serial || item.outbound_serial)
+					? `<br><span class="badge badge-secondary" style="font-size:0.7rem;">${item.inbound_serial || item.outbound_serial}</span>`
+					: "";
+
 				const dateLabel = item.posting_date
 					? `<span class="badge badge-light border" style="font-size:0.75rem;">${item.posting_date}</span>`
 					: "—";
+
+				// Party type badge
+				const partyTypeBadge = item.party_type
+					? `<span class="badge badge-light border" style="font-size:0.75rem;">${this._escapeHtml(item.party_type)}</span>`
+					: "—";
+
+				// Party name — show as link if we know its doctype
+				const partyDoctypeMap = {
+					"Customer": "customer", "Supplier": "supplier",
+					"Employee": "employee", "Student": "student",
+				};
+				const partyRoute = item.party_type && partyDoctypeMap[item.party_type];
+				const partyCell = item.party
+					? (partyRoute
+						? `<a href="/app/${partyRoute}/${item.party}" target="_blank" style="font-weight:600;">${this._escapeHtml(item.party)}</a>`
+						: `<strong>${this._escapeHtml(item.party)}</strong>`)
+					: `<span class="text-muted">—</span>`;
+
+				// Reference doc with link
+				const refDocRoute = item.reference_doctype
+					? item.reference_doctype.toLowerCase().replace(/ /g, "-")
+					: "";
+				const refCell = item.reference_name
+					? (refDocRoute
+						? `<a href="/app/${refDocRoute}/${item.reference_name}" target="_blank" title="${item.reference_doctype || ''}">${this._escapeHtml(item.reference_name)}</a>`
+						: this._escapeHtml(item.reference_name))
+					: "—";
+
+				// Bank transfer details (expense_account used as bank account info)
+				const bankInfo = (dir === "Bank Transfer" && item.expense_account)
+					? `<br><small class="text-muted"><i class="fa fa-university mr-1"></i>${this._escapeHtml(item.expense_account)}</small>`
+					: "";
+
+				// Amount color based on direction
+				const amtColor = dir === "Inbound" ? "#28a745" : dir === "Outbound" ? "#dc3545" : "#17a2b8";
+				const dirArrow = dir === "Inbound" ? "↑" : dir === "Outbound" ? "↓" : "⇄";
+
 				rows += `
-					<tr data-item="${this._escapeHtml(item.name)}">
-						<td>${src}</td>
+					<tr data-item="${this._escapeHtml(item.name)}" style="vertical-align:middle;">
+						<td>${srcLink}${serialBadge}</td>
 						<td>${dateLabel}</td>
-						<td>${this._escapeHtml(item.transaction_category || "")}</td>
-						<td>${this._escapeHtml(item.party || "—")}</td>
-						<td>${this._escapeHtml(item.reference_name || "—")}</td>
-						<td style="text-align:right; font-weight:600;">${amount}</td>
-						<td>${this._escapeHtml(item.narration || "")}</td>
-						<td style="text-align:center;">
-							<button class="btn btn-xs btn-success mr-1 tcj-execute-btn"
+						<td>
+							<span style="color:${amtColor}; font-weight:600;">${dirArrow}</span>
+							${this._escapeHtml(item.transaction_category || "")}
+						</td>
+						<td>${partyTypeBadge}</td>
+						<td>${partyCell}${bankInfo}</td>
+						<td>${refCell}</td>
+						<td style="text-align:right; font-weight:700; color:${amtColor}; font-size:1rem;">${amount}</td>
+						<td><small>${this._escapeHtml(item.narration || "")}</small></td>
+						<td style="text-align:center; white-space:nowrap;">
+							<button class="btn btn-sm btn-success mr-1 tcj-execute-btn"
 							        data-item="${this._escapeHtml(item.name)}"
-							        data-amount="${item.expected_amount}">
-								<i class="fa fa-check mr-1"></i>تنفيذ
+							        title="تنفيذ الحركة">
+								<i class="fa fa-play mr-1"></i>تنفيذ
 							</button>
-							<button class="btn btn-xs btn-danger tcj-cancel-pending-btn"
-							        data-item="${this._escapeHtml(item.name)}">
-								<i class="fa fa-times"></i>
+							<button class="btn btn-sm btn-outline-danger tcj-cancel-pending-btn"
+							        data-item="${this._escapeHtml(item.name)}"
+							        title="إلغاء الحركة">
+								<i class="fa fa-ban"></i>
 							</button>
 						</td>
 					</tr>`;
@@ -1679,17 +1736,16 @@ class TreasuryCashJournal {
 		});
 
 		container.html(html);
-		const tbody = container; // rebind to container for event delegation
 
-		// Bind execute button
-		tbody.off("click.pending").on("click.pending", ".tcj-execute-btn", (e) => {
+		// Bind execute button — pass item name for lookup
+		container.off("click.pending").on("click.pending", ".tcj-execute-btn", (e) => {
 			const itemName = $(e.currentTarget).data("item");
-			const expectedAmt = parseFloat($(e.currentTarget).data("amount")) || 0;
-			this._executeVaultPendingItem(itemName, expectedAmt);
+			const item = (this._pendingItemsMap || {})[itemName] || { name: itemName, expected_amount: 0 };
+			this._executeVaultPendingItem(item);
 		});
 
 		// Bind cancel button
-		tbody.on("click.pending", ".tcj-cancel-pending-btn", (e) => {
+		container.on("click.pending", ".tcj-cancel-pending-btn", (e) => {
 			const itemName = $(e.currentTarget).data("item");
 			frappe.prompt(
 				[{ fieldtype: "Small Text", fieldname: "reason", label: "سبب الإلغاء", reqd: 1 }],
@@ -1709,60 +1765,170 @@ class TreasuryCashJournal {
 		});
 	}
 
-	_executeVaultPendingItem(itemName, expectedAmount) {
+	_executeVaultPendingItem(item) {
+		// Support legacy call-sites that pass (itemName, expectedAmount)
+		if (typeof item === "string") {
+			const name = item;
+			const expectedAmount = arguments[1] || 0;
+			item = (this._pendingItemsMap || {})[name] || { name, expected_amount: expectedAmount };
+		}
+
+		const itemName = item.name;
+		const expectedAmount = parseFloat(item.expected_amount) || 0;
+		const dir = item.direction || "";
+		const dirArrow = dir === "Inbound" ? "↑ وارد" : dir === "Outbound" ? "↓ صادر" : "⇄ تحويل بنكي";
+		const dirColor = dir === "Inbound" ? "#28a745" : dir === "Outbound" ? "#dc3545" : "#17a2b8";
+
+		// Build source doc link HTML
+		const srcDoctype = (item.source_document_type || "").toLowerCase().replace(/ /g, "-");
+		const srcHtml = item.source_document
+			? `<a href="/app/${srcDoctype}/${item.source_document}" target="_blank">
+				   <strong>${item.source_document}</strong>
+			   </a> <small class="text-muted">(${item.source_document_type || ""})</small>`
+			: "—";
+
+		// Party display
+		const partyDoctypeMap = {
+			"Customer": "customer", "Supplier": "supplier",
+			"Employee": "employee", "Student": "student",
+		};
+		const partyRoute = item.party_type && partyDoctypeMap[item.party_type];
+		const partyHtml = item.party
+			? (partyRoute
+				? `<a href="/app/${partyRoute}/${item.party}" target="_blank"><strong>${this._escapeHtml(item.party)}</strong></a>`
+				: `<strong>${this._escapeHtml(item.party)}</strong>`)
+			: `<span class="text-muted">—</span>`;
+
+		// Reference doc link
+		const refDocRoute = item.reference_doctype
+			? item.reference_doctype.toLowerCase().replace(/ /g, "-")
+			: "";
+		const refHtml = item.reference_name
+			? (refDocRoute
+				? `<a href="/app/${refDocRoute}/${item.reference_name}" target="_blank">${this._escapeHtml(item.reference_name)}</a>`
+				: this._escapeHtml(item.reference_name))
+			: "—";
+
+		// Bank / expense account info
+		const bankRow = (dir === "Bank Transfer" || item.expense_account)
+			? `<tr>
+				   <td class="text-muted" style="width:45%;">حساب التحويل / المصروف</td>
+				   <td><strong>${this._escapeHtml(item.expense_account || "—")}</strong></td>
+			   </tr>`
+			: "";
+
+		const infoHtml = `
+			<div style="background:#f8f9fa; border-radius:8px; padding:16px; margin-bottom:16px; border:1px solid #dee2e6;">
+				<table class="table table-sm mb-0" style="font-size:0.9rem;">
+					<tbody>
+						<tr>
+							<td class="text-muted" style="width:45%;">رقم المستند (المصدر)</td>
+							<td>${srcHtml}</td>
+						</tr>
+						<tr>
+							<td class="text-muted">الاتجاه</td>
+							<td><span style="color:${dirColor}; font-weight:700; font-size:1rem;">${dirArrow}</span></td>
+						</tr>
+						<tr>
+							<td class="text-muted">النوع</td>
+							<td>${this._escapeHtml(item.transaction_category || "—")}</td>
+						</tr>
+						<tr>
+							<td class="text-muted">نوع الطرف</td>
+							<td>${this._escapeHtml(item.party_type || "—")}</td>
+						</tr>
+						<tr>
+							<td class="text-muted">الطرف / المستفيد</td>
+							<td>${partyHtml}</td>
+						</tr>
+						<tr>
+							<td class="text-muted">المستند المرجعي</td>
+							<td>${refHtml}</td>
+						</tr>
+						${bankRow}
+						<tr>
+							<td class="text-muted">المبلغ المتوقع</td>
+							<td><strong style="font-size:1.1rem; color:${dirColor};">${frappe.utils.format_number(expectedAmount, null, 2)}</strong></td>
+						</tr>
+						${item.narration ? `<tr>
+							<td class="text-muted">البيان</td>
+							<td>${this._escapeHtml(item.narration)}</td>
+						</tr>` : ""}
+					</tbody>
+				</table>
+			</div>`;
+
 		const d = new frappe.ui.Dialog({
-			title: "تنفيذ حركة الخزينة",
+			title: "تأكيد تنفيذ الحركة",
 			fields: [
+				{
+					fieldtype: "HTML",
+					fieldname: "item_details_html",
+					options: infoHtml,
+				},
+				{
+					fieldtype: "Section Break",
+					label: "تأكيد التنفيذ الفعلي",
+				},
 				{
 					fieldtype: "Currency",
 					fieldname: "actual_amount",
-					label: "المبلغ الفعلي المسلّم",
+					label: "المبلغ الفعلي المسلّم / المستلم",
 					default: expectedAmount,
 					reqd: 1,
+					description: "أدخل المبلغ الفعلي المُسلَّم أو المُستلَم إذا اختلف عن المتوقع",
 				},
 				{
 					fieldtype: "Small Text",
 					fieldname: "narration",
-					label: "ملاحظة التنفيذ",
+					label: "ملاحظة التنفيذ (اختياري)",
+					default: item.narration || "",
 				},
 			],
-			primary_action_label: "تأكيد التنفيذ",
+			primary_action_label: `<i class="fa fa-check mr-1"></i> تأكيد التنفيذ`,
 			primary_action: (vals) => {
+				if ((parseFloat(vals.actual_amount) || 0) <= 0) {
+					frappe.msgprint("المبلغ يجب أن يكون أكبر من صفر."); return;
+				}
 				d.hide();
 				frappe.call({
 					method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.execute_pending_item",
 					args: {
 						item_name: itemName,
 						actual_amount: vals.actual_amount,
-						narration: vals.narration,
+						narration: vals.narration || item.narration || "",
 					},
 					freeze: true,
 					freeze_message: "جاري تسجيل التنفيذ...",
 					callback: (r) => {
 						if (!r.message) return;
 						const res = r.message;
-						// Print the voucher for this executed item
-						const station = this.stationData
+						const stationName = this.stationData
 							? (this.stationData.station_name || this.stationData.name)
 							: "";
 						this._printVoucher({
 							serial: res.serial || res.item_name,
-							station,
+							station: stationName,
 							date: $("#tcj-date-input").val(),
-							direction: "",
-							transaction_category: "",
-							party: "",
-							reference_name: "",
-							amount: res.actual_amount || expectedAmount,
-							narration: vals.narration || "",
+							direction: dir,
+							transaction_category: item.transaction_category || "",
+							party: item.party || "",
+							reference_name: item.reference_name || item.expense_account || "",
+							amount: res.actual_amount || vals.actual_amount,
+							narration: vals.narration || item.narration || "",
 						});
-						frappe.show_alert({ message: `تم تنفيذ الحركة وإضافتها لليومية ${res.journal_name}`, indicator: "green" });
+						frappe.show_alert({
+							message: `تم تنفيذ الحركة ${res.serial || ""} وإضافتها لليومية ${res.journal_name}`,
+							indicator: "green",
+						});
 						// Reload both grids
 						this._loadPendingItems();
 						this._loadJournal();
 					},
 				});
 			},
+			secondary_action_label: "إغلاق",
+			secondary_action: () => d.hide(),
 		});
 		d.show();
 	}
