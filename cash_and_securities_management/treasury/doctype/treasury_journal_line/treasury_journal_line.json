@@ -49,9 +49,9 @@
   },
   {
    "fieldname": "party_type",
-   "fieldtype": "Select",
+   "fieldtype": "Link",
    "label": "Party Type",
-    "options": "\nCustomer\nSupplier\nCustodian\nEmployee",
+   "options": "Party Type",
    "in_list_view": 1,
    "columns": 1
   },
