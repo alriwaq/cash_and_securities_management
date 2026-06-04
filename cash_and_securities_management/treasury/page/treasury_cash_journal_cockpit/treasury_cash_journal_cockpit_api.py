@@ -298,25 +298,47 @@ def post_journal(journal_name, actual_balance=None, variance_narration=None):
 @frappe.whitelist()
 def get_pending_items(station, posting_date=None):
 	"""
-	V4: Return ALL Pending Vault Pending Items for the given station,
+	V4: Return ALL Pending/Draft Vault Pending Items for the given station,
 	regardless of posting_date or source_document_type.
-	Shows every unexecuted item so the vault teller can act on them.
+	Uses raw SQL to avoid any ORM filtering issues.
 	"""
-	items = frappe.get_all(
-		"Vault Pending Item",
-		filters={
-			"treasury_station": station,
-			"status": "Pending",
-		},
-		fields=[
-			"name", "direction", "transaction_category", "posting_date",
-			"party_type", "party", "reference_doctype", "reference_name",
-			"expense_account", "expected_amount", "actual_amount",
-			"narration", "source_document_type", "source_document",
-			"inbound_serial", "outbound_serial", "status",
-		],
-		order_by="direction asc, posting_date asc, creation asc",
-	)
+	items = frappe.db.sql("""
+		SELECT
+			name, direction, transaction_category, posting_date,
+			party_type, party, reference_doctype, reference_name,
+			expense_account, expected_amount, actual_amount,
+			narration, source_document_type, source_document,
+			inbound_serial, outbound_serial, status, creation
+		FROM `tabVault Pending Item`
+		WHERE treasury_station = %(station)s
+		  AND status = 'Pending'
+		ORDER BY
+			FIELD(direction, 'Inbound', 'Outbound', 'Bank Transfer', '') ASC,
+			posting_date ASC,
+			creation ASC
+	""", {"station": station}, as_dict=True)
+
+	# Enrich with party_name for display
+	for item in items:
+		if item.get("party_type") and item.get("party"):
+			try:
+				party_name = frappe.db.get_value(
+					item["party_type"], item["party"],
+					"supplier_name" if item["party_type"] == "Supplier"
+					else "customer_name" if item["party_type"] == "Customer"
+					else "employee_name" if item["party_type"] == "Employee"
+					else "name"
+				)
+				item["party_name"] = party_name or item["party"]
+			except Exception:
+				item["party_name"] = item["party"]
+		else:
+			item["party_name"] = item.get("party") or ""
+
+		# Ensure direction has a value for JS grouping
+		if not item.get("direction"):
+			item["direction"] = "Outbound"
+
 	return items
 
 

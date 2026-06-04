@@ -1564,205 +1564,167 @@ class TreasuryCashJournal {
 		const date = $("#tcj-date-input").val();
 		if (!station || !date) return;
 
+		console.log("[TCJ-Pending] Loading pending items for station:", station);
+
 		frappe.call({
 			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.get_pending_items",
 			args: { station, posting_date: date },
 			callback: (r) => {
 				const items = r.message || [];
+				console.log("[TCJ-Pending] API returned", items.length, "items:", JSON.stringify(items.map(i => ({name: i.name, dir: i.direction, amount: i.expected_amount, party: i.party}))));
 				// Store for lookup in execute dialog
 				this._pendingItemsMap = {};
 				items.forEach((it) => { this._pendingItemsMap[it.name] = it; });
 				this._renderPendingGrid(items);
 			},
+			error: (err) => {
+				console.error("[TCJ-Pending] API error:", err);
+			},
 		});
 	}
 
 	_renderPendingGrid(items) {
-		const container = $("#tcj-pending-body");
-		const count = items.length;
+		try {
+			const container = $("#tcj-pending-body");
+			const count = items.length;
 
-		// Update badges and banner
-		$("#tcj-pending-badge, #tcj-pending-count").text(count);
-		if (count > 0) {
-			$("#tcj-pending-section").show();
-			$("#tcj-pending-banner").css("display", "flex");
-		} else {
-			$("#tcj-pending-section").hide();
-			$("#tcj-pending-banner").css("display", "none");
-		}
+			console.log("[TCJ-Pending] _renderPendingGrid called with", count, "items. Container exists:", container.length > 0);
 
-		if (count === 0) {
-			container.html('<div class="text-center text-muted py-3 m-3">لا توجد حركات معلقة</div>');
-			return;
-		}
+			// Update badges and banner
+			$("#tcj-pending-badge, #tcj-pending-count").text(count);
+			if (count > 0) {
+				$("#tcj-pending-section").show();
+				$("#tcj-pending-banner").removeAttr("style").css({display: "flex"});
+			} else {
+				$("#tcj-pending-section").hide();
+				$("#tcj-pending-banner").hide();
+			}
 
-		// Group items by direction
-		const groups = { "Inbound": [], "Outbound": [], "Bank Transfer": [] };
-		items.forEach((item) => {
-			const dir = item.direction || "Outbound";
-			if (!groups[dir]) groups[dir] = [];
-			groups[dir].push(item);
-		});
+			if (count === 0) {
+				container.html('<div class="text-center text-muted py-3 m-3">لا توجد حركات معلقة</div>');
+				return;
+			}
 
-		const dirConfig = {
-			"Inbound":      { label: "حركات واردة / Inbound",       badgeCls: "badge-success", headerBg: "#d4edda", borderColor: "#28a745" },
-			"Outbound":     { label: "حركات صادرة / Outbound",      badgeCls: "badge-danger",  headerBg: "#f8d7da", borderColor: "#dc3545" },
-			"Bank Transfer":{ label: "تحويلات بنكية / Bank Transfer", badgeCls: "badge-info",    headerBg: "#d1ecf1", borderColor: "#17a2b8" },
-		};
+			// Build a simple flat table first — no grouping complexity
+			// This ensures items ALWAYS render even if direction is unexpected
+			let tableRows = "";
+			items.forEach((item, idx) => {
+				const dir = item.direction || "Outbound";
+				const amtColor = dir === "Inbound" ? "#28a745" : dir === "Outbound" ? "#dc3545" : "#17a2b8";
+				const dirArrow = dir === "Inbound" ? "↑ وارد" : dir === "Outbound" ? "↓ صادر" : "⇄ تحويل";
+				const amount = frappe.utils.format_number(item.expected_amount || 0, null, 2);
 
-		const colHeaders = `
-			<tr>
-				<th style="width:130px;">رقم المستند</th>
-				<th style="width:100px;">التاريخ</th>
-				<th style="width:130px;">النوع</th>
-				<th style="width:110px;">نوع الطرف</th>
-				<th style="width:170px;">الطرف / المستفيد</th>
-				<th style="width:150px;">المرجع</th>
-				<th style="width:120px; text-align:right;">المبلغ المتوقع</th>
-				<th>البيان</th>
-				<th style="text-align:center; width:160px;">الإجراء</th>
-			</tr>`;
-
-		let html = '<div class="alert alert-info m-3" style="font-size:0.85rem;"><i class="fa fa-info-circle mr-1"></i>هذه الحركات تم إنشاؤها تلقائياً من مستندات خارجية. قم بتنفيذ كل حركة بعد تسليم النقد فعلياً.</div>';
-
-		["Inbound", "Outbound", "Bank Transfer"].forEach((dir) => {
-			const dirItems = groups[dir];
-			if (!dirItems || dirItems.length === 0) return;
-			const cfg = dirConfig[dir];
-			const sectionId = `pending-section-${dir.replace(/ /g, "-").toLowerCase()}`;
-
-			let rows = "";
-			dirItems.forEach((item) => {
-				const amount = frappe.utils.format_number(item.expected_amount, null, 2);
-
-				// Payment / source document number with link
+				// Source document link
 				const srcDoctype = (item.source_document_type || "").toLowerCase().replace(/ /g, "-");
 				const srcLink = item.source_document
-					? `<a href="/app/${srcDoctype}/${item.source_document}" target="_blank" title="${item.source_document_type || ''}">
-						   <code style="font-size:0.8rem;">${item.source_document}</code>
-					   </a>`
-					: "—";
+					? `<a href="/app/${srcDoctype}/${item.source_document}" target="_blank">
+						<strong>${item.source_document}</strong></a>
+						<br><small class="text-muted">${item.source_document_type || ""}</small>`
+					: `<code>${item.name}</code>`;
 
-				// Pre-existing serial if available
-				const serialBadge = (item.inbound_serial || item.outbound_serial)
-					? `<br><span class="badge badge-secondary" style="font-size:0.7rem;">${item.inbound_serial || item.outbound_serial}</span>`
-					: "";
+				// Party display - use party_name from API if available
+				const partyDisplay = item.party_name || item.party || "—";
+				const partyTypeDisplay = item.party_type || "";
 
-				const dateLabel = item.posting_date
-					? `<span class="badge badge-light border" style="font-size:0.75rem;">${item.posting_date}</span>`
-					: "—";
+				// Reference
+				const refDisplay = item.reference_name || "—";
 
-				// Party type badge
-				const partyTypeBadge = item.party_type
-					? `<span class="badge badge-light border" style="font-size:0.75rem;">${this._escapeHtml(item.party_type)}</span>`
-					: "—";
-
-				// Party name — show as link if we know its doctype
-				const partyDoctypeMap = {
-					"Customer": "customer", "Supplier": "supplier",
-					"Employee": "employee", "Student": "student",
-				};
-				const partyRoute = item.party_type && partyDoctypeMap[item.party_type];
-				const partyCell = item.party
-					? (partyRoute
-						? `<a href="/app/${partyRoute}/${item.party}" target="_blank" style="font-weight:600;">${this._escapeHtml(item.party)}</a>`
-						: `<strong>${this._escapeHtml(item.party)}</strong>`)
-					: `<span class="text-muted">—</span>`;
-
-				// Reference doc with link
-				const refDocRoute = item.reference_doctype
-					? item.reference_doctype.toLowerCase().replace(/ /g, "-")
-					: "";
-				const refCell = item.reference_name
-					? (refDocRoute
-						? `<a href="/app/${refDocRoute}/${item.reference_name}" target="_blank" title="${item.reference_doctype || ''}">${this._escapeHtml(item.reference_name)}</a>`
-						: this._escapeHtml(item.reference_name))
-					: "—";
-
-				// Bank transfer details (expense_account used as bank account info)
-				const bankInfo = (dir === "Bank Transfer" && item.expense_account)
-					? `<br><small class="text-muted"><i class="fa fa-university mr-1"></i>${this._escapeHtml(item.expense_account)}</small>`
-					: "";
-
-				// Amount color based on direction
-				const amtColor = dir === "Inbound" ? "#28a745" : dir === "Outbound" ? "#dc3545" : "#17a2b8";
-				const dirArrow = dir === "Inbound" ? "↑" : dir === "Outbound" ? "↓" : "⇄";
-
-				rows += `
-					<tr data-item="${this._escapeHtml(item.name)}" style="vertical-align:middle;">
-						<td>${srcLink}${serialBadge}</td>
-						<td>${dateLabel}</td>
+				tableRows += `
+					<tr data-item="${item.name}" style="vertical-align:middle; border-right:4px solid ${amtColor};">
+						<td style="width:40px; text-align:center; font-weight:700; color:${amtColor};">${idx + 1}</td>
+						<td>${srcLink}</td>
+						<td><span class="badge" style="background:${amtColor}; color:#fff;">${dirArrow}</span></td>
 						<td>
-							<span style="color:${amtColor}; font-weight:600;">${dirArrow}</span>
-							${this._escapeHtml(item.transaction_category || "")}
+							<strong>${this._safeEscape(partyDisplay)}</strong>
+							${partyTypeDisplay ? `<br><small class="text-muted">${this._safeEscape(partyTypeDisplay)}</small>` : ""}
 						</td>
-						<td>${partyTypeBadge}</td>
-						<td>${partyCell}${bankInfo}</td>
-						<td>${refCell}</td>
-						<td style="text-align:right; font-weight:700; color:${amtColor}; font-size:1rem;">${amount}</td>
-						<td><small>${this._escapeHtml(item.narration || "")}</small></td>
+						<td>${this._safeEscape(refDisplay)}</td>
+						<td style="text-align:right; font-weight:700; font-size:1.1rem; color:${amtColor};">${amount}</td>
+						<td><small>${this._safeEscape(item.narration || "")}</small></td>
 						<td style="text-align:center; white-space:nowrap;">
 							<button class="btn btn-sm btn-success mr-1 tcj-execute-btn"
-							        data-item="${this._escapeHtml(item.name)}"
+							        data-item="${item.name}"
 							        title="تنفيذ الحركة">
-								<i class="fa fa-play mr-1"></i>تنفيذ
+								<i class="fa fa-check-circle mr-1"></i>تنفيذ
 							</button>
 							<button class="btn btn-sm btn-outline-danger tcj-cancel-pending-btn"
-							        data-item="${this._escapeHtml(item.name)}"
-							        title="إلغاء الحركة">
+							        data-item="${item.name}"
+							        title="إلغاء">
 								<i class="fa fa-ban"></i>
 							</button>
 						</td>
 					</tr>`;
 			});
 
-			html += `
-				<div class="pending-dir-group" style="border-left:4px solid ${cfg.borderColor}; margin:12px;">
-					<div class="d-flex align-items-center px-3 py-2" style="background:${cfg.headerBg}; cursor:pointer;"
-					     onclick="$(this).next().slideToggle(150); $(this).find('.dir-chevron').toggleClass('fa-chevron-down fa-chevron-up');">
-						<strong>${cfg.label}</strong>
-						<span class="badge ${cfg.badgeCls} ml-2">${dirItems.length}</span>
-						<i class="fa fa-chevron-down dir-chevron ml-auto"></i>
-					</div>
-					<div id="${sectionId}">
-						<div class="table-responsive">
-							<table class="table table-sm table-hover mb-0">
-								<thead style="background:${cfg.headerBg};">${colHeaders}</thead>
-								<tbody>${rows}</tbody>
-							</table>
-						</div>
-					</div>
+			const fullHtml = `
+				<div class="alert alert-info m-3" style="font-size:0.85rem;">
+					<i class="fa fa-info-circle mr-1"></i>
+					هذه الحركات تم إنشاؤها تلقائياً من مستندات خارجية (سندات دفع، فواتير). اضغط <strong>تنفيذ</strong> بعد تسليم/استلام النقد فعلياً.
+				</div>
+				<div class="table-responsive m-3">
+					<table class="table table-sm table-bordered table-hover mb-0">
+						<thead style="background:#fff3cd;">
+							<tr>
+								<th style="width:40px;">#</th>
+								<th>رقم المستند</th>
+								<th>الاتجاه</th>
+								<th>الطرف / المستفيد</th>
+								<th>المرجع</th>
+								<th style="text-align:right;">المبلغ</th>
+								<th>البيان</th>
+								<th style="text-align:center; width:160px;">الإجراء</th>
+							</tr>
+						</thead>
+						<tbody>${tableRows}</tbody>
+					</table>
 				</div>`;
-		});
 
-		container.html(html);
+			container.html(fullHtml);
+			console.log("[TCJ-Pending] Rendered", count, "rows into #tcj-pending-body");
 
-		// Bind execute button — pass item name for lookup
-		container.off("click.pending").on("click.pending", ".tcj-execute-btn", (e) => {
-			const itemName = $(e.currentTarget).data("item");
-			const item = (this._pendingItemsMap || {})[itemName] || { name: itemName, expected_amount: 0 };
-			this._executeVaultPendingItem(item);
-		});
+			// Bind execute button
+			container.off("click.execute").on("click.execute", ".tcj-execute-btn", (e) => {
+				const itemName = $(e.currentTarget).data("item");
+				console.log("[TCJ-Pending] Execute clicked for:", itemName);
+				const item = (this._pendingItemsMap || {})[itemName] || { name: itemName, expected_amount: 0 };
+				this._executeVaultPendingItem(item);
+			});
 
-		// Bind cancel button
-		container.on("click.pending", ".tcj-cancel-pending-btn", (e) => {
-			const itemName = $(e.currentTarget).data("item");
-			frappe.prompt(
-				[{ fieldtype: "Small Text", fieldname: "reason", label: "سبب الإلغاء", reqd: 1 }],
-				(vals) => {
-					frappe.call({
-						method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.cancel_pending_item",
-						args: { item_name: itemName, reason: vals.reason },
-						callback: () => {
-							frappe.show_alert({ message: "تم إلغاء الحركة", indicator: "orange" });
-							this._loadPendingItems();
-						},
-					});
-				},
-				"إلغاء الحركة المعلقة",
-				"تأكيد الإلغاء"
-			);
-		});
+			// Bind cancel button
+			container.off("click.cancel").on("click.cancel", ".tcj-cancel-pending-btn", (e) => {
+				const itemName = $(e.currentTarget).data("item");
+				frappe.prompt(
+					[{ fieldtype: "Small Text", fieldname: "reason", label: "سبب الإلغاء", reqd: 1 }],
+					(vals) => {
+						frappe.call({
+							method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.cancel_pending_item",
+							args: { item_name: itemName, reason: vals.reason },
+							callback: () => {
+								frappe.show_alert({ message: "تم إلغاء الحركة", indicator: "orange" });
+								this._loadPendingItems();
+							},
+						});
+					},
+					"إلغاء الحركة المعلقة",
+					"تأكيد الإلغاء"
+				);
+			});
+
+		} catch (err) {
+			console.error("[TCJ-Pending] _renderPendingGrid ERROR:", err);
+			$("#tcj-pending-body").html(`<div class="alert alert-danger m-3">Render error: ${err.message}</div>`);
+		}
+	}
+
+	// Safe HTML escape that never throws
+	_safeEscape(value) {
+		if (!value) return "";
+		try {
+			if (typeof value !== "string") value = String(value);
+			return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+		} catch (e) {
+			return "";
+		}
 	}
 
 	_executeVaultPendingItem(item) {
