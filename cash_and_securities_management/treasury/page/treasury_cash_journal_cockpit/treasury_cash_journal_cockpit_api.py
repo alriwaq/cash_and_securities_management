@@ -239,8 +239,6 @@ def save_journal_draft(station, posting_date, lines, journal_name=None):
 			"transaction_category":  line.get("transaction_category"),
 			"party_type":            line.get("party_type"),
 			"party":                 line.get("party"),
-			"reference_doctype":     line.get("reference_doctype"),
-			"reference_name":        line.get("reference_name"),
 			"expense_account":       line.get("expense_account"),
 			"amount":                flt(line.get("amount", 0)),
 			"narration":             line.get("narration", ""),
@@ -352,9 +350,9 @@ def execute_pending_item(item_name, actual_amount=None, narration=None):
 	item = frappe.get_doc("Vault Pending Item", item_name)
 	executed_name = item.execute(actual_amount=actual_amount, narration=narration)
 
-	# Auto-add to today's journal draft
+	# Auto-add to today's journal draft (use today's date = cockpit date, not VPI creation date)
 	station = item.treasury_station
-	posting_date = item.posting_date
+	posting_date = frappe.utils.today()
 
 	existing_journal = frappe.db.get_value(
 		"Treasury Cash Journal",
@@ -382,8 +380,6 @@ def execute_pending_item(item_name, actual_amount=None, narration=None):
 		"transaction_category": item.transaction_category,
 		"party_type":           item.party_type or "",
 		"party":                item.party or "",
-		"reference_doctype":    item.reference_doctype or "",
-		"reference_name":       item.reference_name or "",
 		"expense_account":      item.expense_account or "",
 		"amount":               flt(item.actual_amount or item.expected_amount),
 		"narration":            item.narration or "",
@@ -533,8 +529,6 @@ def create_and_execute_immediate(
 		"transaction_category": transaction_category,
 		"party_type":           party_type or "",
 		"party":                party or "",
-		"reference_doctype":    reference_doctype or "",
-		"reference_name":       reference_name or "",
 		"expense_account":      expense_account or "",
 		"amount":               flt(amount),
 		"narration":            narration or "",

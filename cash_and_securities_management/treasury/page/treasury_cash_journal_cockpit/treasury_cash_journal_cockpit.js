@@ -97,13 +97,13 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
     </li>
     <li class="nav-item">
       <a class="nav-link" id="tab-outbound" data-filter="Outbound" href="#" role="tab">
-        <span style="color:#dc3545;">&#8595;</span> صادر
+        <span style="color:#dc3545;">&#8593;</span> صادر
         <span class="badge badge-danger ml-1" id="badge-outbound">0</span>
       </a>
     </li>
     <li class="nav-item">
       <a class="nav-link" id="tab-inbound" data-filter="Inbound" href="#" role="tab">
-        <span style="color:#28a745;">&#8593;</span> وارد
+        <span style="color:#28a745;">&#8595;</span> وارد
         <span class="badge badge-success ml-1" id="badge-inbound">0</span>
       </a>
     </li>
@@ -2144,7 +2144,7 @@ class TreasuryCashJournal {
     </div>
     <div class="row-item amount-row">
       <span class="lbl">المبلغ / Amount</span>
-      <span class="val">${frappe.utils.format_number(data.amount, null, 2)}</span>
+      <span class="val">${this._fmtNum(data.amount)}</span>
     </div>
     <div class="row-item">
       <span class="lbl">البيان / Narration</span>
