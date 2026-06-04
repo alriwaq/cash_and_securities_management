@@ -504,6 +504,10 @@ def _install_fixtures():
         return
 
     fixture_files = [
+        "workflow_states.json",
+        "treasury_vault_user_role.json",
+        "cash_payment_vault_approval.json",
+        "pe_workflow_custom_fields.json",
         "custom_field.json",
         "number_card.json",
         "dashboard_chart.json",
