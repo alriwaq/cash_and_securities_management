@@ -1614,9 +1614,9 @@ class TreasuryCashJournal {
 			});
 
 			const dirConfig = {
-				"Inbound":       { label: "حركات واردة",       icon: "fa-arrow-down",    color: "#28a745", bg: "#d4edda" },
-				"Outbound":      { label: "حركات صادرة",      icon: "fa-arrow-up",      color: "#dc3545", bg: "#f8d7da" },
-				"Bank Transfer": { label: "تحويلات بنكية", icon: "fa-exchange",      color: "#17a2b8", bg: "#d1ecf1" },
+				"Inbound":       { label: "حركات واردة",       icon: "fa-arrow-down",    color: "#28a745", bg: "#d4edda", arrow: "↓ وارد" },
+				"Outbound":      { label: "حركات صادرة",      icon: "fa-arrow-up",      color: "#dc3545", bg: "#f8d7da", arrow: "↑ صادر" },
+				"Bank Transfer": { label: "تحويلات بنكية", icon: "fa-exchange",      color: "#17a2b8", bg: "#d1ecf1", arrow: "⇄ تحويل" },
 			};
 
 			let fullHtml = `
@@ -1755,7 +1755,7 @@ class TreasuryCashJournal {
 		const itemName = item.name;
 		const expectedAmount = parseFloat(item.expected_amount) || 0;
 		const dir = item.direction || "";
-		const dirArrow = dir === "Inbound" ? "↑ وارد" : dir === "Outbound" ? "↓ صادر" : "⇄ تحويل بنكي";
+		const dirArrow = dir === "Inbound" ? "↓ وارد" : dir === "Outbound" ? "↑ صادر" : "⇄ تحويل بنكي";
 		const dirColor = dir === "Inbound" ? "#28a745" : dir === "Outbound" ? "#dc3545" : "#17a2b8";
 
 		// Payment ID (source document) as the reference
@@ -1878,30 +1878,35 @@ class TreasuryCashJournal {
 			secondary_action: () => d.hide(),
 		});
 
-		// Add print button before execute (in the dialog footer)
-		d.$wrapper.find(".modal-footer").prepend(`
-			<button class="btn btn-default btn-sm mr-auto" id="pending-print-preview-btn">
-				<i class="fa fa-print mr-1"></i> طباعة / معاينة
-			</button>
-		`);
-		d.$wrapper.find("#pending-print-preview-btn").on("click", () => {
-			const stationName = this.stationData
-				? (this.stationData.station_name || this.stationData.name)
-				: "";
-			this._printVoucher({
-				serial: item.inbound_serial || item.outbound_serial || item.name,
-				station: stationName,
-				date: $("#tcj-date-input").val(),
-				direction: dir,
-				transaction_category: item.transaction_category || "",
-				party: partyName,
-				reference_name: paymentId,
-				amount: expectedAmount,
-				narration: item.narration || "",
-			});
-		});
-
 		d.show();
+
+		// Add print button in the dialog footer (after show so DOM exists)
+		setTimeout(() => {
+			const $footer = d.$wrapper.find(".modal-footer");
+			if ($footer.length) {
+				$footer.prepend(`
+					<button class="btn btn-default btn-sm" style="margin-right:auto;" id="pending-print-preview-btn">
+						<i class="fa fa-print mr-1"></i> طباعة / معاينة
+					</button>
+				`);
+				$footer.find("#pending-print-preview-btn").on("click", () => {
+					const stationName = this.stationData
+						? (this.stationData.station_name || this.stationData.name)
+						: "";
+					this._printVoucher({
+						serial: item.inbound_serial || item.outbound_serial || item.name,
+						station: stationName,
+						date: $("#tcj-date-input").val(),
+						direction: dir,
+						transaction_category: item.transaction_category || "",
+						party: partyName,
+						reference_name: paymentId,
+						amount: expectedAmount,
+						narration: item.narration || "",
+					});
+				});
+			}
+		}, 100);
 	}
 
 	_updateStatusBadge() {

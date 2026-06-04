@@ -51,7 +51,7 @@
    "fieldname": "party_type",
    "fieldtype": "Select",
    "label": "Party Type",
-    "options": "\nCustomer\nSupplier\nCustodian",
+    "options": "\nCustomer\nSupplier\nCustodian\nEmployee",
    "in_list_view": 1,
    "columns": 1
   },
