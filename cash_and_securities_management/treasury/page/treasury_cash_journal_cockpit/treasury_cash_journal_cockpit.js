@@ -1605,79 +1605,83 @@ class TreasuryCashJournal {
 				return;
 			}
 
-			// Build a simple flat table first — no grouping complexity
-			// This ensures items ALWAYS render even if direction is unexpected
-			let tableRows = "";
-			items.forEach((item, idx) => {
+			// Group items by direction
+			const groups = { "Inbound": [], "Outbound": [], "Bank Transfer": [] };
+			items.forEach((item) => {
 				const dir = item.direction || "Outbound";
-				const amtColor = dir === "Inbound" ? "#28a745" : dir === "Outbound" ? "#dc3545" : "#17a2b8";
-				const dirArrow = dir === "Inbound" ? "↑ وارد" : dir === "Outbound" ? "↓ صادر" : "⇄ تحويل";
-				const amount = this._fmtNum(item.expected_amount);
-
-				// Source document link
-				const srcDoctype = (item.source_document_type || "").toLowerCase().replace(/ /g, "-");
-				const srcLink = item.source_document
-					? `<a href="/app/${srcDoctype}/${item.source_document}" target="_blank">
-						<strong>${item.source_document}</strong></a>
-						<br><small class="text-muted">${item.source_document_type || ""}</small>`
-					: `<code>${item.name}</code>`;
-
-				// Party display - use party_name from API if available
-				const partyDisplay = item.party_name || item.party || "—";
-				const partyTypeDisplay = item.party_type || "";
-
-				// Reference
-				const refDisplay = item.reference_name || "—";
-
-				tableRows += `
-					<tr data-item="${item.name}" style="vertical-align:middle; border-right:4px solid ${amtColor};">
-						<td style="width:40px; text-align:center; font-weight:700; color:${amtColor};">${idx + 1}</td>
-						<td>${srcLink}</td>
-						<td><span class="badge" style="background:${amtColor}; color:#fff;">${dirArrow}</span></td>
-						<td>
-							<strong>${this._safeEscape(partyDisplay)}</strong>
-							${partyTypeDisplay ? `<br><small class="text-muted">${this._safeEscape(partyTypeDisplay)}</small>` : ""}
-						</td>
-						<td>${this._safeEscape(refDisplay)}</td>
-						<td style="text-align:right; font-weight:700; font-size:1.1rem; color:${amtColor};">${amount}</td>
-						<td><small>${this._safeEscape(item.narration || "")}</small></td>
-						<td style="text-align:center; white-space:nowrap;">
-							<button class="btn btn-sm btn-success mr-1 tcj-execute-btn"
-							        data-item="${item.name}"
-							        title="تنفيذ الحركة">
-								<i class="fa fa-check-circle mr-1"></i>تنفيذ
-							</button>
-							<button class="btn btn-sm btn-outline-danger tcj-cancel-pending-btn"
-							        data-item="${item.name}"
-							        title="إلغاء">
-								<i class="fa fa-ban"></i>
-							</button>
-						</td>
-					</tr>`;
+				if (!groups[dir]) groups[dir] = [];
+				groups[dir].push(item);
 			});
 
-			const fullHtml = `
+			const dirConfig = {
+				"Inbound":       { label: "حركات واردة",       icon: "fa-arrow-down",    color: "#28a745", bg: "#d4edda" },
+				"Outbound":      { label: "حركات صادرة",      icon: "fa-arrow-up",      color: "#dc3545", bg: "#f8d7da" },
+				"Bank Transfer": { label: "تحويلات بنكية", icon: "fa-exchange",      color: "#17a2b8", bg: "#d1ecf1" },
+			};
+
+			let fullHtml = `
 				<div class="alert alert-info m-3" style="font-size:0.85rem;">
 					<i class="fa fa-info-circle mr-1"></i>
 					هذه الحركات تم إنشاؤها تلقائياً من مستندات خارجية (سندات دفع، فواتير). اضغط <strong>تنفيذ</strong> بعد تسليم/استلام النقد فعلياً.
-				</div>
-				<div class="table-responsive m-3">
-					<table class="table table-sm table-bordered table-hover mb-0">
-						<thead style="background:#fff3cd;">
-							<tr>
-								<th style="width:40px;">#</th>
-								<th>رقم المستند</th>
-								<th>الاتجاه</th>
-								<th>الطرف / المستفيد</th>
-								<th>المرجع</th>
-								<th style="text-align:right;">المبلغ</th>
-								<th>البيان</th>
-								<th style="text-align:center; width:160px;">الإجراء</th>
-							</tr>
-						</thead>
-						<tbody>${tableRows}</tbody>
-					</table>
 				</div>`;
+
+			["Inbound", "Outbound", "Bank Transfer"].forEach((dir) => {
+				const dirItems = groups[dir];
+				if (!dirItems || dirItems.length === 0) return;
+				const cfg = dirConfig[dir];
+
+				let rows = "";
+				dirItems.forEach((item, idx) => {
+					const amount = this._fmtNum(item.expected_amount);
+					const paymentId = item.source_document || item.name;
+					const partyDisplay = item.party_name || item.party || "—";
+
+					rows += `
+						<tr data-item="${item.name}" style="vertical-align:middle;">
+							<td style="width:35px; text-align:center; color:${cfg.color}; font-weight:700;">${idx + 1}</td>
+							<td><strong>${this._safeEscape(paymentId)}</strong></td>
+							<td><strong>${this._safeEscape(partyDisplay)}</strong></td>
+							<td style="text-align:right; font-weight:700; font-size:1.05rem; color:${cfg.color};">${amount}</td>
+							<td><small>${this._safeEscape(item.narration || "")}</small></td>
+							<td style="text-align:center; white-space:nowrap;">
+								<button class="btn btn-sm btn-success mr-1 tcj-execute-btn"
+								        data-item="${item.name}"
+								        title="تنفيذ الحركة">
+									<i class="fa fa-check-circle mr-1"></i>تنفيذ
+								</button>
+								<button class="btn btn-sm btn-outline-danger tcj-cancel-pending-btn"
+								        data-item="${item.name}"
+								        title="إلغاء">
+									<i class="fa fa-ban"></i>
+								</button>
+							</td>
+						</tr>`;
+				});
+
+				fullHtml += `
+					<div style="margin:12px; border-left:4px solid ${cfg.color}; border-radius:4px; overflow:hidden;">
+						<div class="d-flex align-items-center px-3 py-2" style="background:${cfg.bg};">
+							<i class="fa ${cfg.icon} mr-2" style="color:${cfg.color};"></i>
+							<strong style="color:${cfg.color};">${cfg.label}</strong>
+							<span class="badge ml-2" style="background:${cfg.color}; color:#fff;">${dirItems.length}</span>
+						</div>
+						<div class="table-responsive">
+							<table class="table table-sm table-hover mb-0">
+								<thead style="background:${cfg.bg};">
+									<tr>
+										<th style="width:35px;">#</th>
+										<th>رقم المستند</th>
+										<th>الطرف / المستفيد</th>
+										<th style="text-align:right;">المبلغ</th>
+										<th>البيان</th>
+										<th style="text-align:center; width:140px;">الإجراء</th>
+									</tr>
+								</thead>
+								<tbody>${rows}</tbody>
+							</table>
+						</div>
+					</div>`;
+			});
 
 			container.html(fullHtml);
 			console.log("[TCJ-Pending] Rendered", count, "rows into #tcj-pending-body");
@@ -1754,41 +1758,17 @@ class TreasuryCashJournal {
 		const dirArrow = dir === "Inbound" ? "↑ وارد" : dir === "Outbound" ? "↓ صادر" : "⇄ تحويل بنكي";
 		const dirColor = dir === "Inbound" ? "#28a745" : dir === "Outbound" ? "#dc3545" : "#17a2b8";
 
-		// Build source doc link HTML
-		const srcDoctype = (item.source_document_type || "").toLowerCase().replace(/ /g, "-");
-		const srcHtml = item.source_document
-			? `<a href="/app/${srcDoctype}/${item.source_document}" target="_blank">
-				   <strong>${item.source_document}</strong>
-			   </a> <small class="text-muted">(${item.source_document_type || ""})</small>`
-			: "—";
+		// Payment ID (source document) as the reference
+		const paymentId = item.source_document || item.reference_name || "—";
 
-		// Party display
-		const partyDoctypeMap = {
-			"Customer": "customer", "Supplier": "supplier",
-			"Employee": "employee", "Student": "student",
-		};
-		const partyRoute = item.party_type && partyDoctypeMap[item.party_type];
-		const partyHtml = item.party
-			? (partyRoute
-				? `<a href="/app/${partyRoute}/${item.party}" target="_blank"><strong>${this._escapeHtml(item.party)}</strong></a>`
-				: `<strong>${this._escapeHtml(item.party)}</strong>`)
-			: `<span class="text-muted">—</span>`;
-
-		// Reference doc link
-		const refDocRoute = item.reference_doctype
-			? item.reference_doctype.toLowerCase().replace(/ /g, "-")
-			: "";
-		const refHtml = item.reference_name
-			? (refDocRoute
-				? `<a href="/app/${refDocRoute}/${item.reference_name}" target="_blank">${this._escapeHtml(item.reference_name)}</a>`
-				: this._escapeHtml(item.reference_name))
-			: "—";
+		// Party name (text only, no link)
+		const partyName = item.party_name || item.party || "—";
 
 		// Bank / expense account info
 		const bankRow = (dir === "Bank Transfer" || item.expense_account)
 			? `<tr>
 				   <td class="text-muted" style="width:45%;">حساب التحويل / المصروف</td>
-				   <td><strong>${this._escapeHtml(item.expense_account || "—")}</strong></td>
+				   <td><strong>${this._safeEscape(item.expense_account || "—")}</strong></td>
 			   </tr>`
 			: "";
 
@@ -1797,8 +1777,8 @@ class TreasuryCashJournal {
 				<table class="table table-sm mb-0" style="font-size:0.9rem;">
 					<tbody>
 						<tr>
-							<td class="text-muted" style="width:45%;">رقم المستند (المصدر)</td>
-							<td>${srcHtml}</td>
+							<td class="text-muted" style="width:45%;">المستند المرجعي</td>
+							<td><strong style="font-size:1rem;">${this._safeEscape(paymentId)}</strong></td>
 						</tr>
 						<tr>
 							<td class="text-muted">الاتجاه</td>
@@ -1806,19 +1786,11 @@ class TreasuryCashJournal {
 						</tr>
 						<tr>
 							<td class="text-muted">النوع</td>
-							<td>${this._escapeHtml(item.transaction_category || "—")}</td>
-						</tr>
-						<tr>
-							<td class="text-muted">نوع الطرف</td>
-							<td>${this._escapeHtml(item.party_type || "—")}</td>
+							<td>${this._safeEscape(item.transaction_category || "—")}</td>
 						</tr>
 						<tr>
 							<td class="text-muted">الطرف / المستفيد</td>
-							<td>${partyHtml}</td>
-						</tr>
-						<tr>
-							<td class="text-muted">المستند المرجعي</td>
-							<td>${refHtml}</td>
+							<td><strong>${this._safeEscape(partyName)}</strong></td>
 						</tr>
 						${bankRow}
 						<tr>
@@ -1827,7 +1799,7 @@ class TreasuryCashJournal {
 						</tr>
 						${item.narration ? `<tr>
 							<td class="text-muted">البيان</td>
-							<td>${this._escapeHtml(item.narration)}</td>
+							<td>${this._safeEscape(item.narration)}</td>
 						</tr>` : ""}
 					</tbody>
 				</table>
@@ -1860,7 +1832,7 @@ class TreasuryCashJournal {
 					default: item.narration || "",
 				},
 			],
-			primary_action_label: `<i class="fa fa-check mr-1"></i> تأكيد التنفيذ`,
+			primary_action_label: `<i class="fa fa-check mr-1"></i> تأكيد التنفيذ وطباعة`,
 			primary_action: (vals) => {
 				if ((parseFloat(vals.actual_amount) || 0) <= 0) {
 					frappe.msgprint("المبلغ يجب أن يكون أكبر من صفر."); return;
@@ -1887,8 +1859,8 @@ class TreasuryCashJournal {
 							date: $("#tcj-date-input").val(),
 							direction: dir,
 							transaction_category: item.transaction_category || "",
-							party: item.party || "",
-							reference_name: item.reference_name || item.expense_account || "",
+							party: partyName,
+							reference_name: paymentId,
 							amount: res.actual_amount || vals.actual_amount,
 							narration: vals.narration || item.narration || "",
 						});
@@ -1905,6 +1877,30 @@ class TreasuryCashJournal {
 			secondary_action_label: "إغلاق",
 			secondary_action: () => d.hide(),
 		});
+
+		// Add print button before execute (in the dialog footer)
+		d.$wrapper.find(".modal-footer").prepend(`
+			<button class="btn btn-default btn-sm mr-auto" id="pending-print-preview-btn">
+				<i class="fa fa-print mr-1"></i> طباعة / معاينة
+			</button>
+		`);
+		d.$wrapper.find("#pending-print-preview-btn").on("click", () => {
+			const stationName = this.stationData
+				? (this.stationData.station_name || this.stationData.name)
+				: "";
+			this._printVoucher({
+				serial: item.inbound_serial || item.outbound_serial || item.name,
+				station: stationName,
+				date: $("#tcj-date-input").val(),
+				direction: dir,
+				transaction_category: item.transaction_category || "",
+				party: partyName,
+				reference_name: paymentId,
+				amount: expectedAmount,
+				narration: item.narration || "",
+			});
+		});
+
 		d.show();
 	}
 
