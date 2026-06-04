@@ -299,16 +299,14 @@ def post_journal(journal_name, actual_balance=None, variance_narration=None):
 def get_pending_items(station, posting_date=None):
 	"""
 	V4: Return ALL Pending Vault Pending Items for the given station,
-	regardless of posting_date (old unexecuted items must still be visible).
-	Also returns items from Payment Entry and Expense Claim sources.
-	Items are sorted by direction then creation date so the UI can group them.
+	regardless of posting_date or source_document_type.
+	Shows every unexecuted item so the vault teller can act on them.
 	"""
 	items = frappe.get_all(
 		"Vault Pending Item",
 		filters={
 			"treasury_station": station,
 			"status": "Pending",
-			"source_document_type": ["in", ["Payment Entry", "Expense Claim"]],
 		},
 		fields=[
 			"name", "direction", "transaction_category", "posting_date",

@@ -82,7 +82,7 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
   </div>
 
   <!-- V4: Pending Items Alert Banner -->
-  <div id="tcj-pending-banner" class="alert alert-warning d-flex align-items-center mb-2" style="display:none !important;">
+  <div id="tcj-pending-banner" class="alert alert-warning d-flex align-items-center mb-2" style="display:none;">
     <i class="fa fa-clock-o mr-2"></i>
     <span>يوجد <strong id="tcj-pending-count">0</strong> حركة نقدية معلقة تنتظر التنفيذ من مصادر خارجية.</span>
     <button type="button" class="btn btn-xs btn-warning ml-auto" id="tcj-scroll-to-pending">عرض الحركات المعلقة &darr;</button>
@@ -210,29 +210,7 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
       <i class="fa fa-chevron-down" id="tcj-pending-chevron"></i>
     </div>
     <div class="card-body p-0" id="tcj-pending-body">
-      <div class="alert alert-info m-3" style="font-size:0.85rem;">
-        <i class="fa fa-info-circle mr-1"></i>
-        هذه الحركات تم إنشاؤها تلقائياً من مستندات خارجية (سندات دفع، فواتير). قم بتنفيذ كل حركة بعد تسليم النقد فعلياً.
-      </div>
-      <div class="table-responsive">
-        <table class="table table-sm table-hover mb-0" id="tcj-pending-grid">
-          <thead style="background:#fff3cd;">
-            <tr>
-              <th>المستند المصدر</th>
-              <th>الاتجاه</th>
-              <th>النوع</th>
-              <th>الطرف</th>
-              <th>المرجع</th>
-              <th style="text-align:right;">المبلغ المتوقع</th>
-              <th>البيان</th>
-              <th style="text-align:center; width:180px;">الإجراء</th>
-            </tr>
-          </thead>
-          <tbody id="tcj-pending-tbody">
-            <tr><td colspan="8" class="text-center text-muted py-3">لا توجد حركات معلقة</td></tr>
-          </tbody>
-        </table>
-      </div>
+      <!-- Populated dynamically by _renderPendingGrid() -->
     </div>
   </div>
 
