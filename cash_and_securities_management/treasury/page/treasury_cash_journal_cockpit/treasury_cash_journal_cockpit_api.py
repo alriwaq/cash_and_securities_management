@@ -158,10 +158,62 @@ def get_open_references(party_type, party, reference_doctype):
 
 
 @frappe.whitelist()
+def check_prior_draft(station, today):
+	"""
+	Return the most recent prior-date Draft TCJ for this station (if any),
+	so the cockpit JS can show a blocking banner without throwing an error.
+	Returns {name, posting_date} or None.
+	"""
+	prior = frappe.db.get_value(
+		"Treasury Cash Journal",
+		{
+			"treasury_station": station,
+			"posting_date": ["<", today],
+			"posting_status": "Draft",
+		},
+		["name", "posting_date"],
+		order_by="posting_date desc",
+		as_dict=True,
+	)
+	return prior or {}
+
+
+def _assert_no_unsent_prior_draft(station, today):
+	"""
+	Block any new cockpit activity for `today` if the station already has
+	a Treasury Cash Journal for a PRIOR date that is still in 'Draft' status
+	(i.e. the vault user has not yet clicked 'Send for Review').
+	Raises frappe.ValidationError with a descriptive Arabic/English message.
+	"""
+	prior_draft = frappe.db.get_value(
+		"Treasury Cash Journal",
+		{
+			"treasury_station": station,
+			"posting_date": ["<", today],
+			"posting_status": "Draft",
+		},
+		["name", "posting_date"],
+		order_by="posting_date desc",
+		as_dict=True,
+	)
+	if prior_draft:
+		frappe.throw(
+			_(
+				"لا يمكن فتح يومية اليوم قبل إرسال يومية {date} للمراجعة.\n"
+				"يرجى فتح اليومية <b>{name}</b> والضغط على زر 'إرسال للمراجعة' أولاً.\n\n"
+				"Cannot open today's journal until the draft journal for {date} "
+				"({name}) has been sent for review."
+			).format(date=prior_draft.posting_date, name=prior_draft.name),
+			title=_("يومية سابقة لم تُرسل للمراجعة / Unsent Prior Draft"),
+		)
+
+
+@frappe.whitelist()
 def save_journal_draft(station, posting_date, lines, journal_name=None):
 	"""
 	Save or update a Draft Treasury Cash Journal with the given lines.
 	Creates a new journal if journal_name is None.
+	Blocks creation if a prior-date Draft exists that was not sent for review.
 	Returns the journal name.
 	"""
 	import json
@@ -174,6 +226,8 @@ def save_journal_draft(station, posting_date, lines, journal_name=None):
 			frappe.throw(_("Cannot edit a Posted or Closed journal."))
 		doc.journal_lines = []
 	else:
+		# Guard: block new journal if a prior-date Draft was not sent for review
+		_assert_no_unsent_prior_draft(station, posting_date)
 		doc = frappe.new_doc("Treasury Cash Journal")
 		doc.treasury_station = station
 		doc.posting_date = posting_date
@@ -244,30 +298,26 @@ def post_journal(journal_name, actual_balance=None, variance_narration=None):
 @frappe.whitelist()
 def get_pending_items(station, posting_date=None):
 	"""
-	V4: Return Pending Vault Pending Items for the given station and date.
-	Only shows items that originated from approved Payment Entries (outbound)
-	or Sales Invoice Payment Entries (inbound) — NOT manual/immediate items.
-	Used by the cockpit Pending Items panel.
+	V4: Return ALL Pending Vault Pending Items for the given station,
+	regardless of posting_date (old unexecuted items must still be visible).
+	Also returns items from Payment Entry and Expense Claim sources.
+	Items are sorted by direction then creation date so the UI can group them.
 	"""
-	if not posting_date:
-		posting_date = nowdate()
-
 	items = frappe.get_all(
 		"Vault Pending Item",
 		filters={
 			"treasury_station": station,
-			"posting_date": posting_date,
 			"status": "Pending",
 			"source_document_type": ["in", ["Payment Entry", "Expense Claim"]],
 		},
 		fields=[
-			"name", "direction", "transaction_category",
+			"name", "direction", "transaction_category", "posting_date",
 			"party_type", "party", "reference_doctype", "reference_name",
 			"expense_account", "expected_amount", "actual_amount",
 			"narration", "source_document_type", "source_document",
 			"inbound_serial", "outbound_serial", "status",
 		],
-		order_by="creation asc",
+		order_by="direction asc, posting_date asc, creation asc",
 	)
 	return items
 
@@ -299,6 +349,8 @@ def execute_pending_item(item_name, actual_amount=None, narration=None):
 	if existing_journal:
 		jdoc = frappe.get_doc("Treasury Cash Journal", existing_journal)
 	else:
+		# Guard: block creation of a new journal if a prior-date Draft was not sent for review
+		_assert_no_unsent_prior_draft(station, posting_date)
 		jdoc = frappe.new_doc("Treasury Cash Journal")
 		jdoc.treasury_station = station
 		jdoc.posting_date = posting_date
@@ -386,6 +438,9 @@ def create_and_execute_immediate(
 
 	if not posting_date:
 		posting_date = nowdate()
+
+	# Guard: block if a prior-date Draft was not sent for review
+	_assert_no_unsent_prior_draft(station, posting_date)
 
 	# Resolve company from station
 	company = frappe.db.get_value("Treasury Station", station, "company")

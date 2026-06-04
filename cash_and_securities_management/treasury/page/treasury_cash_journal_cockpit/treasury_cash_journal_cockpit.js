@@ -26,7 +26,8 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
       </select>
     </div>
     <div class="col-auto">
-      <input type="date" id="tcj-date-input" class="form-control form-control-sm" style="min-width:140px;" />
+      <input type="date" id="tcj-date-input" class="form-control form-control-sm" style="min-width:140px; background:#f8f9fa; cursor:not-allowed;" readonly />
+      <small class="text-muted" style="font-size:0.7rem;"><i class="fa fa-lock mr-1"></i>اليوم فقط</small>
     </div>
     <div class="col-auto">
       <span id="tcj-status-badge" class="badge badge-secondary" style="font-size:0.85rem; padding:6px 12px;">مسودة</span>
@@ -282,11 +283,13 @@ class TreasuryCashJournal {
 		// ── Initialisation ────────────────────────────────────────────────────────
 
 		_initDatePicker() {
-			let date = frappe.datetime.get_today();
+			// Always lock to today — cockpit only accepts today's entries
+			const today = frappe.datetime.get_today();
+			$("#tcj-date-input").val(today).prop("readonly", true);
+			// Consume route_options.date silently (ignored — date is always today)
 			if (frappe.route_options && frappe.route_options.date) {
-				date = frappe.route_options.date;
+				frappe.route_options.date = null;
 			}
-			$("#tcj-date-input").val(date);
 		}
 
 	_loadStations() {
@@ -337,7 +340,7 @@ class TreasuryCashJournal {
 
 	_bindEvents() {
 		$("#tcj-station-select").on("change", () => { this._loadJournal(); this._loadPendingItems(); });
-		$("#tcj-date-input").on("change", () => { this._loadJournal(); this._loadPendingItems(); });
+		// Date is locked to today — no change handler needed
 
 		$("#tcj-tabs .nav-link").on("click", (e) => {
 			e.preventDefault();
@@ -421,6 +424,36 @@ class TreasuryCashJournal {
 		const station = $("#tcj-station-select").val();
 		const date = $("#tcj-date-input").val();
 		if (!station || !date) return;
+
+		// Check for unsent prior-draft and show a blocking banner if found
+		frappe.call({
+			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.check_prior_draft",
+			args: { station, today: date },
+			callback: (r) => {
+				const prior = r.message;
+				$("#tcj-prior-draft-banner").remove();
+				if (prior && prior.name) {
+					const banner = $(`
+						<div id="tcj-prior-draft-banner" class="alert alert-danger d-flex align-items-center mt-2" role="alert" style="font-size:0.9rem;">
+							<i class="fa fa-exclamation-triangle fa-lg mr-3" style="color:#dc3545;"></i>
+							<div>
+								<strong>يومية سابقة لم تُرسل للمراجعة</strong><br/>
+								يومية تاريخ <b>${prior.posting_date}</b> رقم <b>${prior.name}</b> لا تزال مسودة ولم تُرسل للمراجعة.
+								يجب إرسالها أولاً قبل تسجيل أي حركة جديدة.
+								<a href="/app/treasury-cash-journal/${prior.name}" target="_blank" class="btn btn-sm btn-danger ml-3 mt-1">
+									<i class="fa fa-external-link mr-1"></i>فتح اليومية ${prior.name}
+								</a>
+							</div>
+						</div>
+					`);
+					$(".tcj-header").after(banner);
+					// Disable action buttons while prior draft exists
+					$("#tcj-add-txn-btn, #tcj-save-btn, #tcj-post-btn").prop("disabled", true).attr("title", "أرسل اليومية السابقة للمراجعة أولاً");
+				} else {
+					$("#tcj-add-txn-btn, #tcj-save-btn, #tcj-post-btn").prop("disabled", false).removeAttr("title");
+				}
+			},
+		});
 
 		frappe.call({
 			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.get_station_data",
@@ -1564,7 +1597,7 @@ class TreasuryCashJournal {
 	}
 
 	_renderPendingGrid(items) {
-		const tbody = $("#tcj-pending-tbody");
+		const container = $("#tcj-pending-body");
 		const count = items.length;
 
 		// Update badges and banner
@@ -1578,42 +1611,97 @@ class TreasuryCashJournal {
 		}
 
 		if (count === 0) {
-			tbody.html('<tr><td colspan="8" class="text-center text-muted py-3">لا توجد حركات معلقة</td></tr>');
+			container.html('<div class="text-center text-muted py-3 m-3">لا توجد حركات معلقة</div>');
 			return;
 		}
 
-		const dirBadge = (d) => {
-			if (d === "Inbound") return '<span class="badge badge-success">وارد</span>';
-			if (d === "Outbound") return '<span class="badge badge-danger">صادر</span>';
-			return '<span class="badge badge-info">تحويل</span>';
+		// Group items by direction
+		const groups = { "Inbound": [], "Outbound": [], "Bank Transfer": [] };
+		items.forEach((item) => {
+			const dir = item.direction || "Outbound";
+			if (!groups[dir]) groups[dir] = [];
+			groups[dir].push(item);
+		});
+
+		const dirConfig = {
+			"Inbound":      { label: "حركات واردة / Inbound",       badgeCls: "badge-success", headerBg: "#d4edda", borderColor: "#28a745" },
+			"Outbound":     { label: "حركات صادرة / Outbound",      badgeCls: "badge-danger",  headerBg: "#f8d7da", borderColor: "#dc3545" },
+			"Bank Transfer":{ label: "تحويلات بنكية / Bank Transfer", badgeCls: "badge-info",    headerBg: "#d1ecf1", borderColor: "#17a2b8" },
 		};
 
-		let html = "";
-		items.forEach((item) => {
-			const amount = frappe.utils.format_number(item.expected_amount, null, 2);
-			const src = item.source_document
-				? `<a href="/app/${(item.source_document_type || "").toLowerCase().replace(/ /g, "-")}/${item.source_document}" target="_blank">${item.source_document}</a>`
-				: "—";
+		const colHeaders = `
+			<tr>
+				<th>المستند المصدر</th>
+				<th>التاريخ</th>
+				<th>النوع</th>
+				<th>الطرف</th>
+				<th>المرجع</th>
+				<th style="text-align:right;">المبلغ المتوقع</th>
+				<th>البيان</th>
+				<th style="text-align:center; width:180px;">الإجراء</th>
+			</tr>`;
+
+		let html = '<div class="alert alert-info m-3" style="font-size:0.85rem;"><i class="fa fa-info-circle mr-1"></i>هذه الحركات تم إنشاؤها تلقائياً من مستندات خارجية. قم بتنفيذ كل حركة بعد تسليم النقد فعلياً.</div>';
+
+		["Inbound", "Outbound", "Bank Transfer"].forEach((dir) => {
+			const dirItems = groups[dir];
+			if (!dirItems || dirItems.length === 0) return;
+			const cfg = dirConfig[dir];
+			const sectionId = `pending-section-${dir.replace(/ /g, "-").toLowerCase()}`;
+
+			let rows = "";
+			dirItems.forEach((item) => {
+				const amount = frappe.utils.format_number(item.expected_amount, null, 2);
+				const src = item.source_document
+					? `<a href="/app/${(item.source_document_type || "").toLowerCase().replace(/ /g, "-")}/${item.source_document}" target="_blank">${item.source_document}</a>`
+					: "—";
+				const dateLabel = item.posting_date
+					? `<span class="badge badge-light border" style="font-size:0.75rem;">${item.posting_date}</span>`
+					: "—";
+				rows += `
+					<tr data-item="${this._escapeHtml(item.name)}">
+						<td>${src}</td>
+						<td>${dateLabel}</td>
+						<td>${this._escapeHtml(item.transaction_category || "")}</td>
+						<td>${this._escapeHtml(item.party || "—")}</td>
+						<td>${this._escapeHtml(item.reference_name || "—")}</td>
+						<td style="text-align:right; font-weight:600;">${amount}</td>
+						<td>${this._escapeHtml(item.narration || "")}</td>
+						<td style="text-align:center;">
+							<button class="btn btn-xs btn-success mr-1 tcj-execute-btn"
+							        data-item="${this._escapeHtml(item.name)}"
+							        data-amount="${item.expected_amount}">
+								<i class="fa fa-check mr-1"></i>تنفيذ
+							</button>
+							<button class="btn btn-xs btn-danger tcj-cancel-pending-btn"
+							        data-item="${this._escapeHtml(item.name)}">
+								<i class="fa fa-times"></i>
+							</button>
+						</td>
+					</tr>`;
+			});
+
 			html += `
-				<tr data-item="${this._escapeHtml(item.name)}">
-					<td>${src}</td>
-					<td>${dirBadge(item.direction)}</td>
-					<td>${this._escapeHtml(item.transaction_category || "")}</td>
-					<td>${this._escapeHtml(item.party || "—")}</td>
-					<td>${this._escapeHtml(item.reference_name || "—")}</td>
-					<td style="text-align:right; font-weight:600;">${amount}</td>
-					<td>${this._escapeHtml(item.narration || "")}</td>
-					<td style="text-align:center;">
-						<button class="btn btn-xs btn-success mr-1 tcj-execute-btn" data-item="${this._escapeHtml(item.name)}" data-amount="${item.expected_amount}">
-							<i class="fa fa-check mr-1"></i>تنفيذ
-						</button>
-						<button class="btn btn-xs btn-danger tcj-cancel-pending-btn" data-item="${this._escapeHtml(item.name)}">
-							<i class="fa fa-times"></i>
-						</button>
-					</td>
-				</tr>`;
+				<div class="pending-dir-group" style="border-left:4px solid ${cfg.borderColor}; margin:12px;">
+					<div class="d-flex align-items-center px-3 py-2" style="background:${cfg.headerBg}; cursor:pointer;"
+					     onclick="$(this).next().slideToggle(150); $(this).find('.dir-chevron').toggleClass('fa-chevron-down fa-chevron-up');">
+						<strong>${cfg.label}</strong>
+						<span class="badge ${cfg.badgeCls} ml-2">${dirItems.length}</span>
+						<i class="fa fa-chevron-down dir-chevron ml-auto"></i>
+					</div>
+					<div id="${sectionId}">
+						<div class="table-responsive">
+							<table class="table table-sm table-hover mb-0">
+								<thead style="background:${cfg.headerBg};">${colHeaders}</thead>
+								<tbody>${rows}</tbody>
+							</table>
+						</div>
+					</div>
+				</div>`;
 		});
-		tbody.html(html);
+
+		container.html(html);
+		const tbody = container; // rebind to container for event delegation
 
 		// Bind execute button
 		tbody.off("click.pending").on("click.pending", ".tcj-execute-btn", (e) => {
