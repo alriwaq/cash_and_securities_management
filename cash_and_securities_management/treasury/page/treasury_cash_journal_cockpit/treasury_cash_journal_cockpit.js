@@ -440,7 +440,13 @@ class TreasuryCashJournal {
 				if (!r.message) return;
 				const data = r.message;
 				this.stationData = data.station;
-				this.openingBalance = data.opening_balance || 0;
+				// Prefer the journal's own stored opening_balance (returned by the API
+				// when a TCJ already exists for today) so the four KPI cards always
+				// agree with what the TCJ form shows.
+				// Fall back to the station's current_balance when no journal exists yet.
+				this.openingBalance = (data.existing && data.existing.opening_balance != null)
+					? (parseFloat(data.existing.opening_balance) || 0)
+					: (parseFloat(data.opening_balance) || 0);
 
 				// Show station-closed banner if status is not Open
 				$("#tcj-station-closed-banner").remove();

@@ -81,10 +81,18 @@ def get_station_data(station, posting_date=None):
 		for l in lines:
 			l["linked_doctype"] = _infer_linked_doctype(l.get("linked_document"))
 
+	# Use the journal's own recorded opening balance when one exists so that
+	# the cockpit KPIs always agree with what the TCJ form shows.
+	# Fall back to the station's current_balance only when no journal exists yet.
+	if existing and existing.get("opening_balance") is not None:
+		opening_balance = flt(existing.opening_balance)
+	else:
+		opening_balance = flt(station_doc.current_balance)
+
 	return {
 		"station": station_doc.as_dict(),
 		"journal_name": journal_name,
-		"opening_balance": flt(station_doc.current_balance),
+		"opening_balance": opening_balance,
 		"existing": existing,
 		"lines": lines,
 		"posting_date": posting_date,
