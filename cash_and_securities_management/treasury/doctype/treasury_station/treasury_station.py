@@ -149,6 +149,7 @@ class TreasuryStation(Document):
 
 		# Set initial status to Open
 		frappe.db.set_value("Treasury Station", self.name, "status", "Open")
+		_set_account_freeze(self.vault_account, freeze=False)
 
 		# Initialise responsibility log if empty
 		if not self.responsibility_log:
@@ -325,10 +326,57 @@ def set_station_status(station, status):
 		frappe.throw(_("المحطة بالفعل في حالة {0}.").format(status))
 
 	frappe.db.set_value("Treasury Station", station, "status", status)
+
+	# Freeze or unfreeze the linked vault GL account
+	vault_account = frappe.db.get_value("Treasury Station", station, "vault_account")
+	_set_account_freeze(vault_account, freeze=(status == "Closed"))
+
 	frappe.db.commit()
 
+	# Notify user
+	if status == "Closed":
+		frappe.msgprint(
+			_("تم إغلاق الخزينة {0} وتجميد حسابها {1}. لا يمكن تسجيل أي قيد جديد عليه.").format(
+				frappe.bold(station), frappe.bold(vault_account or "")
+			),
+			indicator="orange",
+		)
+	else:
+		frappe.msgprint(
+			_("تم فتح الخزينة {0} وإلغاء تجميد حسابها {1}. يمكن الآن تسجيل الحركات.").format(
+				frappe.bold(station), frappe.bold(vault_account or "")
+			),
+			indicator="green",
+		)
 
-# ─── Helper ──────────────────────────────────────────────────────────────────
+
+# ─── Helper: Account Freeze ──────────────────────────────────────────────────
+
+def _set_account_freeze(account_name, freeze):
+	"""
+	Freeze or unfreeze a GL Account.
+	- freeze=True  -> sets freeze_account="Yes" (prevents new GL entries)
+	- freeze=False -> sets freeze_account="No"  (allows new GL entries)
+	Does nothing if account_name is empty or account does not exist.
+	"""
+	if not account_name:
+		return
+	if not frappe.db.exists("Account", account_name):
+		return
+	try:
+		frappe.db.set_value(
+			"Account",
+			account_name,
+			"freeze_account",
+			"Yes" if freeze else "No",
+		)
+	except Exception as e:
+		frappe.log_error(
+			f"Failed to {'freeze' if freeze else 'unfreeze'} account {account_name}: {e}",
+			"Treasury Station Account Freeze"
+		)
+
+
 
 def _assert_manager_role():
 	"""Raise PermissionError if the current user is not a manager or admin."""
