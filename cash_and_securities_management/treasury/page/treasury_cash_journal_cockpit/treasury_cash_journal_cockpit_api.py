@@ -196,6 +196,29 @@ def _assert_station_open(station):
 		)
 
 
+def _assert_no_negative_balance(station, amount):
+	"""
+	Block an Outbound transaction if it would make the station balance negative
+	and the station does not have allow_negative_balance = 1.
+	Does nothing if allow_negative_balance is enabled on the station.
+	"""
+	allow_neg, current_balance = frappe.db.get_value(
+		"Treasury Station", station, ["allow_negative_balance", "current_balance"]
+	) or (0, 0.0)
+	if allow_neg:
+		return  # Station explicitly allows negative balance — skip check
+	current_balance = flt(current_balance)
+	if flt(amount) > current_balance:
+		frappe.throw(
+			_(
+				"لا يمكن تنفيذ هذه العملية: المبلغ المطلوب ({amount}) يتجاوز الرصيد الحالي للخزينة ({balance}).\n"
+				"لتجاوز هذا القيد، قم بتفعيل خيار 'السماح بالرصيد السالب' في سجل المحطة.\n\n"
+				"Insufficient balance: requested {amount}, available {balance}."
+			).format(amount=frappe.utils.fmt_money(flt(amount)), balance=frappe.utils.fmt_money(current_balance)),
+			title=_("رصيد غير كافٍ / Insufficient Balance"),
+		)
+
+
 def _assert_no_unsent_prior_draft(station, today):
 	"""
 	Block any new cockpit activity for `today` if the station already has
@@ -439,8 +462,16 @@ def execute_pending_item(item_name, actual_amount=None, narration=None):
 		jdoc.posting_date = posting_date
 		jdoc.posting_status = "Draft"
 
+	# Guard: check negative balance if station does not allow it
+	if item.direction == "Outbound":
+		_assert_no_negative_balance(
+			item.treasury_station,
+			flt(item.actual_amount or item.expected_amount)
+		)
+
 	serial = item.inbound_serial or item.outbound_serial or ""
 	jdoc.append("journal_lines", {
+		"voucher_serial":       serial,
 		"direction":            item.direction,
 		"transaction_category": item.transaction_category,
 		"party_type":           item.party_type or "",
@@ -449,7 +480,11 @@ def execute_pending_item(item_name, actual_amount=None, narration=None):
 		"amount":               flt(item.actual_amount or item.expected_amount),
 		"narration":            item.narration or "",
 		"is_posted":            0,
-		"linked_document":      item.source_document or "",
+		"source_doctype":       item.source_document_type or "",
+		"source_document":      item.source_document or "",
+		"reference_doctype":    item.reference_doctype or "",
+		"reference_name":       item.reference_name or "",
+		"linked_document":      item.name,
 	})
 
 	jdoc.flags.ignore_permissions = True
@@ -591,7 +626,12 @@ def create_and_execute_immediate(
 		jdoc.posting_date = posting_date
 		jdoc.posting_status = "Draft"
 
+	# Guard: check negative balance for outbound transactions
+	if direction == "Outbound":
+		_assert_no_negative_balance(station, flt(amount))
+
 	jdoc.append("journal_lines", {
+		"voucher_serial":       serial,
 		"direction":            direction,
 		"transaction_category": transaction_category,
 		"party_type":           party_type or "",
@@ -600,8 +640,11 @@ def create_and_execute_immediate(
 		"amount":               flt(amount),
 		"narration":            narration or "",
 		"is_posted":            0,
+		"source_doctype":       "Manual",
+		"source_document":      "",
+		"reference_doctype":    reference_doctype or "",
+		"reference_name":       reference_name or "",
 		"linked_document":      vpi.name,
-		"voucher_serial":       serial,
 	})
 
 	jdoc.flags.ignore_permissions = True

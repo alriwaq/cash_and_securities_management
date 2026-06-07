@@ -12,27 +12,41 @@
   "default_shortage_account",
   "column_break_1",
   "default_company",
-  "default_currency"
+  "default_currency",
+  "controls_section",
+  "max_daily_outbound_amount",
+  "require_narration",
+  "column_break_2",
+  "auto_close_station_eod",
+  "eod_close_time",
+  "workflow_section",
+  "journal_review_required",
+  "journal_reviewer_role",
+  "column_break_3",
+  "auto_sync_pending_on_load",
+  "pending_sync_interval_minutes",
+  "roles_section",
+  "role_access"
  ],
  "fields": [
   {
    "fieldname": "default_vault_section",
    "fieldtype": "Section Break",
-   "label": "Default Vault Accounts"
+   "label": "الإعدادات الافتراضية"
   },
   {
    "fieldname": "default_vault_account",
    "fieldtype": "Link",
-   "label": "Default Vault Cash Account",
+   "label": "حساب الخزينة الافتراضي",
    "options": "Account",
-   "description": "Default GL cash account assigned to new Treasury Stations."
+   "description": "حساب GL النقدي الافتراضي الذي يُعيَّن لمحطات الخزينة الجديدة."
   },
   {
    "fieldname": "default_shortage_account",
    "fieldtype": "Link",
-   "label": "Default Shortage / Overage Account",
+   "label": "حساب الفروقات الافتراضي",
    "options": "Account",
-   "description": "GL account used to post cash variance Journal Entries."
+   "description": "حساب دفتر الأستاذ المستخدم لترحيل فروقات النقدية (عجز / زيادة)."
   },
   {
    "fieldname": "column_break_1",
@@ -41,14 +55,102 @@
   {
    "fieldname": "default_company",
    "fieldtype": "Link",
-   "label": "Default Company",
+   "label": "الشركة الافتراضية",
    "options": "Company"
   },
   {
    "fieldname": "default_currency",
    "fieldtype": "Link",
-   "label": "Default Currency",
+   "label": "العملة الافتراضية",
    "options": "Currency"
+  },
+  {
+   "fieldname": "controls_section",
+   "fieldtype": "Section Break",
+   "label": "ضوابط التشغيل"
+  },
+  {
+   "fieldname": "max_daily_outbound_amount",
+   "fieldtype": "Currency",
+   "label": "الحد الأقصى للصرف اليومي",
+   "default": "0",
+   "description": "الحد الأقصى لإجمالي المدفوعات الصادرة في اليوم الواحد لكل خزينة. القيمة 0 تعني بلا حد."
+  },
+  {
+   "fieldname": "require_narration",
+   "fieldtype": "Check",
+   "label": "البيان إلزامي في كل حركة",
+   "default": "0",
+   "description": "إذا كان مفعّلاً، لا يمكن تسجيل أي حركة في الكوكبيت بدون إدخال بيان (narration)."
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "auto_close_station_eod",
+   "fieldtype": "Check",
+   "label": "إغلاق الخزينة تلقائياً نهاية اليوم",
+   "default": "0",
+   "description": "إذا كان مفعّلاً، يتم إغلاق الخزينة تلقائياً في وقت الإغلاق المحدد."
+  },
+  {
+   "fieldname": "eod_close_time",
+   "fieldtype": "Time",
+   "label": "وقت الإغلاق التلقائي",
+   "depends_on": "eval:doc.auto_close_station_eod == 1",
+   "description": "الوقت الذي يتم فيه إغلاق الخزينة تلقائياً (مثال: 17:00:00)."
+  },
+  {
+   "fieldname": "workflow_section",
+   "fieldtype": "Section Break",
+   "label": "إعدادات سير العمل"
+  },
+  {
+   "fieldname": "journal_review_required",
+   "fieldtype": "Check",
+   "label": "المراجعة إلزامية قبل الترحيل",
+   "default": "1",
+   "description": "إذا كان مفعّلاً، يجب إرسال اليومية للمراجعة قبل الترحيل إلى دفتر الأستاذ."
+  },
+  {
+   "fieldname": "journal_reviewer_role",
+   "fieldtype": "Link",
+   "label": "دور المراجع",
+   "options": "Role",
+   "depends_on": "eval:doc.journal_review_required == 1",
+   "description": "الدور المسؤول عن مراجعة اليوميات قبل الترحيل."
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "auto_sync_pending_on_load",
+   "fieldtype": "Check",
+   "label": "مزامنة تلقائية للمعلقات عند فتح الكوكبيت",
+   "default": "1",
+   "description": "يقوم النظام تلقائياً بمزامنة سندات الدفع المعلقة (Pending Vault Approval) مع قائمة المعلقات عند كل فتح للكوكبيت."
+  },
+  {
+   "fieldname": "pending_sync_interval_minutes",
+   "fieldtype": "Int",
+   "label": "فترة المزامنة (دقائق)",
+   "default": "5",
+   "depends_on": "eval:doc.auto_sync_pending_on_load == 1",
+   "description": "الحد الأدنى للفترة بين كل مزامنتين تلقائيتين (لتجنب الضغط على الخادم)."
+  },
+  {
+   "fieldname": "roles_section",
+   "fieldtype": "Section Break",
+   "label": "صلاحيات الأدوار"
+  },
+  {
+   "fieldname": "role_access",
+   "fieldtype": "Table",
+   "label": "جدول صلاحيات الأدوار",
+   "options": "Vault Role Access",
+   "description": "حدد لكل دور نوع صلاحيته في نظام الخزينة: مستخدم كوكبيت، مراجع يومية، أو كلاهما. كما يمكن تحديد من يملك صلاحية فتح/إغلاق الخزينة أو تغيير المسؤول."
   }
  ],
  "idx": 0,

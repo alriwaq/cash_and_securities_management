@@ -24,6 +24,7 @@
   "shortage_account",
   "balance_section",
   "opening_balance",
+  "allow_negative_balance",
   "column_break_balance",
   "current_balance",
   "last_closing_date",
@@ -151,7 +152,7 @@
   {
    "fieldname": "balance_section",
    "fieldtype": "Section Break",
-   "label": "الأرصدة الجارية"
+   "label": "الأرصدة وضوابط الرصيد"
   },
   {
    "fieldname": "opening_balance",
@@ -159,6 +160,15 @@
    "label": "الرصيد الافتتاحي",
    "read_only": 1,
    "description": "يُجلب من الرصيد الفعلي لحساب الخزينة في دفتر الأستاذ عند فتح اليوم."
+  },
+  {
+   "fieldname": "allow_negative_balance",
+   "fieldtype": "Check",
+   "label": "السماح بالرصيد السالب",
+   "default": "0",
+   "allow_on_submit": 1,
+   "description": "إذا كان مفعّلاً، يُسمح بتسجيل مدفوعات صادرة حتى لو كان رصيد الخزينة غير كافٍ. إذا كان معطّلاً (الافتراضي)، يُرفض أي صرف يجعل الرصيد سالباً.",
+   "in_list_view": 0
   },
   {
    "fieldname": "column_break_balance",

@@ -3,18 +3,26 @@
  "creation": "2024-01-01 00:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
-  "field_order": [
+ "istable": 1,
+ "editable_grid": 1,
+ "field_order": [
   "voucher_serial",
   "direction",
   "transaction_category",
-  "party_type",
-  "party",
-  "column_break_1",
-  "reference_doctype",
-  "reference_name",
-    "expense_account",
+  "column_break_main",
   "amount",
   "narration",
+  "reference_section",
+  "source_doctype",
+  "source_document",
+  "column_break_ref",
+  "reference_doctype",
+  "reference_name",
+  "party_section",
+  "party_type",
+  "party",
+  "column_break_party",
+  "expense_account",
   "posting_section",
   "is_posted",
   "linked_document",
@@ -24,117 +32,145 @@
   {
    "fieldname": "voucher_serial",
    "fieldtype": "Data",
-   "label": "Serial Number",
+   "label": "الرقم التسلسلي",
    "read_only": 1,
    "in_list_view": 1,
-   "columns": 1
+   "description": "الرقم التسلسلي للقسيمة (IN-YYYY-NNNN أو OUT-YYYY-NNNN). يُعبأ تلقائياً من VPI."
   },
   {
    "fieldname": "direction",
    "fieldtype": "Select",
-   "label": "Direction",
-    "options": "\nInbound\nOutbound",
+   "label": "الاتجاه",
+   "options": "\nInbound\nOutbound\nBank Transfer",
    "reqd": 1,
    "in_list_view": 1,
-   "columns": 1
+   "description": "Inbound = وارد (↓ أخضر) | Outbound = صادر (↑ أحمر) | Bank Transfer = تحويل بنكي (⇄ أزرق)"
   },
   {
    "fieldname": "transaction_category",
    "fieldtype": "Select",
-   "label": "Category",
-    "options": "\nInvoice Collection\nCustody Return\nSupplier Payment\nAdvance Allocation\nDirect Expense",
+   "label": "نوع المعاملة",
+   "options": "\nInvoice Collection\nCustody Return\nSupplier Payment\nAdvance Allocation\nDirect Expense\nBank Withdrawal\nBank Deposit\nCustody Advance\nCustody Settlement",
    "reqd": 1,
-   "in_list_view": 1,
-   "columns": 1
+   "in_list_view": 1
   },
   {
-   "fieldname": "party_type",
-   "fieldtype": "Link",
-   "label": "Party Type",
-   "options": "Party Type",
-   "in_list_view": 1,
-   "columns": 1
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
   },
   {
-   "fieldname": "party",
-   "fieldtype": "Dynamic Link",
-   "label": "Party",
-   "options": "party_type",
-   "in_list_view": 1,
-   "columns": 2
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "المبلغ",
+   "reqd": 1,
+   "in_list_view": 1
   },
   {
-   "fieldname": "column_break_1",
+   "fieldname": "narration",
+   "fieldtype": "Small Text",
+   "label": "البيان",
+   "in_list_view": 0
+  },
+  {
+   "fieldname": "reference_section",
+   "fieldtype": "Section Break",
+   "label": "المستند المصدر والمرجع"
+  },
+  {
+   "fieldname": "source_doctype",
+   "fieldtype": "Data",
+   "label": "نوع المستند المصدر",
+   "read_only": 1,
+   "description": "نوع المستند الذي أنشأ هذه الحركة (Payment Entry، Expense Claim، Manual). يُعبأ تلقائياً ولا يُعدَّل."
+  },
+  {
+   "fieldname": "source_document",
+   "fieldtype": "Data",
+   "label": "رقم المستند المصدر",
+   "read_only": 1,
+   "description": "رقم المستند المصدر (مثل PE-0001). يُعبأ تلقائياً ولا يُعدَّل."
+  },
+  {
+   "fieldname": "column_break_ref",
    "fieldtype": "Column Break"
   },
   {
    "fieldname": "reference_doctype",
    "fieldtype": "Link",
-   "label": "Reference DocType",
+   "label": "نوع المرجع",
    "options": "DocType",
-   "in_list_view": 0
+   "read_only": 0,
+   "description": "نوع المستند المرجعي (مثل Purchase Invoice، Sales Invoice). يُعبأ تلقائياً من سندات الدفع، ويمكن للمراجع تعديله."
   },
   {
    "fieldname": "reference_name",
    "fieldtype": "Dynamic Link",
-   "label": "Reference",
+   "label": "رقم المرجع",
    "options": "reference_doctype",
-   "in_list_view": 1,
-   "columns": 2
-  },
-    {
-     "fieldname": "expense_account",
-     "fieldtype": "Link",
-     "label": "Expense Account",
-     "options": "Account",
-     "in_list_view": 0
-    },
-  {
-   "fieldname": "amount",
-   "fieldtype": "Currency",
-   "label": "Amount",
-   "reqd": 1,
-   "in_list_view": 1,
-   "columns": 1
+   "read_only": 0,
+   "description": "رقم المستند المرجعي. يُعبأ تلقائياً ويمكن للمراجع تعديله."
   },
   {
-   "fieldname": "narration",
-   "fieldtype": "Small Text",
-   "label": "Narration",
-    "reqd": 1,
-   "in_list_view": 1,
-   "columns": 2
+   "fieldname": "party_section",
+   "fieldtype": "Section Break",
+   "label": "الطرف (إلزامي لغير اليوميات)"
+  },
+  {
+   "fieldname": "party_type",
+   "fieldtype": "Link",
+   "label": "نوع الطرف",
+   "options": "Party Type",
+   "mandatory_depends_on": "eval:doc.source_doctype != 'Journal Entry' && doc.source_doctype != 'Manual'",
+   "description": "نوع الطرف (Supplier، Customer، Employee). إلزامي إذا كان المستند المصدر ليس يومية."
+  },
+  {
+   "fieldname": "party",
+   "fieldtype": "Dynamic Link",
+   "label": "الطرف",
+   "options": "party_type",
+   "mandatory_depends_on": "eval:doc.party_type",
+   "description": "اسم الطرف (المورد، العميل، الموظف). إلزامي إذا تم تحديد نوع الطرف."
+  },
+  {
+   "fieldname": "column_break_party",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "expense_account",
+   "fieldtype": "Link",
+   "label": "حساب المصروف",
+   "options": "Account",
+   "description": "حساب المصروف في دفتر الأستاذ. إلزامي للمصروفات المباشرة (Direct Expense).",
+   "mandatory_depends_on": "eval:doc.transaction_category == 'Direct Expense'"
   },
   {
    "fieldname": "posting_section",
    "fieldtype": "Section Break",
-   "label": "Posting Status",
+   "label": "حالة الترحيل",
    "collapsible": 1
   },
   {
-   "default": "0",
    "fieldname": "is_posted",
    "fieldtype": "Check",
-   "label": "Posted",
-   "read_only": 1,
-   "in_list_view": 0
+   "label": "مُرحَّل",
+   "default": "0",
+   "read_only": 1
   },
   {
    "fieldname": "linked_document",
    "fieldtype": "Data",
-   "label": "Linked Document",
+   "label": "المستند المرتبط",
    "read_only": 1,
-   "description": "Name of the Payment Entry or Journal Entry created when this line was posted."
+   "description": "اسم VPI أو المستند المرتبط بهذا السطر بعد الترحيل."
   },
   {
    "fieldname": "posting_error",
    "fieldtype": "Small Text",
-   "label": "Posting Error",
+   "label": "خطأ الترحيل",
    "read_only": 1,
-   "description": "Error message if this line failed during Post Journal."
+   "description": "رسالة الخطأ إن فشل الترحيل."
   }
  ],
- "istable": 1,
  "links": [],
  "modified": "2024-01-01 00:00:00.000000",
  "modified_by": "Administrator",

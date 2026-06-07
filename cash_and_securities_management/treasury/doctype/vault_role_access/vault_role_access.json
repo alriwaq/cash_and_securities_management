@@ -1,0 +1,74 @@
+{
+ "actions": [],
+ "creation": "2024-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "istable": 1,
+ "editable_grid": 1,
+ "field_order": [
+  "role",
+  "access_type",
+  "column_break_1",
+  "can_open_station",
+  "can_close_station",
+  "can_change_responsible"
+ ],
+ "fields": [
+  {
+   "fieldname": "role",
+   "fieldtype": "Link",
+   "label": "الدور",
+   "options": "Role",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_global_search": 0,
+   "description": "دور ERPNext المراد تعيين صلاحيات الخزينة له."
+  },
+  {
+   "fieldname": "access_type",
+   "fieldtype": "Select",
+   "label": "نوع الصلاحية",
+   "options": "\nCockpit User\nJournal Reviewer\nBoth",
+   "reqd": 1,
+   "in_list_view": 1,
+   "description": "Cockpit User: يستطيع تسجيل الحركات اليومية في الكوكبيت. Journal Reviewer: يستطيع مراجعة وإرسال اليوميات للترحيل. Both: كلا الصلاحيتين."
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "can_open_station",
+   "fieldtype": "Check",
+   "label": "فتح الخزينة",
+   "default": "0",
+   "in_list_view": 1,
+   "description": "يسمح لهذا الدور بفتح الخزينة عبر زر الإجراء."
+  },
+  {
+   "fieldname": "can_close_station",
+   "fieldtype": "Check",
+   "label": "إغلاق الخزينة",
+   "default": "0",
+   "in_list_view": 1,
+   "description": "يسمح لهذا الدور بإغلاق الخزينة عبر زر الإجراء."
+  },
+  {
+   "fieldname": "can_change_responsible",
+   "fieldtype": "Check",
+   "label": "تغيير المسؤول",
+   "default": "0",
+   "in_list_view": 1,
+   "description": "يسمح لهذا الدور بنقل مسؤولية الخزينة لموظف آخر."
+  }
+ ],
+ "links": [],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Treasury",
+ "name": "Vault Role Access",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}
