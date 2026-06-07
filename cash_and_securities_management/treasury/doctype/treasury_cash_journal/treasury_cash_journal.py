@@ -16,25 +16,73 @@ class TreasuryCashJournal(Document):
 
 	# ─── Validate ────────────────────────────────────────────────────────────────
 
+	def before_insert(self):
+		"""Block creation of a second TCJ for the same station+date."""
+		self._assert_no_duplicate_journal()
+
 	def validate(self):
 		self._fetch_opening_balance()
 		self._recalculate_totals()
 		self._recalculate_variance()
 
+	def _assert_no_duplicate_journal(self):
+		"""
+		Ensure only ONE Treasury Cash Journal exists per station per day.
+		Any status (Draft, Pending Review, Closed) counts — we never allow two journals
+		for the same station on the same date.
+		"""
+		existing = frappe.db.get_value(
+			"Treasury Cash Journal",
+			{
+				"treasury_station": self.treasury_station,
+				"posting_date": self.posting_date,
+				"name": ["!=", self.name or ""],
+			},
+			"name",
+		)
+		if existing:
+			frappe.throw(
+				_(
+					"يوجد بالفعل يومية خزينة لهذه المحطة بتاريخ {date}: <b>{name}</b>.\n"
+					"لا يُسمح بإنشاء أكثر من يومية واحدة لكل محطة في اليوم الواحد.\n\n"
+					"A Treasury Cash Journal already exists for station '{station}' "
+					"on {date}: {name}. Only one journal per station per day is allowed."
+				).format(
+					date=self.posting_date,
+					name=existing,
+					station=self.treasury_station,
+				),
+				title=_("يومية مكررة / Duplicate Journal"),
+			)
+
 	def _fetch_opening_balance(self):
-		if not self.opening_balance:
+		"""
+		Opening balance rules:
+		  - New doc (no name yet / is_new): always take station's current_balance.
+		    This is the balance at the moment the first entry is made today.
+		  - Existing doc already saved: keep the recorded opening_balance unchanged
+		    so that re-saves / re-validates don't drift the figure.
+		"""
+		if self.is_new() or not self.opening_balance:
 			self.opening_balance = flt(
 				frappe.db.get_value("Treasury Station", self.treasury_station, "current_balance")
 			)
 
 	def _recalculate_totals(self):
+		"""
+		Recompute total_inflows, total_outflows, and expected_balance from journal lines.
+		Bank Transfer lines are excluded from both inbound and outbound totals
+		(they are internal moves, not cash in/out of the vault).
+		"""
 		total_in = 0.0
 		total_out = 0.0
 		for line in self.journal_lines:
+			amt = flt(line.amount)
 			if line.direction == "Inbound":
-				total_in += flt(line.amount)
+				total_in += amt
 			elif line.direction == "Outbound":
-				total_out += flt(line.amount)
+				total_out += amt
+			# Bank Transfer: does not change vault cash balance — skip
 		self.total_inflows = total_in
 		self.total_outflows = total_out
 		self.expected_balance = flt(self.opening_balance) + total_in - total_out
