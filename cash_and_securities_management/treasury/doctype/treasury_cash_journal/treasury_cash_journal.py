@@ -235,9 +235,28 @@ class TreasuryCashJournal(Document):
 	# ─── Process Line ─────────────────────────────────────────────────────────────
 
 	def _process_line(self, line, vault_account):
+		"""
+		Process a single journal line:
+		  1. If the line came from a VPI that has a source Payment Entry → submit that PE
+		     and advance its workflow to 'Submitted to GL'.
+		  2. If the line is a Direct Expense → create a Journal Entry.
+		  3. If the line is an Advance Allocation → call custody settlement.
+		  4. Otherwise → create a new Payment Entry and submit it.
+		Returns the name of the created/submitted document.
+		"""
+		# ── Path 1: VPI-linked source document (Payment Entry from workflow) ──────
+		# The journal line's source_document field holds the original PE name
+		# (set by execute_pending_item in the cockpit API).
+		# We must submit that PE and advance its workflow instead of creating a new one.
+		source_pe_name = self._resolve_source_pe(line)
+		if source_pe_name:
+			return self._submit_and_advance_pe(source_pe_name, line)
+
+		# ── Path 2: Direct Expense → Journal Entry ───────────────────────────────
 		if line.transaction_category == "Direct Expense":
 			return self._create_direct_expense_je(line, vault_account)
 
+		# ── Path 3: Custody Advance Allocation ──────────────────────────────────
 		if (
 			line.direction == "Outbound"
 			and line.transaction_category == "Advance Allocation"
@@ -251,6 +270,84 @@ class TreasuryCashJournal(Document):
 				settlement_notes=line.narration or f"Settlement from Treasury Cash Journal {self.name}",
 			)
 
+		# ── Path 4: Manual entry (no VPI source) → create new Payment Entry ──────
+		return self._create_new_pe(line, vault_account)
+
+	def _resolve_source_pe(self, line):
+		"""
+		Resolve the original Payment Entry linked to this journal line via VPI.
+		Looks up in order:
+		  1. line.source_document (if source_doctype == 'Payment Entry')
+		  2. VPI.source_document via line.linked_document (VPI name)
+		Returns the PE name string, or None if not found.
+		"""
+		# Direct: source_document field on the journal line itself
+		if (
+			getattr(line, "source_doctype", "") == "Payment Entry"
+			and getattr(line, "source_document", "")
+			and frappe.db.exists("Payment Entry", line.source_document)
+		):
+			return line.source_document
+
+		# Via VPI: linked_document holds the VPI name
+		vpi_name = getattr(line, "linked_document", "")
+		if vpi_name and frappe.db.exists("Vault Pending Item", vpi_name):
+			vpi_source_type, vpi_source_doc = frappe.db.get_value(
+				"Vault Pending Item", vpi_name,
+				["source_document_type", "source_document"]
+			) or ("", "")
+			if vpi_source_type == "Payment Entry" and vpi_source_doc:
+				if frappe.db.exists("Payment Entry", vpi_source_doc):
+					return vpi_source_doc
+
+		return None
+
+	def _submit_and_advance_pe(self, pe_name, line):
+		"""
+		Submit an existing draft Payment Entry (from vault workflow) and
+		advance its workflow_state to 'Submitted to GL'.
+		Idempotent: if already submitted, just advances the workflow state.
+		"""
+		pe = frappe.get_doc("Payment Entry", pe_name)
+
+		if pe.docstatus == 0:  # Draft — submit it
+			pe.flags.ignore_permissions = True
+			pe.flags.ignore_mandatory = True
+			pe.flags.submitted_by_tcj = True
+			pe.submit()
+		elif pe.docstatus == 2:  # Cancelled — cannot reuse
+			frappe.throw(
+				_("Payment Entry {0} linked to row {1} has been cancelled and cannot be posted.").format(
+					pe_name, line.idx
+				)
+			)
+		# docstatus == 1 → already submitted, just advance workflow
+
+		# Advance workflow state to 'Submitted to GL'
+		try:
+			frappe.db.set_value("Payment Entry", pe_name, "workflow_state", "Submitted to GL")
+		except Exception as e:
+			# Non-fatal: log but don't block posting
+			frappe.log_error(
+				f"Could not advance workflow_state for PE {pe_name}: {e}",
+				"TCJ: PE Workflow Advance"
+			)
+
+		# Update the VPI linked to this line as well
+		vpi_name = getattr(line, "linked_document", "")
+		if vpi_name and frappe.db.exists("Vault Pending Item", vpi_name):
+			try:
+				frappe.db.set_value(
+					"Vault Pending Item", vpi_name,
+					"linked_journal", self.name
+				)
+			except Exception:
+				pass
+
+		return pe_name
+
+	def _create_new_pe(self, line, vault_account):
+		"""Create and submit a brand-new Payment Entry for manual cockpit entries."""
 		pe = frappe.new_doc("Payment Entry")
 		pe.posting_date = self.posting_date
 		pe.company = self.company
@@ -290,22 +387,7 @@ class TreasuryCashJournal(Document):
 		pe.custom_source_document_type = "Treasury Cash Journal"
 		pe.flags.ignore_permissions = True
 		pe.flags.ignore_mandatory = True
-		# V4: flag so CustodyPaymentEntry.before_submit() allows TCJ-triggered GL posting
 		pe.flags.submitted_by_tcj = True
-
-		# V4: if this line already has a linked PE (from vault pending item execution),
-		# reuse it instead of creating a duplicate
-		if line.linked_document and frappe.db.exists("Payment Entry", line.linked_document):
-			existing_pe = frappe.get_doc("Payment Entry", line.linked_document)
-			if existing_pe.docstatus == 0:  # Still draft
-				existing_pe.flags.ignore_permissions = True
-				existing_pe.flags.ignore_mandatory = True
-				existing_pe.flags.submitted_by_tcj = True
-				existing_pe.submit()
-				return existing_pe.name
-			elif existing_pe.docstatus == 1:  # Already submitted
-				return existing_pe.name
-
 		pe.insert()
 		pe.submit()
 		return pe.name
