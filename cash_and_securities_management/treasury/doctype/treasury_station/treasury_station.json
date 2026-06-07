@@ -34,7 +34,7 @@
   {
    "fieldname": "station_name",
    "fieldtype": "Data",
-   "label": "Station Name",
+   "label": "اسم المحطة",
    "reqd": 1,
    "in_list_view": 1,
    "unique": 1
@@ -42,7 +42,7 @@
   {
    "fieldname": "company",
    "fieldtype": "Link",
-   "label": "Company",
+   "label": "الشركة",
    "options": "Company",
    "reqd": 1,
    "in_list_view": 1,
@@ -51,8 +51,8 @@
   {
    "fieldname": "is_default",
    "fieldtype": "Check",
-   "label": "Default Station for Company",
-   "description": "When checked, the Cash Mode of Payment for this company will use this vault account by default. Only one station can be default per company.",
+   "label": "المحطة الافتراضية للشركة",
+   "description": "عند التفعيل، يتم تعيين حساب هذه الخزينة كحساب افتراضي لطريقة الدفع النقدي للشركة. لا يمكن تعيين أكثر من محطة افتراضية لكل شركة.",
    "default": "0"
   },
   {
@@ -63,41 +63,44 @@
    "default": "Open",
    "fieldname": "status",
    "fieldtype": "Select",
-   "label": "Status",
+   "label": "الحالة",
    "options": "\nOpen\nClosed",
    "in_list_view": 1,
-   "allow_on_submit": 1
+   "allow_on_submit": 1,
+   "read_only": 1,
+   "description": "يتم تغيير الحالة عبر أزرار الإجراءات فقط (فتح / إغلاق الخزينة)."
   },
   {
    "fieldname": "handover_date",
    "fieldtype": "Datetime",
-   "label": "Responsibility Since",
+   "label": "تاريخ الاستلام",
    "read_only": 1,
-   "description": "Date and time the current responsible employee took over this vault."
+   "description": "تاريخ ووقت استلام الموظف الحالي مسؤولية هذه الخزينة."
   },
   {
    "fieldname": "responsibility_section",
    "fieldtype": "Section Break",
-   "label": "Current Responsibility"
+   "label": "المسؤولية الحالية"
   },
   {
    "fieldname": "responsible_employee",
    "fieldtype": "Link",
-   "label": "Responsible Employee",
+   "label": "الموظف المسؤول",
    "options": "Employee",
    "reqd": 1,
    "allow_on_submit": 1,
-   "description": "The employee currently holding physical responsibility for this vault. Only this employee's linked user can operate the cockpit for this station.",
+   "read_only": 1,
+   "description": "الموظف المسؤول عن هذه الخزينة. يتم تغييره عبر زر 'نقل المسؤولية' فقط.",
    "in_list_view": 1
   },
   {
    "fieldname": "responsible_user",
    "fieldtype": "Link",
-   "label": "Responsible User",
+   "label": "المستخدم المسؤول",
    "options": "User",
    "read_only": 1,
    "allow_on_submit": 1,
-   "description": "Auto-populated from the employee's User ID. This user has exclusive cockpit access for this station."
+   "description": "يُعبأ تلقائياً من معرف المستخدم للموظف. هذا المستخدم لديه صلاحية الكوكبيت لهذه المحطة."
   },
   {
    "fieldname": "column_break_resp",
@@ -106,33 +109,33 @@
   {
    "fieldname": "vault_section",
    "fieldtype": "Section Break",
-   "label": "Vault GL Accounts"
+   "label": "حسابات الخزينة"
   },
   {
    "fieldname": "create_vault_account",
    "fieldtype": "Check",
-   "label": "Create New Vault Account",
-   "description": "Check to auto-create a dedicated Cash GL account for this vault under the selected parent account.",
+   "label": "إنشاء حساب خزينة جديد",
+   "description": "فعّل لإنشاء حساب نقدي مخصص لهذه الخزينة تحت الحساب الأب المحدد.",
    "default": "0"
   },
   {
    "fieldname": "parent_account",
    "fieldtype": "Link",
-   "label": "Parent Account (for new account)",
+   "label": "الحساب الأب (للحساب الجديد)",
    "options": "Account",
    "depends_on": "eval:doc.create_vault_account == 1",
-   "description": "The parent Cash-in-Hand account group under which the new vault account will be created.",
+   "description": "مجموعة حسابات النقدية التي سيُنشأ تحتها حساب الخزينة الجديد.",
    "get_query": "{ filters: { account_type: 'Cash', is_group: 1 } }"
   },
   {
    "fieldname": "vault_account",
    "fieldtype": "Link",
-   "label": "Vault Cash Account",
+   "label": "حساب الخزينة النقدي",
    "options": "Account",
    "reqd": 0,
    "depends_on": "eval:doc.create_vault_account == 0",
    "allow_on_submit": 0,
-   "description": "The GL Cash Account representing the physical vault. Locked after submit. All cash transactions debit or credit this account."
+   "description": "حساب النقدية في دفتر الأستاذ الذي يمثل هذه الخزينة الفعلية. يُقفل بعد الإرسال."
   },
   {
    "fieldname": "column_break_vault",
@@ -141,21 +144,21 @@
   {
    "fieldname": "shortage_account",
    "fieldtype": "Link",
-   "label": "Shortage / Overage Account",
+   "label": "حساب الفروقات",
    "options": "Account",
-   "description": "GL Account used to post cash variance discovered during end-of-day denomination count."
+   "description": "حساب دفتر الأستاذ المستخدم لترحيل فروقات النقدية."
   },
   {
    "fieldname": "balance_section",
    "fieldtype": "Section Break",
-   "label": "Running Balances"
+   "label": "الأرصدة الجارية"
   },
   {
    "fieldname": "opening_balance",
    "fieldtype": "Currency",
-   "label": "Opening Balance",
+   "label": "الرصيد الافتتاحي",
    "read_only": 1,
-   "description": "Fetched from the actual GL balance of the vault account at day open."
+   "description": "يُجلب من الرصيد الفعلي لحساب الخزينة في دفتر الأستاذ عند فتح اليوم."
   },
   {
    "fieldname": "column_break_balance",
@@ -164,27 +167,27 @@
   {
    "fieldname": "current_balance",
    "fieldtype": "Currency",
-   "label": "Current Balance",
+   "label": "الرصيد الحالي",
    "read_only": 1
   },
   {
    "fieldname": "last_closing_date",
    "fieldtype": "Date",
-   "label": "Last Closing Date",
+   "label": "تاريخ آخر إقفال",
    "read_only": 1
   },
   {
    "fieldname": "transfer_log_section",
    "fieldtype": "Section Break",
-   "label": "Responsibility Transfer Log"
+   "label": "سجل نقل المسؤولية"
   },
   {
    "fieldname": "responsibility_log",
    "fieldtype": "Table",
-   "label": "Responsibility Log",
+   "label": "سجل المسؤولية",
    "options": "Vault Responsibility Log",
    "read_only": 1,
-   "description": "Immutable audit trail of all vault responsibility transfers."
+   "description": "سجل غير قابل للتعديل لجميع عمليات نقل مسؤولية الخزينة."
   }
  ],
  "links": [],
@@ -234,6 +237,21 @@
    "read": 1,
    "report": 0,
    "role": "Accounts User",
+   "share": 0,
+   "submit": 0,
+   "cancel": 0,
+   "amend": 0,
+   "write": 0
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "export": 0,
+   "print": 1,
+   "read": 1,
+   "report": 0,
+   "role": "Treasury Vault User",
    "share": 0,
    "submit": 0,
    "cancel": 0,

@@ -1,6 +1,7 @@
 // Treasury Station — Client Script
-// Adds: Transfer Responsibility button, responsible_user auto-fill,
-//       vault_account lock after submit, Arabic field labels
+// - responsible_employee is read-only; changed only via "نقل المسؤولية" action (managers only)
+// - status is read-only; changed only via "فتح الخزينة" / "إغلاق الخزينة" action buttons (managers only)
+// - Treasury Vault User can read the station and open the cockpit
 
 frappe.ui.form.on("Treasury Station", {
 
@@ -43,41 +44,51 @@ frappe.ui.form.on("Treasury Station", {
 			frm.set_df_property("station_name", "read_only", 1);
 		}
 
-		// Show Transfer Responsibility button for managers on submitted doc
-		if (frm.doc.docstatus === 1 && _isManager()) {
-			frm.add_custom_button(__("نقل المسؤولية"), () => {
-				_showTransferDialog(frm);
-			}, __("الإجراءات"));
+		// responsible_employee and status are always read-only (changed via actions only)
+		frm.set_df_property("responsible_employee", "read_only", 1);
+		frm.set_df_property("responsible_user", "read_only", 1);
+		frm.set_df_property("status", "read_only", 1);
+
+		// ── Action Buttons for submitted docs ──────────────────────────────────
+		if (frm.doc.docstatus === 1) {
+
+			// Managers: Transfer Responsibility
+			if (_isManager()) {
+				frm.add_custom_button(__("نقل المسؤولية"), () => {
+					_showTransferDialog(frm);
+				}, __("الإجراءات"));
+			}
+
+			// Managers: Open / Close station
+			if (_isManager()) {
+				if (frm.doc.status !== "Open") {
+					frm.add_custom_button(__("فتح الخزينة"), () => {
+						_changeStatus(frm, "Open");
+					}, __("الإجراءات"));
+				}
+				if (frm.doc.status !== "Closed") {
+					frm.add_custom_button(__("إغلاق الخزينة"), () => {
+						_changeStatus(frm, "Closed");
+					}, __("الإجراءات"));
+				}
+			}
+
+			// All users with cockpit access: open cockpit button
+			frm.add_custom_button(__("فتح الكوكبيت"), () => {
+				frappe.route_options = {
+					station: frm.doc.name,
+					date: frappe.datetime.get_today(),
+				};
+				frappe.set_route("treasury-cash-journal-cockpit");
+			});
 		}
 
 		// Show/hide parent_account based on create_vault_account
 		frm.toggle_display("parent_account", frm.doc.create_vault_account);
 		frm.toggle_display("vault_account", !frm.doc.create_vault_account);
-
-		// Translate field labels to Arabic
-		_setArabicLabels(frm);
 	},
 
 	// ─── Field Events ──────────────────────────────────────────────────────────
-
-	responsible_employee(frm) {
-		if (!frm.doc.responsible_employee) {
-			frm.set_value("responsible_user", "");
-			return;
-		}
-		frappe.db.get_value("Employee", frm.doc.responsible_employee, "user_id", (r) => {
-			if (r && r.user_id) {
-				frm.set_value("responsible_user", r.user_id);
-			} else {
-				frappe.msgprint({
-					title: __("تحذير"),
-					message: __("الموظف {0} لا يملك حساب مستخدم مرتبط. يرجى تعيين معرف المستخدم في سجل الموظف أولاً.", [frm.doc.responsible_employee]),
-					indicator: "orange",
-				});
-				frm.set_value("responsible_user", "");
-			}
-		});
-	},
 
 	create_vault_account(frm) {
 		frm.toggle_display("parent_account", frm.doc.create_vault_account);
@@ -97,6 +108,32 @@ frappe.ui.form.on("Treasury Station", {
 		}
 	},
 });
+
+// ─── Change Station Status ────────────────────────────────────────────────────
+
+function _changeStatus(frm, new_status) {
+	const label = new_status === "Open" ? __("فتح الخزينة") : __("إغلاق الخزينة");
+	const indicator = new_status === "Open" ? "green" : "orange";
+
+	frappe.confirm(
+		__("هل أنت متأكد من {0}؟", [label]),
+		() => {
+			frappe.call({
+				method: "cash_and_securities_management.treasury.doctype.treasury_station.treasury_station.set_station_status",
+				args: {
+					station: frm.doc.name,
+					status: new_status,
+				},
+				callback(r) {
+					if (!r.exc) {
+						frappe.show_alert({ message: __("تم {0} بنجاح.", [label]), indicator }, 4);
+						frm.reload_doc();
+					}
+				},
+			});
+		}
+	);
+}
 
 // ─── Transfer Responsibility Dialog ──────────────────────────────────────────
 
@@ -139,31 +176,6 @@ function _showTransferDialog(frm) {
 		},
 	});
 	d.show();
-}
-
-// ─── Arabic Labels ────────────────────────────────────────────────────────────
-
-function _setArabicLabels(frm) {
-	const labels = {
-		station_name:        "اسم المحطة",
-		company:             "الشركة",
-		is_default:          "المحطة الافتراضية للشركة",
-		status:              "الحالة",
-		handover_date:       "تاريخ الاستلام",
-		responsible_employee:"الموظف المسؤول",
-		responsible_user:    "المستخدم المسؤول",
-		create_vault_account:"إنشاء حساب خزينة جديد",
-		parent_account:      "الحساب الأب",
-		vault_account:       "حساب الخزينة النقدي",
-		shortage_account:    "حساب الفروقات",
-		opening_balance:     "الرصيد الافتتاحي",
-		current_balance:     "الرصيد الحالي",
-		last_closing_date:   "تاريخ آخر إقفال",
-		responsibility_log:  "سجل نقل المسؤولية",
-	};
-	Object.entries(labels).forEach(([field, label]) => {
-		frm.set_df_property(field, "label", label);
-	});
 }
 
 // ─── Role Check ───────────────────────────────────────────────────────────────

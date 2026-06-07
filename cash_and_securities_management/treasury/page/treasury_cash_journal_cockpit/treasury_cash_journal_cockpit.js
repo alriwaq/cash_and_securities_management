@@ -441,6 +441,28 @@ class TreasuryCashJournal {
 				const data = r.message;
 				this.stationData = data.station;
 				this.openingBalance = data.opening_balance || 0;
+
+				// Show station-closed banner if status is not Open
+				$("#tcj-station-closed-banner").remove();
+				if (data.station && data.station.status !== "Open") {
+					const closedBanner = $(`
+						<div id="tcj-station-closed-banner" class="alert alert-warning d-flex align-items-center mt-2" role="alert" style="font-size:0.9rem;">
+							<i class="fa fa-lock fa-lg mr-3" style="color:#856404;"></i>
+							<div>
+								<strong>الخزينة مغلقة</strong><br/>
+								حالة المحطة <b>${data.station.name}</b> هي <b>${data.station.status || 'Closed'}</b>.
+								لا يمكن تسجيل أي حركات حتى يتم فتح الخزينة من قِبل المدير.
+							</div>
+						</div>
+					`);
+					$(".tcj-header").after(closedBanner);
+					$("#tcj-add-txn-btn, #tcj-save-btn, #tcj-post-btn").prop("disabled", true).attr("title", "الخزينة مغلقة — لا يمكن تسجيل حركات");
+				} else {
+					// Only re-enable if the prior-draft banner is not also blocking
+					if ($("#tcj-prior-draft-banner").length === 0) {
+						$("#tcj-add-txn-btn, #tcj-save-btn, #tcj-post-btn").prop("disabled", false).removeAttr("title");
+					}
+				}
 				this.journalName = data.journal_name || null;
 				this.journalStatus = (data.existing && data.existing.posting_status) || "Draft";
 				this.posted = this.journalStatus === "Posted" || this.journalStatus === "Closed";

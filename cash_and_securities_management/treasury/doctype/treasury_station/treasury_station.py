@@ -18,7 +18,13 @@ class TreasuryStation(Document):
 	  Draft  → configure vault account, assign responsible employee
 	  Submit → locks vault_account and company; sets Cash MoP default account;
 	           initialises responsibility log; sets opening_balance from GL
-	  Transfer Responsibility → custom action to hand over vault to another employee
+
+	Status Control (submitted docs only, managers only):
+	  Open   → vault accepts cockpit entries and payment entries
+	  Closed → vault is locked; no new entries allowed
+
+	Responsible Employee (submitted docs only, managers only):
+	  Changed only via "نقل المسؤولية" action button, never by direct field edit.
 	"""
 
 	# ─── Validate ────────────────────────────────────────────────────────────────
@@ -28,6 +34,18 @@ class TreasuryStation(Document):
 		self._validate_vault_account()
 		self._populate_responsible_user()
 		self._enforce_single_default()
+		# Block direct edits to responsible_employee on submitted docs
+		if self.docstatus == 1 and self.has_value_changed("responsible_employee"):
+			frappe.throw(
+				_("الموظف المسؤول لا يمكن تغييره مباشرةً. يرجى استخدام زر 'نقل المسؤولية'."),
+				frappe.PermissionError,
+			)
+		# Block direct edits to status on submitted docs
+		if self.docstatus == 1 and self.has_value_changed("status"):
+			frappe.throw(
+				_("حالة الخزينة لا يمكن تغييرها مباشرةً. يرجى استخدام أزرار 'فتح الخزينة' أو 'إغلاق الخزينة'."),
+				frappe.PermissionError,
+			)
 
 	def _auto_create_vault_account(self):
 		"""Create a dedicated Cash GL account for this vault if requested."""
@@ -37,9 +55,9 @@ class TreasuryStation(Document):
 			return  # Already created
 
 		if not self.parent_account:
-			frappe.throw(_("Please select a Parent Account to create the vault account under."))
+			frappe.throw(_("يرجى تحديد الحساب الأب لإنشاء حساب الخزينة تحته."))
 		if not self.company:
-			frappe.throw(_("Please select a Company before creating a new vault account."))
+			frappe.throw(_("يرجى تحديد الشركة قبل إنشاء حساب خزينة جديد."))
 
 		company_abbr = frappe.db.get_value("Company", self.company, "abbr") or ""
 		account_name = f"Vault - {self.station_name}"
@@ -52,8 +70,8 @@ class TreasuryStation(Document):
 		parent_type = frappe.db.get_value("Account", self.parent_account, "account_type")
 		if parent_type not in ("Cash", "Bank"):
 			frappe.throw(
-				_("Parent Account must be of type 'Cash' or 'Bank'. '{0}' is of type '{1}'.").format(
-					self.parent_account, parent_type or "Unknown"
+				_("الحساب الأب يجب أن يكون من نوع 'Cash' أو 'Bank'. الحساب '{0}' من نوع '{1}'.").format(
+					self.parent_account, parent_type or "غير معروف"
 				)
 			)
 
@@ -69,7 +87,7 @@ class TreasuryStation(Document):
 
 		self.vault_account = acc.name
 		frappe.msgprint(
-			_("Vault GL Account '{0}' created and linked to this station.").format(acc.name),
+			_("تم إنشاء حساب الخزينة '{0}' وربطه بهذه المحطة.").format(acc.name),
 			indicator="green",
 			alert=True,
 		)
@@ -79,12 +97,12 @@ class TreasuryStation(Document):
 			return  # Will be created on save
 		if not self.vault_account:
 			frappe.throw(
-				_("Vault Cash Account is required. Either select an existing account or check 'Create New Vault Account'.")
+				_("حساب الخزينة النقدي مطلوب. يرجى تحديد حساب موجود أو تفعيل 'إنشاء حساب خزينة جديد'.")
 			)
 		account_type = frappe.db.get_value("Account", self.vault_account, "account_type")
 		if account_type not in ("Cash", "Bank"):
 			frappe.throw(
-				_("Vault Cash Account must be of type 'Cash' or 'Bank'. Selected account '{0}' is of type '{1}'.").format(
+				_("حساب الخزينة يجب أن يكون من نوع 'Cash' أو 'Bank'. الحساب '{0}' من نوع '{1}'.").format(
 					self.vault_account, account_type
 				)
 			)
@@ -96,7 +114,7 @@ class TreasuryStation(Document):
 		user_id = frappe.db.get_value("Employee", self.responsible_employee, "user_id")
 		if not user_id:
 			frappe.throw(
-				_("Employee {0} does not have a linked User. Please set the User ID on the Employee record first.").format(
+				_("الموظف {0} لا يملك حساب مستخدم مرتبط. يرجى تعيين معرف المستخدم في سجل الموظف أولاً.").format(
 					frappe.bold(self.responsible_employee)
 				)
 			)
@@ -121,21 +139,16 @@ class TreasuryStation(Document):
 	# ─── On Submit ───────────────────────────────────────────────────────────────
 
 	def on_submit(self):
-		"""
-		On submit:
-		1. Validate vault account is set
-		2. Set Cash Mode of Payment default account for this company (if is_default)
-		3. Initialise the responsibility log with the first entry
-		4. Set opening_balance from GL
-		"""
 		if not self.vault_account:
-			frappe.throw(_("Vault Cash Account is mandatory before submitting a Treasury Station."))
-
+			frappe.throw(_("حساب الخزينة النقدي مطلوب قبل إرسال المحطة."))
 		if not self.responsible_employee:
-			frappe.throw(_("Responsible Employee is mandatory before submitting a Treasury Station."))
+			frappe.throw(_("الموظف المسؤول مطلوب قبل إرسال المحطة."))
 
 		if self.is_default:
 			self._set_cash_mop_account()
+
+		# Set initial status to Open
+		frappe.db.set_value("Treasury Station", self.name, "status", "Open")
 
 		# Initialise responsibility log if empty
 		if not self.responsibility_log:
@@ -145,7 +158,7 @@ class TreasuryStation(Document):
 				"from_date": now_datetime(),
 				"to_date": None,
 				"transferred_by": frappe.session.user,
-				"handover_notes": _("Initial assignment on station submission."),
+				"handover_notes": _("التعيين الأولي عند إرسال المحطة."),
 			})
 			frappe.db.set_value("Treasury Station", self.name, "handover_date", now_datetime())
 			self.db_update()
@@ -158,7 +171,7 @@ class TreasuryStation(Document):
 		mop_name = frappe.db.get_value("Mode of Payment", {"type": "Cash"}, "name")
 		if not mop_name:
 			frappe.msgprint(
-				_("No 'Cash' Mode of Payment found. Please create one and set the default account manually."),
+				_("لم يتم العثور على طريقة دفع 'Cash'. يرجى إنشاؤها وتعيين الحساب الافتراضي يدوياً."),
 				indicator="orange",
 			)
 			return
@@ -180,7 +193,7 @@ class TreasuryStation(Document):
 		mop.flags.ignore_permissions = True
 		mop.save()
 		frappe.msgprint(
-			_("Cash Mode of Payment default account set to '{0}' for {1}.").format(
+			_("تم تعيين حساب الخزينة '{0}' كحساب افتراضي لطريقة الدفع النقدي للشركة {1}.").format(
 				self.vault_account, self.company
 			),
 			indicator="green",
@@ -210,18 +223,18 @@ class TreasuryStation(Document):
 		_assert_manager_role()
 
 		if not new_employee:
-			frappe.throw(_("New Employee is required for responsibility transfer."))
+			frappe.throw(_("الموظف الجديد مطلوب لنقل المسؤولية."))
 
 		new_user = frappe.db.get_value("Employee", new_employee, "user_id")
 		if not new_user:
 			frappe.throw(
-				_("Employee {0} does not have a linked User. Please set the User ID on the Employee record first.").format(
+				_("الموظف {0} لا يملك حساب مستخدم مرتبط. يرجى تعيين معرف المستخدم في سجل الموظف أولاً.").format(
 					frappe.bold(new_employee)
 				)
 			)
 
 		if new_employee == self.responsible_employee:
-			frappe.throw(_("The new employee is already responsible for this station."))
+			frappe.throw(_("الموظف الجديد هو نفسه المسؤول الحالي عن هذه المحطة."))
 
 		now = now_datetime()
 
@@ -253,9 +266,7 @@ class TreasuryStation(Document):
 		})
 
 		frappe.msgprint(
-			_("Vault responsibility transferred to {0} successfully.").format(
-				frappe.bold(new_employee)
-			),
+			_("تم نقل مسؤولية الخزينة إلى {0} بنجاح.").format(frappe.bold(new_employee)),
 			indicator="green",
 		)
 
@@ -279,10 +290,10 @@ class TreasuryStation(Document):
 		if abs(gl_balance - expected) > 0.01:
 			frappe.throw(
 				_(
-					"Day-close validation failed for station {0}.\n"
-					"Expected balance (from journal): {1}\n"
-					"Actual GL balance of {2}: {3}\n\n"
-					"Please post a variance entry or correct the journal lines before closing."
+					"فشل التحقق من الرصيد عند إقفال اليوم للمحطة {0}.\n"
+					"الرصيد المتوقع (من اليومية): {1}\n"
+					"الرصيد الفعلي لحساب {2}: {3}\n\n"
+					"يرجى ترحيل قيد الفروقات أو تصحيح سطور اليومية قبل الإقفال."
 				).format(
 					self.name,
 					frappe.format_value(expected, {"fieldtype": "Currency"}),
@@ -290,6 +301,31 @@ class TreasuryStation(Document):
 					frappe.format_value(gl_balance, {"fieldtype": "Currency"}),
 				)
 			)
+
+
+# ─── Whitelisted: Set Station Status ─────────────────────────────────────────
+
+@frappe.whitelist()
+def set_station_status(station, status):
+	"""
+	Open or close a Treasury Station.
+	Only Accounts Manager, System Manager, and Administrator can call this.
+	"""
+	_assert_manager_role()
+
+	if status not in ("Open", "Closed"):
+		frappe.throw(_("الحالة يجب أن تكون 'Open' أو 'Closed'."))
+
+	current = frappe.db.get_value("Treasury Station", station, ["status", "docstatus"], as_dict=True)
+	if not current:
+		frappe.throw(_("المحطة {0} غير موجودة.").format(station))
+	if current.docstatus != 1:
+		frappe.throw(_("يمكن تغيير حالة المحطة فقط بعد إرسالها (Submit)."))
+	if current.status == status:
+		frappe.throw(_("المحطة بالفعل في حالة {0}.").format(status))
+
+	frappe.db.set_value("Treasury Station", station, "status", status)
+	frappe.db.commit()
 
 
 # ─── Helper ──────────────────────────────────────────────────────────────────
@@ -303,6 +339,6 @@ def _assert_manager_role():
 	allowed = {"System Manager", "Accounts Manager"}
 	if not allowed.intersection(roles):
 		frappe.throw(
-			_("Only Accounts Manager or System Manager can perform this action."),
+			_("هذا الإجراء مسموح به فقط لـ Accounts Manager أو System Manager."),
 			frappe.PermissionError,
 		)

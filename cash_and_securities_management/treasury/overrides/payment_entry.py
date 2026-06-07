@@ -75,7 +75,26 @@ class CustodyPaymentEntry(PaymentEntry):
 		"""
 		For custody PEs, bypass ERPNext's strict party-type / account-type
 		validation before calling the standard validate chain.
+		For vault cash PEs, block saving if the station is not Open.
 		"""
+		# V4: Block saving a cash PE if the vault station is Closed
+		if self._is_vault_cash_payment():
+			paid_from_station = self._get_vault_station_for_account(self.get("paid_from"))
+			paid_to_station = self._get_vault_station_for_account(self.get("paid_to"))
+			station = paid_from_station or paid_to_station
+			if station:
+				status = frappe.db.get_value("Treasury Station", station, "status")
+				if status != "Open":
+					frappe.throw(
+						_(
+							"لا يمكن حفظ سند الدفع لأن خزينة المحطة '{station}' مغلقة حالياً.\n"
+							"يرجى فتح الخزينة أولاً عبر زر 'فتح الخزينة' في سجل المحطة.\n\n"
+							"Cannot save Payment Entry: Station '{station}' is currently Closed. "
+							"Please open the station first."
+						).format(station=station),
+						title=_("الخزينة مغلقة / Station Closed"),
+					)
+
 		if self._is_custody_mode():
 			# Ensure party fields are always set for custody PEs
 			if not self.get("party_type"):
@@ -165,6 +184,19 @@ class CustodyPaymentEntry(PaymentEntry):
 					self.append("references", ref)
 
 	# ─── V4: Vault Workflow Guard ────────────────────────────────────────────────
+
+	def _get_vault_station_for_account(self, account):
+		"""
+		Return the Treasury Station name whose vault_account matches `account`,
+		or None if no match found.
+		"""
+		if not account:
+			return None
+		return frappe.db.get_value(
+			"Treasury Station",
+			{"vault_account": account, "docstatus": 1},
+			"name",
+		)
 
 	def _is_vault_cash_payment(self):
 		"""

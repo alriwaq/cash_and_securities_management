@@ -12,13 +12,7 @@
   "default_shortage_account",
   "column_break_1",
   "default_company",
-  "default_currency",
-  "denomination_section",
-  "require_denomination_count",
-  "allow_variance_posting",
-  "column_break_2",
-  "max_variance_allowed",
-  "variance_narration_mandatory"
+  "default_currency"
  ],
  "fields": [
   {
@@ -55,43 +49,6 @@
    "fieldtype": "Link",
    "label": "Default Currency",
    "options": "Currency"
-  },
-  {
-   "fieldname": "denomination_section",
-   "fieldtype": "Section Break",
-   "label": "Denomination & Variance Rules"
-  },
-  {
-   "fieldname": "require_denomination_count",
-   "fieldtype": "Check",
-   "label": "Require Denomination Count Before Posting",
-   "default": "0",
-   "description": "If enabled, the teller must complete the denomination drawer before clicking Post Journal."
-  },
-  {
-   "fieldname": "allow_variance_posting",
-   "fieldtype": "Check",
-   "label": "Allow Posting with Variance",
-   "default": "1",
-   "description": "If enabled, journals with a cash variance can still be posted (a narration is required)."
-  },
-  {
-   "fieldname": "column_break_2",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "max_variance_allowed",
-   "fieldtype": "Currency",
-   "label": "Maximum Variance Allowed",
-   "default": "0",
-   "description": "If set, posting is blocked when the absolute variance exceeds this amount. Set 0 to disable."
-  },
-  {
-   "fieldname": "variance_narration_mandatory",
-   "fieldtype": "Check",
-   "label": "Variance Narration is Mandatory",
-   "default": "1",
-   "description": "If enabled, a narration must be entered whenever a variance exists."
   }
  ],
  "idx": 0,

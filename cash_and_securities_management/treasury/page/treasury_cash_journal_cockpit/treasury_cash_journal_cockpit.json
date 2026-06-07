@@ -16,6 +16,9 @@
   },
   {
    "role": "Accounts User"
+  },
+  {
+   "role": "Treasury Vault User"
   }
  ],
  "standard": "Yes",

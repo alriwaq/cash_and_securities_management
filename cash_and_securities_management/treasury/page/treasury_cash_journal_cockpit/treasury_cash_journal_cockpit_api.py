@@ -178,6 +178,24 @@ def check_prior_draft(station, today):
 	return prior or {}
 
 
+def _assert_station_open(station):
+	"""
+	Block any cockpit activity if the station is not in 'Open' status.
+	Raises frappe.ValidationError with a clear Arabic/English message.
+	"""
+	status = frappe.db.get_value("Treasury Station", station, "status")
+	if status != "Open":
+		frappe.throw(
+			_(
+				"الخزينة '{station}' مغلقة حالياً ولا تقبل أي قيود جديدة.\n"
+				"يرجى فتح الخزينة أولاً عبر زر 'فتح الخزينة' في سجل المحطة.\n\n"
+				"Station '{station}' is currently Closed. "
+				"Please open it via the 'Open Station' action button before making entries."
+			).format(station=station),
+			title=_("الخزينة مغلقة / Station Closed"),
+		)
+
+
 def _assert_no_unsent_prior_draft(station, today):
 	"""
 	Block any new cockpit activity for `today` if the station already has
@@ -226,6 +244,8 @@ def save_journal_draft(station, posting_date, lines, journal_name=None):
 			frappe.throw(_("Cannot edit a Posted or Closed journal."))
 		doc.journal_lines = []
 	else:
+		# Guard: block if station is closed
+		_assert_station_open(station)
 		# Guard: block new journal if a prior-date Draft was not sent for review
 		_assert_no_unsent_prior_draft(station, posting_date)
 		doc = frappe.new_doc("Treasury Cash Journal")
@@ -350,6 +370,9 @@ def execute_pending_item(item_name, actual_amount=None, narration=None):
 	item = frappe.get_doc("Vault Pending Item", item_name)
 	executed_name = item.execute(actual_amount=actual_amount, narration=narration)
 
+	# Guard: block if station is closed
+	_assert_station_open(item.treasury_station)
+
 	# Auto-add to today's journal draft (use today's date = cockpit date, not VPI creation date)
 	station = item.treasury_station
 	posting_date = frappe.utils.today()
@@ -455,6 +478,8 @@ def create_and_execute_immediate(
 	if not posting_date:
 		posting_date = nowdate()
 
+	# Guard: block if station is closed
+	_assert_station_open(station)
 	# Guard: block if a prior-date Draft was not sent for review
 	_assert_no_unsent_prior_draft(station, posting_date)
 
