@@ -314,6 +314,48 @@ def post_journal(journal_name, actual_balance=None, variance_narration=None):
 # ─── V4: Vault Pending Items API ──────────────────────────────────────────────
 
 @frappe.whitelist()
+def sync_pending_from_payment_entries(station):
+	"""
+	V4 Recovery: Scan all Cash Payment Entries with workflow_state='Pending Vault Approval'
+	that have no linked Vault Pending Item yet, and create VPIs for them.
+	Called from the cockpit 'Refresh' button or on page load.
+	Returns the count of new VPIs created.
+	"""
+	from cash_and_securities_management.treasury.doctype.vault_pending_item.vault_pending_hooks import (
+		_create_vpi_from_pe, _already_has_pending
+	)
+
+	# Find all PE with workflow_state = 'Pending Vault Approval' that have no VPI
+	pending_pes = frappe.db.sql("""
+		SELECT pe.name, pe.company, pe.payment_type, pe.paid_from, pe.paid_to,
+			   pe.party_type, pe.party, pe.paid_amount, pe.remarks, pe.mode_of_payment
+		FROM `tabPayment Entry` pe
+		WHERE pe.workflow_state = 'Pending Vault Approval'
+		  AND pe.docstatus = 0
+		  AND NOT EXISTS (
+			SELECT 1 FROM `tabVault Pending Item` vpi
+			WHERE vpi.source_document_type = 'Payment Entry'
+			  AND vpi.source_document = pe.name
+			  AND vpi.status != 'Cancelled'
+		  )
+	""", as_dict=True)
+
+	created = 0
+	for pe_data in pending_pes:
+		try:
+			pe_doc = frappe.get_doc("Payment Entry", pe_data.name)
+			_create_vpi_from_pe(pe_doc)
+			created += 1
+		except Exception as e:
+			frappe.log_error(
+				f"sync_pending_from_payment_entries: failed for {pe_data.name}: {e}",
+				"VPI Sync"
+			)
+
+	return {"created": created, "total_found": len(pending_pes)}
+
+
+@frappe.whitelist()
 def get_pending_items(station, posting_date=None):
 	"""
 	V4: Return ALL Pending/Draft Vault Pending Items for the given station,

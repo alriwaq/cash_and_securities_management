@@ -29,14 +29,26 @@ from frappe.utils import flt, nowdate
 
 def _get_vault_station_for_account(company, cash_account):
 	"""
-	Return the open Treasury Station whose vault_account matches cash_account.
-	Falls back to default station, then any open station for the company.
+	Return the submitted Treasury Station whose vault_account matches cash_account.
+	Falls back to default station, then any submitted station for the company.
+	Note: does NOT filter by status='Open' here — the station may be Open or Closed
+	at the time the VPI is created (workflow action fires before the teller opens it).
+	The cockpit will still show the VPI; the station-open guard is enforced at execute time.
 	"""
 	if cash_account:
-		# Primary: match by vault account (exact routing)
+		# Primary: match by vault account (exact routing) — submitted stations only
 		station = frappe.db.get_value(
 			"Treasury Station",
-			{"company": company, "status": "Open", "vault_account": cash_account},
+			{"company": company, "docstatus": 1, "vault_account": cash_account},
+			"name",
+		)
+		if station:
+			return station
+
+		# Fallback 0: match by account ignoring company (cross-company edge case)
+		station = frappe.db.get_value(
+			"Treasury Station",
+			{"docstatus": 1, "vault_account": cash_account},
 			"name",
 		)
 		if station:
@@ -45,16 +57,16 @@ def _get_vault_station_for_account(company, cash_account):
 	# Fallback 1: default station for company
 	station = frappe.db.get_value(
 		"Treasury Station",
-		{"company": company, "status": "Open", "is_default": 1},
+		{"company": company, "docstatus": 1, "is_default": 1},
 		"name",
 	)
 	if station:
 		return station
 
-	# Fallback 2: any open station for company
+	# Fallback 2: any submitted station for company
 	return frappe.db.get_value(
 		"Treasury Station",
-		{"company": company, "status": "Open"},
+		{"company": company, "docstatus": 1},
 		"name",
 	)
 
@@ -98,8 +110,17 @@ def on_payment_entry_workflow_action(doc, method=None, workflow_action=None):
 	Creates a Vault Pending Item so the vault teller can see it in the cockpit.
 	The PE stays in Draft (docstatus=0) until the TCJ submits it to GL.
 	"""
-	if workflow_action != "إرسال للموافقة":
+	# Log the action for debugging
+	frappe.logger().info(
+		f"[VaultPendingHook] on_payment_entry_workflow_action: doc={doc.name}, "
+		f"action='{workflow_action}', mode={doc.mode_of_payment}"
+	)
+
+	# Accept both Arabic and English action names for robustness
+	submit_actions = {"إرسال للموافقة", "Send for Vault Approval", "Submit for Approval"}
+	if workflow_action not in submit_actions:
 		return
+
 	_create_vpi_from_pe(doc)
 
 

@@ -1588,6 +1588,27 @@ class TreasuryCashJournal {
 
 		console.log("[TCJ-Pending] Loading pending items for station:", station);
 
+		// First: sync any PEs with 'Pending Vault Approval' that have no VPI yet
+		frappe.call({
+			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.sync_pending_from_payment_entries",
+			args: { station },
+			callback: (syncResult) => {
+				const synced = (syncResult.message || {}).created || 0;
+				if (synced > 0) {
+					console.log(`[TCJ-Pending] Synced ${synced} new VPIs from Payment Entries`);
+					frappe.show_alert({ message: `تم مزامنة ${synced} حركة معلقة جديدة من سندات الدفع`, indicator: "blue" }, 4);
+				}
+				// Now fetch the full list
+				this._fetchPendingItems(station, date);
+			},
+			error: () => {
+				// Even if sync fails, still try to load the list
+				this._fetchPendingItems(station, date);
+			},
+		});
+	}
+
+	_fetchPendingItems(station, date) {
 		frappe.call({
 			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.get_pending_items",
 			args: { station, posting_date: date },
