@@ -381,43 +381,80 @@ class TreasuryCashJournal {
 		});
 	}
 
-	_initDenomTable() {
+		_initDenomTable() {
 		const denoms = [200, 100, 50, 20, 10, 5];
 		const tbody = $("#tcj-denom-tbody");
 		tbody.empty();
 		denoms.forEach((d) => {
 			tbody.append(`
 				<tr data-denom="${d}">
-					<td>${d}</td>
-					<td><input type="number" class="form-control form-control-sm denom-count"
-					           min="0" value="0" data-denom="${d}" style="width:80px;" /></td>
-					<td class="text-right denom-line-total">0.00</td>
+					<td style="font-weight:600; font-size:1rem;">${d}</td>
+					<td>
+						<input type="number" class="form-control form-control-sm denom-count"
+						       min="0" value="0" data-denom="${d}"
+						       style="width:90px; text-align:center;"
+						       placeholder="0" />
+					</td>
+					<td class="text-right denom-line-total"
+					    style="font-weight:600; color:#495057;">0.00</td>
 				</tr>
 			`);
 		});
-		$(document).on("input", ".denom-count", () => this._calcDenomTotal());
+		// Unbind any previous listener to avoid double-firing
+		$(document).off("input.denom").on("input.denom", ".denom-count", (e) => {
+			// Update only the changed row immediately for snappy feedback
+			const input  = $(e.target);
+			const count  = parseFloat(input.val()) || 0;
+			const denom  = parseFloat(input.data("denom")) || 0;
+			const lineTotal = count * denom;
+			input.closest("tr").find(".denom-line-total")
+				.text(this._fmtNum(lineTotal))
+				.css("color", lineTotal > 0 ? "#155724" : "#495057");
+			// Then recalculate grand total + KPI comparison
+			this._calcDenomTotal();
+		});
 	}
-
 	_calcDenomTotal() {
 		let total = 0;
-		$(".denom-count").each(function () {
-			const count = parseFloat($(this).val()) || 0;
-			const denom = parseFloat($(this).data("denom"));
+		$("#tcj-denom-tbody .denom-count").each((_, el) => {
+			const count     = parseFloat($(el).val()) || 0;
+			const denom     = parseFloat($(el).data("denom")) || 0;
 			const lineTotal = count * denom;
-			$(this).closest("tr").find(".denom-line-total").text(
-				frappe.utils.format_number(lineTotal, null, 2)
-			);
+			$(el).closest("tr").find(".denom-line-total")
+				.text(this._fmtNum(lineTotal))
+				.css("color", lineTotal > 0 ? "#155724" : "#495057");
 			total += lineTotal;
 		});
-		const expected = this.openingBalance + this._sumInflows() - this._sumOutflows();
+
+		// expected = opening + inflows - outflows  (live from KPI state)
+		const expected = parseFloat($("#kpi-opening").data("raw") || this.openingBalance || 0)
+					   + parseFloat($("#kpi-inflows").data("raw") || 0)
+					   - parseFloat($("#kpi-outflows").data("raw") || 0);
 		const variance = total - expected;
 
-		$("#tcj-denom-total").text(frappe.utils.format_number(total, null, 2));
-		$("#tcj-denom-expected").text(frappe.utils.format_number(expected, null, 2));
-		$("#tcj-denom-actual").text(frappe.utils.format_number(total, null, 2));
+		// Grand total row — highlight when non-zero
+		$("#tcj-denom-total")
+			.text(this._fmtNum(total))
+			.css("color", total > 0 ? "#155724" : "#6c757d");
+
+		$("#tcj-denom-expected").text(this._fmtNum(expected));
+		$("#tcj-denom-actual")
+			.text(this._fmtNum(total))
+			.css("color", total > 0 ? "#155724" : "#6c757d");
+
+		const varColor = variance < -0.001 ? "#dc3545"
+					  : variance >  0.001 ? "#fd7e14"
+					  : "#28a745";
 		$("#tcj-denom-variance")
-			.text(frappe.utils.format_number(variance, null, 2))
-			.css("color", variance < 0 ? "#dc3545" : variance > 0 ? "#fd7e14" : "#28a745");
+			.text(this._fmtNum(variance))
+			.css("color", varColor);
+
+		// Show/hide variance narration requirement
+		if (Math.abs(variance) > 0.001) {
+			$("#tcj-variance-narration").closest(".form-group").show();
+		} else {
+			$("#tcj-variance-narration").closest(".form-group").hide();
+		}
 	}
 
 	_loadJournal() {
@@ -1683,17 +1720,15 @@ class TreasuryCashJournal {
 		const opening  = this._parseAmount(this.openingBalance);
 		const expected = opening + inflows - outflows;
 
-		const fmt = (v) => {
-			try { return frappe.utils.format_number(v, null, 2); }
-			catch(e) { return (parseFloat(v) || 0).toFixed(2); }
-		};
-
-		// KPI cards
-		$("#kpi-opening").text(fmt(opening));
-		$("#kpi-inflows").text(fmt(inflows));
-		$("#kpi-outflows").text(fmt(outflows));
-		$("#kpi-expected").text(fmt(expected));
-		$("#tcj-denom-expected").text(fmt(expected));
+		// KPI cards — store raw numeric values as data-raw for denomination calculator
+		// Use _fmtNum (safe wrapper) instead of frappe.utils.format_number directly
+		$("#kpi-opening").text(this._fmtNum(opening)).data("raw", opening);
+		$("#kpi-inflows").text(this._fmtNum(inflows)).data("raw", inflows);
+		$("#kpi-outflows").text(this._fmtNum(outflows)).data("raw", outflows);
+		$("#kpi-expected").text(this._fmtNum(expected)).data("raw", expected);
+		$("#tcj-denom-expected").text(this._fmtNum(expected));
+		// Refresh denomination totals whenever KPIs change (expected balance may have shifted)
+		this._calcDenomTotal();
 
 		// Color cues: inflows green, outflows red
 		$("#kpi-inflows").css("color", inflows > 0 ? "#28a745" : "");

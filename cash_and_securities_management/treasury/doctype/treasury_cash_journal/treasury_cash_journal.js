@@ -87,7 +87,7 @@ frappe.ui.form.on("Treasury Cash Journal", {
 						<td>${l.reference || ""}</td>
 						<td style="color:#155724;font-weight:600;">${l.debit_account || ""}</td>
 						<td style="color:#721c24;font-weight:600;">${l.credit_account || ""}</td>
-						<td style="text-align:right;font-weight:700;">${frappe.utils.format_number(l.amount, null, 2)}</td>
+						<td style="text-align:right;font-weight:700;">${(function(v){ try { return frappe.utils.format_number(parseFloat(v)||0, null, 2); } catch(e) { return (parseFloat(v)||0).toFixed(2); } })(l.amount)}</td>
 						<td class="text-muted small">${l.narration || ""}</td>
 					</tr>
 				`).join("");
