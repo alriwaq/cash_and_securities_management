@@ -1,38 +1,17 @@
-"""
-Custody Purchased Items Report
-================================
-Shows every item purchased under Accountant Custody documents,
-with receipt, invoice, and billing status per line.
-
-Columns
--------
-  Custodian | AC No | AC Date | Item | Description | UOM
-  Ordered Qty | Received Qty | Billed Qty | Pending Qty
-  Rate | Amount | Received Amount | Billed Amount | Pending Amount
-  Warehouse | Cost Center | Project | Status
-
-Filters
--------
-  company          : mandatory
-  from_date        : optional
-  to_date          : optional
-  custodian        : optional
-  accountant_custody: optional
-  status           : optional (Draft / Pending / Partly Received / Fully Received /
-                               Partly Invoiced / Fully Invoiced / Closed)
-  item_code        : optional
-"""
+# Copyright (c) 2024, Cash and Securities Management
+# Custody Purchased Items — Script Report
+# Shows item-level detail for all Accountant Custody documents.
+# Filters: Company, Date Range, Custodian, AC, Item, Item Group, Asset Category, Status
 
 import frappe
 from frappe import _
-from frappe.utils import flt, nowdate
+from frappe.utils import flt
 
 
 def execute(filters=None):
     filters = frappe._dict(filters or {})
     if not filters.company:
         frappe.throw(_("Please select a Company."))
-
     columns = _get_columns()
     data    = _get_data(filters)
     return columns, data
@@ -41,7 +20,6 @@ def execute(filters=None):
 # ─────────────────────────────────────────────────────────────────────────────
 # Columns
 # ─────────────────────────────────────────────────────────────────────────────
-
 def _get_columns():
     return [
         {
@@ -49,7 +27,7 @@ def _get_columns():
             "fieldname": "custodian",
             "fieldtype": "Link",
             "options": "Custodian",
-            "width": 130,
+            "width": 140,
         },
         {
             "label": _("Accountant Custody"),
@@ -69,13 +47,27 @@ def _get_columns():
             "fieldname": "item_code",
             "fieldtype": "Link",
             "options": "Item",
-            "width": 130,
+            "width": 140,
         },
         {
             "label": _("Item Name"),
             "fieldname": "item_name",
             "fieldtype": "Data",
-            "width": 200,
+            "width": 180,
+        },
+        {
+            "label": _("Item Group"),
+            "fieldname": "item_group",
+            "fieldtype": "Link",
+            "options": "Item Group",
+            "width": 130,
+        },
+        {
+            "label": _("Asset Category"),
+            "fieldname": "asset_category",
+            "fieldtype": "Link",
+            "options": "Asset Category",
+            "width": 140,
         },
         {
             "label": _("UOM"),
@@ -113,7 +105,7 @@ def _get_columns():
             "fieldname": "rate",
             "fieldtype": "Currency",
             "options": "currency",
-            "width": 110,
+            "width": 100,
         },
         {
             "label": _("Ordered Amount"),
@@ -134,7 +126,7 @@ def _get_columns():
             "fieldname": "billed_amount",
             "fieldtype": "Currency",
             "options": "currency",
-            "width": 130,
+            "width": 120,
         },
         {
             "label": _("Pending Amount"),
@@ -183,25 +175,21 @@ def _get_columns():
 # ─────────────────────────────────────────────────────────────────────────────
 # Data
 # ─────────────────────────────────────────────────────────────────────────────
-
 def _get_data(filters):
+    # ── Step 1: fetch matching Accountant Custody headers ─────────────────────
     ac_filters = {"company": filters.company, "docstatus": ["!=", 2]}
-
     if filters.get("custodian"):
         ac_filters["custodian"] = filters.custodian
     if filters.get("accountant_custody"):
         ac_filters["name"] = filters.accountant_custody
     if filters.get("status"):
         ac_filters["status"] = filters.status
-    if filters.get("from_date"):
+    if filters.get("from_date") and filters.get("to_date"):
+        ac_filters["transaction_date"] = ["between", [filters.from_date, filters.to_date]]
+    elif filters.get("from_date"):
         ac_filters["transaction_date"] = [">=", filters.from_date]
-    if filters.get("to_date"):
-        if "transaction_date" in ac_filters:
-            ac_filters["transaction_date"] = [
-                "between", [filters.from_date, filters.to_date]
-            ]
-        else:
-            ac_filters["transaction_date"] = ["<=", filters.to_date]
+    elif filters.get("to_date"):
+        ac_filters["transaction_date"] = ["<=", filters.to_date]
 
     ac_docs = frappe.get_all(
         "Accountant Custody",
@@ -209,31 +197,67 @@ def _get_data(filters):
         fields=["name", "custodian", "transaction_date", "status", "currency"],
         order_by="transaction_date desc, name desc",
     )
-
     if not ac_docs:
         return []
 
     ac_names = [d.name for d in ac_docs]
     ac_map   = {d.name: d for d in ac_docs}
 
-    # Fetch all custody items for these ACs
-    item_filters = {"parent": ["in", ac_names], "parenttype": "Accountant Custody"}
-    if filters.get("item_code"):
-        item_filters["item_code"] = filters.item_code
+    # ── Step 2: fetch items via raw SQL to JOIN Item master ───────────────────
+    # This allows filtering by item_group and asset_category in one query.
+    conditions  = [
+        "aci.parent IN %(ac_names)s",
+        "aci.parenttype = 'Accountant Custody'",
+    ]
+    sql_params = {"ac_names": ac_names}
 
-    items = frappe.get_all(
-        "Accountant Custody Item",
-        filters=item_filters,
-        fields=[
-            "parent", "item_code", "item_name", "description", "uom",
-            "qty", "received_qty", "billed_qty", "rate", "amount",
-            "received_amount", "billed_amount",
-            "warehouse", "cost_center", "project",
-        ],
-        order_by="parent, idx",
+    if filters.get("item_code"):
+        conditions.append("aci.item_code = %(item_code)s")
+        sql_params["item_code"] = filters.item_code
+
+    if filters.get("item_group"):
+        conditions.append("i.item_group = %(item_group)s")
+        sql_params["item_group"] = filters.item_group
+
+    if filters.get("asset_category"):
+        conditions.append("i.asset_category = %(asset_category)s")
+        sql_params["asset_category"] = filters.asset_category
+
+    where_clause = " AND ".join(conditions)
+
+    items = frappe.db.sql(
+        """
+        SELECT
+            aci.parent,
+            aci.item_code,
+            aci.item_name,
+            aci.description,
+            aci.uom,
+            aci.qty,
+            aci.received_qty,
+            aci.billed_qty,
+            aci.rate,
+            aci.amount,
+            aci.received_amount,
+            aci.billed_amount,
+            aci.warehouse,
+            aci.cost_center,
+            aci.project,
+            COALESCE(i.item_group, '')     AS item_group,
+            COALESCE(i.asset_category, '') AS asset_category
+        FROM `tabAccountant Custody Item` aci
+        LEFT JOIN `tabItem` i ON i.name = aci.item_code
+        WHERE {where_clause}
+        ORDER BY aci.parent, aci.idx
+        """.format(where_clause=where_clause),
+        sql_params,
+        as_dict=True,
     )
 
+    # ── Step 3: build rows ────────────────────────────────────────────────────
+    default_currency = frappe.db.get_value("Company", filters.company, "default_currency")
     rows = []
+
     for item in items:
         ac = ac_map.get(item.parent)
         if not ac:
@@ -249,7 +273,7 @@ def _get_data(filters):
         billed_amt   = flt(item.billed_amount)
         pending_amt  = ordered_amt - billed_amt
 
-        # Derive per-item status
+        # Per-item status
         if billed_qty >= ordered_qty:
             item_status = _("Fully Billed")
         elif billed_qty > 0:
@@ -267,6 +291,8 @@ def _get_data(filters):
             "posting_date":       ac.transaction_date,
             "item_code":          item.item_code,
             "item_name":          item.item_name or item.description or "",
+            "item_group":         item.item_group,
+            "asset_category":     item.asset_category,
             "uom":                item.uom,
             "qty":                ordered_qty,
             "received_qty":       received_qty,
@@ -281,9 +307,7 @@ def _get_data(filters):
             "cost_center":        item.cost_center or "",
             "project":            item.project or "",
             "status":             item_status,
-            "currency":           ac.currency or frappe.db.get_value(
-                                      "Company", filters.company, "default_currency"
-                                  ),
+            "currency":           ac.currency or default_currency,
         })
 
     return rows

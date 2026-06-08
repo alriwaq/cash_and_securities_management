@@ -56,6 +56,18 @@ frappe.query_reports["Custody Purchased Items"] = {
 			options: "Item",
 		},
 		{
+			fieldname: "item_group",
+			label: __("Item Group"),
+			fieldtype: "Link",
+			options: "Item Group",
+		},
+		{
+			fieldname: "asset_category",
+			label: __("Asset Category"),
+			fieldtype: "Link",
+			options: "Asset Category",
+		},
+		{
 			fieldname: "status",
 			label: __("Status"),
 			fieldtype: "Select",
