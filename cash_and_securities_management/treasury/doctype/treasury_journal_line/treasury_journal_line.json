@@ -23,6 +23,9 @@
   "party",
   "column_break_party",
   "expense_account",
+  "dimensions_section",
+  "cost_center",
+  "project",
   "posting_section",
   "is_posted",
   "linked_document",
@@ -142,6 +145,28 @@
    "options": "Account",
    "description": "حساب المصروف في دفتر الأستاذ. إلزامي للمصروفات المباشرة (Direct Expense).",
    "mandatory_depends_on": "eval:doc.transaction_category == 'Direct Expense'"
+  },
+  {
+   "fieldname": "dimensions_section",
+   "fieldtype": "Section Break",
+   "label": "الأبعاد المحاسبية / Accounting Dimensions",
+   "collapsible": 0
+  },
+  {
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "مركز التكلفة / Cost Center",
+   "options": "Cost Center",
+   "in_list_view": 0,
+   "description": "مركز التكلفة المرتبط بهذه الحركة. يُطبَّق على قيود الأستاذ (GL) وسندات الدفع وإدخالات اليومية."
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "المشروع / Project",
+   "options": "Project",
+   "in_list_view": 0,
+   "description": "المشروع المرتبط بهذه الحركة. يُطبَّق على قيود الأستاذ وسندات الدفع وإدخالات اليومية."
   },
   {
    "fieldname": "posting_section",
