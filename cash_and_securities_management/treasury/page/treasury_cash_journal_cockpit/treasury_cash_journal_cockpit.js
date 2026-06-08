@@ -445,8 +445,8 @@ class TreasuryCashJournal {
 				// agree with what the TCJ form shows.
 				// Fall back to the station's current_balance when no journal exists yet.
 				this.openingBalance = (data.existing && data.existing.opening_balance != null)
-					? (parseFloat(data.existing.opening_balance) || 0)
-					: (parseFloat(data.opening_balance) || 0);
+					? this._parseAmount(data.existing.opening_balance)
+					: this._parseAmount(data.opening_balance);
 
 				// Show station-closed banner if status is not Open
 				$("#tcj-station-closed-banner").remove();
@@ -476,7 +476,7 @@ class TreasuryCashJournal {
 				this.rows = (data.lines || []).map((l, i) => ({
 					_id: i,
 					voucher_serial: l.voucher_serial || "",
-					direction: l.direction || "",
+					direction: this._normalizeDirection(l.direction || ""),
 					transaction_category: l.transaction_category || "",
 					party_type: l.party_type || "",
 					party: l.party || "",
@@ -525,7 +525,7 @@ class TreasuryCashJournal {
 
 		const filtered = this.activeFilter === "all"
 			? this.rows
-			: this.rows.filter((r) => r.direction === this.activeFilter);
+			: this.rows.filter((r) => this._normalizeDirection(r.direction) === this.activeFilter);
 
 		if (filtered.length === 0) {
 			tbody.append(`
@@ -1542,22 +1542,45 @@ class TreasuryCashJournal {
 
 	// ── KPI Update ────────────────────────────────────────────────────────────
 
+	_normalizeDirection(direction) {
+		const v = (direction || "").toString().trim().toLowerCase();
+		if (v === "inbound" || v === "وارد") return "Inbound";
+		if (v === "outbound" || v === "صادر") return "Outbound";
+		if (v === "bank transfer" || v === "تحويل بنكي") return "Bank Transfer";
+		return (direction || "").toString().trim();
+	}
+
+	_parseAmount(value) {
+		if (value === null || value === undefined) return 0;
+		if (typeof value === "number") return isNaN(value) ? 0 : value;
+		let s = String(value).trim();
+		if (!s) return 0;
+		// Support common locale separators and Arabic-Indic digits.
+		s = s
+			.replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+			.replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06F0))
+			.replace(/[\u066C,\s]/g, "")
+			.replace(/\u066B/g, ".");
+		const n = parseFloat(s);
+		return isNaN(n) ? 0 : n;
+	}
+
 	_sumInflows() {
 		return this.rows
-			.filter((r) => r.direction === "Inbound")
-			.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+			.filter((r) => this._normalizeDirection(r.direction) === "Inbound")
+			.reduce((s, r) => s + this._parseAmount(r.amount), 0);
 	}
 
 	_sumOutflows() {
 		return this.rows
-			.filter((r) => r.direction === "Outbound")
-			.reduce((s, r) => s + (parseFloat(r.amount) || 0), 0);
+			.filter((r) => this._normalizeDirection(r.direction) === "Outbound")
+			.reduce((s, r) => s + this._parseAmount(r.amount), 0);
 	}
 
 	_updateKPIs() {
 		const inflows = this._sumInflows();
 		const outflows = this._sumOutflows();
-		const expected = this.openingBalance + inflows - outflows;
+		const expected = this._parseAmount(this.openingBalance) + inflows - outflows;
 
 		const fmt = (v) => frappe.utils.format_number(v, null, 2);
 		$("#kpi-opening").text(fmt(this.openingBalance));
@@ -1569,9 +1592,9 @@ class TreasuryCashJournal {
 
 	_updateBadgeCounts() {
 		const all = this.rows.length;
-		const outbound = this.rows.filter((r) => r.direction === "Outbound").length;
-		const inbound = this.rows.filter((r) => r.direction === "Inbound").length;
-		const bank = this.rows.filter((r) => r.direction === "Bank Transfer").length;
+		const outbound = this.rows.filter((r) => this._normalizeDirection(r.direction) === "Outbound").length;
+		const inbound = this.rows.filter((r) => this._normalizeDirection(r.direction) === "Inbound").length;
+		const bank = this.rows.filter((r) => this._normalizeDirection(r.direction) === "Bank Transfer").length;
 		$("#badge-all").text(all);
 		$("#badge-outbound").text(outbound);
 		$("#badge-inbound").text(inbound);
@@ -1581,7 +1604,7 @@ class TreasuryCashJournal {
 	_updateRowCount() {
 		const filtered = this.activeFilter === "all"
 			? this.rows
-			: this.rows.filter((r) => r.direction === this.activeFilter);
+			: this.rows.filter((r) => this._normalizeDirection(r.direction) === this.activeFilter);
 		$("#tcj-row-count").text(`${filtered.length} row${filtered.length !== 1 ? "s" : ""}`);
 	}
 
@@ -2008,6 +2031,8 @@ class TreasuryCashJournal {
 					this.journalName = r.message;
 					$("#tcj-journal-name").val(r.message);
 					frappe.show_alert({ message: `تم حفظ المسودة: ${r.message}`, indicator: "green" });
+					// Always reload after save so new records and server-calculated balances are reflected immediately.
+					this._loadJournal();
 					if (typeof cb === "function") cb(r.message);
 				}
 			},
