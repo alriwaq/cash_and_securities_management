@@ -9,10 +9,10 @@ One row per custodian showing the full financial position:
   = Closing Balance (outstanding advance)
 
 Also shows:
-  • Custody Limit
-  • Available Limit  = Limit - Closing Balance
-  • # Open ACs       = Accountant Custody docs not fully invoiced
-  • Status           = Custodian.status
+  - Custody Limit
+  - Available Limit  = Limit - Closing Balance
+  - # Open ACs       = Accountant Custody docs not fully invoiced
+  - Status           = Custodian.status
 
 Filters
 -------
@@ -153,9 +153,12 @@ def _get_data(filters):
     company_currency = frappe.db.get_value("Company", filters.company, "default_currency")
     account_list = [c.custody_account for c in custodians if c.custody_account]
 
-    # ── GL totals helper ─────────────────────────────────────────────────────
-    def _gl_sum(accounts, date_condition=""):
-        """Return {account: {debit, credit}} for given accounts and date condition."""
+    if not account_list:
+        return []
+
+    # ── GL totals helper (parameterized) ─────────────────────────────────────
+    def _gl_sum(accounts, date_condition="", extra_params=None):
+        """Return {account: {total_debit, total_credit}} for given accounts."""
         if not accounts:
             return {}
         placeholders = ", ".join(["%s"] * len(accounts))
@@ -173,26 +176,31 @@ def _get_data(filters):
             GROUP BY account
         """
         params = list(accounts) + [filters.company]
+        if extra_params:
+            params.extend(extra_params)
         rows = frappe.db.sql(sql, params, as_dict=True)
         return {r.account: r for r in rows}
 
     # Opening balance: all GL entries BEFORE from_date
     opening_condition = ""
+    opening_params = []
     if filters.get("from_date"):
-        opening_condition = f"AND posting_date < '{filters.from_date}'"
+        opening_condition = "AND posting_date < %s"
+        opening_params = [filters.from_date]
 
-    opening_gl = _gl_sum(account_list, opening_condition)
+    opening_gl = _gl_sum(account_list, opening_condition, opening_params)
 
     # Period GL: entries between from_date and to_date
     period_condition = ""
+    period_params = []
     if filters.get("from_date") and filters.get("to_date"):
-        period_condition = (
-            f"AND posting_date BETWEEN '{filters.from_date}' AND '{filters.to_date}'"
-        )
+        period_condition = "AND posting_date BETWEEN %s AND %s"
+        period_params = [filters.from_date, filters.to_date]
     elif filters.get("to_date"):
-        period_condition = f"AND posting_date <= '{filters.to_date}'"
+        period_condition = "AND posting_date <= %s"
+        period_params = [filters.to_date]
 
-    period_gl = _gl_sum(account_list, period_condition)
+    period_gl = _gl_sum(account_list, period_condition, period_params)
 
     # Open ACs per custodian (not fully invoiced)
     open_ac_counts = {}

@@ -4,9 +4,9 @@ Custody Ledger Report
 AR/AP equivalent for Custody accounts.
 
 Shows per-custodian:
-  • Every GL entry posted against their custody_account
-  • Running balance (debit = advance outstanding, credit = invoice settled)
-  • Outstanding balance at report date
+  - Every GL entry posted against their custody_account
+  - Running balance (debit = advance outstanding, credit = invoice settled)
+  - Outstanding balance at report date
 
 Filters
 -------
@@ -19,7 +19,7 @@ Filters
 
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate, nowdate
+from frappe.utils import flt, nowdate
 
 
 def execute(filters=None):
@@ -138,36 +138,46 @@ def _get_data(filters):
     if not account_to_custodian:
         return []
 
-    # 2. Fetch GL entries for all custody accounts
-    gl_filters = {
-        "account": ["in", list(account_to_custodian.keys())],
-        "company": filters.company,
-        "is_cancelled": 0,
-    }
-    if filters.get("from_date"):
-        gl_filters["posting_date"] = [">=", filters.from_date]
-    if filters.get("to_date"):
-        if "posting_date" in gl_filters:
-            gl_filters["posting_date"] = [
-                "between", [filters.from_date, filters.to_date]
-            ]
-        else:
-            gl_filters["posting_date"] = ["<=", filters.to_date]
+    # 2. Fetch GL entries using raw SQL with parameterized date filters
+    accounts = list(account_to_custodian.keys())
+    placeholders = ", ".join(["%s"] * len(accounts))
 
-    gl_entries = frappe.get_all(
-        "GL Entry",
-        filters=gl_filters,
-        fields=[
-            "name", "posting_date", "account", "party_type", "party",
-            "voucher_type", "voucher_no", "against_voucher_type",
-            "against_voucher", "debit", "credit", "remarks",
-            "account_currency", "debit_in_account_currency",
-            "credit_in_account_currency",
-        ],
-        order_by="account, posting_date, creation",
+    conditions = [
+        f"account IN ({placeholders})",
+        "company = %s",
+        "is_cancelled = 0",
+    ]
+    params = list(accounts) + [filters.company]
+
+    if filters.get("from_date") and filters.get("to_date"):
+        conditions.append("posting_date BETWEEN %s AND %s")
+        params.extend([filters.from_date, filters.to_date])
+    elif filters.get("from_date"):
+        conditions.append("posting_date >= %s")
+        params.append(filters.from_date)
+    elif filters.get("to_date"):
+        conditions.append("posting_date <= %s")
+        params.append(filters.to_date)
+
+    where_clause = " AND ".join(conditions)
+
+    gl_entries = frappe.db.sql(
+        f"""
+        SELECT
+            name, posting_date, account, party_type, party,
+            voucher_type, voucher_no, against_voucher_type,
+            against_voucher, debit, credit, remarks,
+            account_currency
+        FROM `tabGL Entry`
+        WHERE {where_clause}
+        ORDER BY account, posting_date, creation
+        """,
+        params,
+        as_dict=True,
     )
 
     # 3. Build rows grouped by custodian
+    company_currency = frappe.db.get_value("Company", filters.company, "default_currency")
     rows = []
     running = {}   # account → running balance
 
@@ -191,9 +201,7 @@ def _get_data(filters):
             "debit":          flt(gl.debit),
             "credit":         flt(gl.credit),
             "balance":        running[acc],
-            "currency":       gl.account_currency or frappe.db.get_value(
-                                  "Company", filters.company, "default_currency"
-                              ),
+            "currency":       gl.account_currency or company_currency,
             "indent":         1,
         })
 

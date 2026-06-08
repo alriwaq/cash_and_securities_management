@@ -303,7 +303,6 @@ def _get_data(filters):
             ac.department,
             ac.transaction_date,
             ac.status,
-            ac.currency,
             ac.supplier,
             ac.supplier_name,
             ac.purpose,
@@ -436,7 +435,7 @@ def _get_data(filters):
             "ac_status":          ac.status or "",
             "status":             item_status,
             "notes":              notes_display,
-            "currency":           ac.currency or default_currency,
+            "currency":           default_currency,
         })
 
     return rows

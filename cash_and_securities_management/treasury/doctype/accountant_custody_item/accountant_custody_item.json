@@ -211,7 +211,7 @@
    "label": "Project",
    "options": "Project",
    "fetch_from": "parent.project",
-   "reqd": 1
+   "fetch_if_empty": 1
   },
   {
    "fieldname": "cost_center",
@@ -219,7 +219,7 @@
    "label": "Cost Center",
    "options": "Cost Center",
    "fetch_from": "parent.cost_center",
-   "reqd": 1
+   "fetch_if_empty": 1
   },
   {
    "fieldname": "warehouse_section",
@@ -232,7 +232,8 @@
    "fieldtype": "Link",
    "label": "Warehouse",
    "options": "Warehouse",
-   "fetch_from": "parent.warehouse"
+   "fetch_from": "parent.warehouse",
+   "fetch_if_empty": 1
   },
   {
    "fieldname": "column_break_4",
