@@ -1,7 +1,18 @@
 # Copyright (c) 2024, Cash and Securities Management
 # Custody Purchased Items — Script Report
 # Shows item-level detail for all Accountant Custody documents.
-# Filters: Company, Date Range, Custodian, AC, Item, Item Group, Asset Category, Status
+#
+# Filters:
+#   Company, Date Range, Custodian, Department, Supplier,
+#   Accountant Custody, Item, Item Group, Asset Category, Status
+#
+# Columns (in order):
+#   Custodian | Employee | Department | AC | Transaction Date |
+#   Supplier | Purpose | Item Code | Item Name | Description |
+#   Item Group | Asset Category | UOM |
+#   Ordered Qty | Received Qty | Billed Qty | Pending Qty |
+#   Rate | Ordered Amount | Received Amount | Billed Amount | Pending Amount |
+#   Warehouse | Cost Center | Project | Status | Notes
 
 import frappe
 from frappe import _
@@ -30,6 +41,26 @@ def _get_columns():
             "width": 140,
         },
         {
+            "label": _("Employee"),
+            "fieldname": "employee",
+            "fieldtype": "Link",
+            "options": "Employee",
+            "width": 120,
+        },
+        {
+            "label": _("Employee Name"),
+            "fieldname": "employee_name",
+            "fieldtype": "Data",
+            "width": 150,
+        },
+        {
+            "label": _("Department"),
+            "fieldname": "department",
+            "fieldtype": "Link",
+            "options": "Department",
+            "width": 130,
+        },
+        {
             "label": _("Accountant Custody"),
             "fieldname": "accountant_custody",
             "fieldtype": "Link",
@@ -37,10 +68,29 @@ def _get_columns():
             "width": 160,
         },
         {
-            "label": _("Date"),
-            "fieldname": "posting_date",
+            "label": _("Transaction Date"),
+            "fieldname": "transaction_date",
             "fieldtype": "Date",
-            "width": 100,
+            "width": 120,
+        },
+        {
+            "label": _("Supplier"),
+            "fieldname": "supplier",
+            "fieldtype": "Link",
+            "options": "Supplier",
+            "width": 130,
+        },
+        {
+            "label": _("Supplier Name"),
+            "fieldname": "supplier_name",
+            "fieldtype": "Data",
+            "width": 150,
+        },
+        {
+            "label": _("Purpose"),
+            "fieldname": "purpose",
+            "fieldtype": "Data",
+            "width": 180,
         },
         {
             "label": _("Item Code"),
@@ -52,6 +102,12 @@ def _get_columns():
         {
             "label": _("Item Name"),
             "fieldname": "item_name",
+            "fieldtype": "Data",
+            "width": 180,
+        },
+        {
+            "label": _("Description"),
+            "fieldname": "description",
             "fieldtype": "Data",
             "width": 180,
         },
@@ -157,10 +213,22 @@ def _get_columns():
             "width": 110,
         },
         {
-            "label": _("Status"),
+            "label": _("AC Status"),
+            "fieldname": "ac_status",
+            "fieldtype": "Data",
+            "width": 130,
+        },
+        {
+            "label": _("Item Status"),
             "fieldname": "status",
             "fieldtype": "Data",
             "width": 130,
+        },
+        {
+            "label": _("Notes"),
+            "fieldname": "notes",
+            "fieldtype": "Data",
+            "width": 200,
         },
         {
             "label": _("Currency"),
@@ -179,12 +247,11 @@ def _get_data(filters):
     """
     Two-step raw-SQL approach.
 
-    The Frappe ORM has a known bug where building a date filter incrementally
-    (first setting ``[">=" from_date]`` then trying to upgrade it to
-    ``["between", [from_date, to_date]]``) generates broken SQL like
-    ``BETWEEN 0.0 order by …``.  Using raw SQL avoids this entirely.
+    Step 1: Fetch Accountant Custody headers (with all new fields).
+    Step 2: Fetch child items via JOIN to tabItem for item_group/asset_category.
+    Step 3: Build output rows combining header and item data.
     """
-    # ── Step 1: Accountant Custody headers via raw SQL ────────────────────────
+    # ── Step 1: Accountant Custody headers ────────────────────────────────────
     ac_conditions = [
         "ac.company = %(company)s",
         "ac.docstatus != 2",
@@ -194,6 +261,14 @@ def _get_data(filters):
     if filters.get("custodian"):
         ac_conditions.append("ac.custodian = %(custodian)s")
         ac_params["custodian"] = filters.custodian
+
+    if filters.get("department"):
+        ac_conditions.append("ac.department = %(department)s")
+        ac_params["department"] = filters.department
+
+    if filters.get("supplier"):
+        ac_conditions.append("ac.supplier = %(supplier)s")
+        ac_params["supplier"] = filters.supplier
 
     if filters.get("accountant_custody"):
         ac_conditions.append("ac.name = %(accountant_custody)s")
@@ -220,7 +295,19 @@ def _get_data(filters):
 
     ac_docs = frappe.db.sql(
         """
-        SELECT ac.name, ac.custodian, ac.transaction_date, ac.status, ac.currency
+        SELECT
+            ac.name,
+            ac.custodian,
+            ac.employee,
+            ac.employee_name,
+            ac.department,
+            ac.transaction_date,
+            ac.status,
+            ac.currency,
+            ac.supplier,
+            ac.supplier_name,
+            ac.purpose,
+            ac.notes
         FROM `tabAccountant Custody` ac
         WHERE {ac_where}
         ORDER BY ac.transaction_date DESC, ac.name DESC
@@ -234,9 +321,8 @@ def _get_data(filters):
     ac_names = [d.name for d in ac_docs]
     ac_map   = {d.name: d for d in ac_docs}
 
-    # ── Step 2: fetch items via raw SQL to JOIN Item master ───────────────────
-    # This allows filtering by item_group and asset_category in one query.
-    conditions  = [
+    # ── Step 2: fetch items via raw SQL with JOIN to Item master ──────────────
+    conditions = [
         "aci.parent IN %(ac_names)s",
         "aci.parenttype = 'Accountant Custody'",
     ]
@@ -247,11 +333,11 @@ def _get_data(filters):
         sql_params["item_code"] = filters.item_code
 
     if filters.get("item_group"):
-        conditions.append("i.item_group = %(item_group)s")
+        conditions.append("COALESCE(aci.item_group, i.item_group) = %(item_group)s")
         sql_params["item_group"] = filters.item_group
 
     if filters.get("asset_category"):
-        conditions.append("i.asset_category = %(asset_category)s")
+        conditions.append("COALESCE(aci.asset_category, i.asset_category) = %(asset_category)s")
         sql_params["asset_category"] = filters.asset_category
 
     where_clause = " AND ".join(conditions)
@@ -265,17 +351,17 @@ def _get_data(filters):
             aci.description,
             aci.uom,
             aci.qty,
-            aci.received_qty,
-            aci.billed_qty,
+            COALESCE(aci.accepted_qty, 0)    AS received_qty,
+            COALESCE(aci.billed_qty, 0)      AS billed_qty,
             aci.rate,
             aci.amount,
-            aci.received_amount,
-            aci.billed_amount,
+            COALESCE(aci.received_amount, 0) AS received_amount,
+            COALESCE(aci.billed_amount, 0)   AS billed_amount,
             aci.warehouse,
             aci.cost_center,
             aci.project,
-            COALESCE(i.item_group, '')     AS item_group,
-            COALESCE(i.asset_category, '') AS asset_category
+            COALESCE(aci.item_group,     i.item_group,     '') AS item_group,
+            COALESCE(aci.asset_category, i.asset_category, '') AS asset_category
         FROM `tabAccountant Custody Item` aci
         LEFT JOIN `tabItem` i ON i.name = aci.item_code
         WHERE {where_clause}
@@ -304,7 +390,7 @@ def _get_data(filters):
         billed_amt   = flt(item.billed_amount)
         pending_amt  = ordered_amt - billed_amt
 
-        # Per-item status
+        # Per-item billing status
         if billed_qty >= ordered_qty:
             item_status = _("Fully Billed")
         elif billed_qty > 0:
@@ -316,12 +402,22 @@ def _get_data(filters):
         else:
             item_status = _("Pending")
 
+        # Truncate notes to 200 chars for display
+        notes_display = (ac.notes or "")[:200] if ac.notes else ""
+
         rows.append({
             "custodian":          ac.custodian,
+            "employee":           ac.employee,
+            "employee_name":      ac.employee_name or "",
+            "department":         ac.department or "",
             "accountant_custody": item.parent,
-            "posting_date":       ac.transaction_date,
+            "transaction_date":   ac.transaction_date,
+            "supplier":           ac.supplier or "",
+            "supplier_name":      ac.supplier_name or "",
+            "purpose":            (ac.purpose or "")[:200],
             "item_code":          item.item_code,
-            "item_name":          item.item_name or item.description or "",
+            "item_name":          item.item_name or "",
+            "description":        (item.description or "")[:200],
             "item_group":         item.item_group,
             "asset_category":     item.asset_category,
             "uom":                item.uom,
@@ -337,7 +433,9 @@ def _get_data(filters):
             "warehouse":          item.warehouse or "",
             "cost_center":        item.cost_center or "",
             "project":            item.project or "",
+            "ac_status":          ac.status or "",
             "status":             item_status,
+            "notes":              notes_display,
             "currency":           ac.currency or default_currency,
         })
 

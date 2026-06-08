@@ -15,14 +15,21 @@
   "company",
   "column_break_5",
   "custodian",
+  "transaction_date",
   "posting_date",
   "status",
   "custody_request",
   "custody_request_balance",
+  "purpose",
   "project",
   "cost_center",
   "warehouse_section",
   "warehouse",
+  "supplier_section",
+  "supplier",
+  "supplier_name",
+  "notes_section",
+  "notes",
   "items_section",
   "custody_items",
   "totals_section",
@@ -103,11 +110,21 @@
   },
   {
    "default": "Today",
+   "description": "Date the custodian is submitting the purchase claim (used in date-range filters on reports).",
+   "fieldname": "transaction_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Transaction Date",
+   "reqd": 1
+  },
+  {
+   "default": "Today",
    "fieldname": "posting_date",
    "fieldtype": "Date",
-   "in_standard_filter": 1,
    "label": "Posting Date",
-   "reqd": 1
+   "reqd": 1,
+   "hidden": 1
   },
   {
    "default": "Draft",
@@ -137,6 +154,15 @@
    "read_only": 1
   },
   {
+   "description": "Purpose of this custody spending — fetched from the linked Custody Request but can be overridden.",
+   "fetch_from": "custody_request.purpose",
+   "fetch_if_empty": 1,
+   "fieldname": "purpose",
+   "fieldtype": "Small Text",
+   "in_list_view": 0,
+   "label": "Purpose"
+  },
+  {
    "fieldname": "project",
    "fieldtype": "Link",
    "label": "Project",
@@ -158,6 +184,38 @@
    "fieldtype": "Link",
    "label": "Warehouse",
    "options": "Warehouse"
+  },
+  {
+   "fieldname": "supplier_section",
+   "fieldtype": "Section Break",
+   "label": "Supplier (Optional)"
+  },
+  {
+   "description": "Actual supplier the custodian purchased from. Optional — used for reporting and audit trail only. Does not affect GL posting.",
+   "fieldname": "supplier",
+   "fieldtype": "Link",
+   "in_list_view": 0,
+   "in_standard_filter": 1,
+   "label": "Supplier",
+   "options": "Supplier"
+  },
+  {
+   "fetch_from": "supplier.supplier_name",
+   "fieldname": "supplier_name",
+   "fieldtype": "Data",
+   "label": "Supplier Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "description": "Free-text notes or remarks about this custody purchase claim.",
+   "fieldname": "notes",
+   "fieldtype": "Text Editor",
+   "label": "Notes"
   },
   {
    "fieldname": "items_section",
@@ -250,7 +308,7 @@
    "link_fieldname": "custom_accountant_custody"
   }
  ],
- "modified": "2024-01-01 00:00:00.000000",
+ "modified": "2025-06-08 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Treasury",
  "name": "Accountant Custody",

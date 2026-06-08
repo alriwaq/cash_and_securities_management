@@ -51,13 +51,13 @@ class AccountantCustody(Document):
 
 	# ── Private helpers ───────────────────────────────────────────────────────
 	def _sync_from_custody_request(self):
-		"""Pull company, custodian from the linked Custody Request."""
+		"""Pull company, custodian, and purpose from the linked Custody Request."""
 		if not self.custody_request:
 			return
 		cr = frappe.db.get_value(
 			"Custody Request",
 			self.custody_request,
-			["company", "custodian", "advance_amount", "paid_amount"],
+			["company", "custodian", "advance_amount", "paid_amount", "purpose"],
 			as_dict=True,
 		)
 		if not cr:
@@ -66,6 +66,8 @@ class AccountantCustody(Document):
 			self.company = cr.company
 		if not self.custodian:
 			self.custodian = cr.custodian
+		if not self.purpose and cr.purpose:
+			self.purpose = cr.purpose
 		self.custody_request_balance = flt(cr.paid_amount)
 
 	def _populate_item_flags(self):
@@ -91,8 +93,15 @@ class AccountantCustody(Document):
 			)
 
 	def _calculate_totals(self, persist=False):
-		"""Recalculate all total fields on the AC."""
-		total = sum(flt(item.qty) * flt(item.rate) for item in self.custody_items)
+		"""Recalculate all total fields on the AC and child row derived amounts."""
+		# ── Recalculate per-item derived amounts ──────────────────────────────────
+		for item in self.custody_items:
+			item.amount          = flt(item.qty) * flt(item.rate)
+			item.received_amount = flt(item.accepted_qty) * flt(item.rate)
+			item.billed_amount   = flt(item.billed_qty) * flt(item.rate)
+			item.pending_amount  = item.amount - item.billed_amount
+
+		total = sum(flt(item.amount) for item in self.custody_items)
 		self.total_amount = total
 
 		if not self.name:

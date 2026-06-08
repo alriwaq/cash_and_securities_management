@@ -7,6 +7,7 @@
  "field_order": [
   "item_code",
   "item_name",
+  "description",
   "item_group",
   "column_break_1",
   "is_stock_item",
@@ -20,9 +21,13 @@
   "received_section",
   "accepted_qty",
   "rejected_qty",
+  "received_amount",
   "column_break_3",
   "billed_qty",
   "pending_qty",
+  "billed_amount",
+  "pending_amount",
+  "dimensions_section",
   "project",
   "cost_center",
   "warehouse_section",
@@ -47,6 +52,12 @@
    "in_list_view": 1,
    "label": "Item Name",
    "read_only": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description",
+   "description": "Additional description or specification for this item line."
   },
   {
    "fetch_from": "item_code.item_group",
@@ -117,7 +128,7 @@
   {
    "fieldname": "received_section",
    "fieldtype": "Section Break",
-   "label": "Received & Billed Qty"
+   "label": "Received & Billed"
   },
   {
    "description": "Quantity received via Purchase Receipt",
@@ -138,6 +149,16 @@
    "allow_on_submit": 1
   },
   {
+   "description": "Amount received via Purchase Receipt (accepted_qty × rate)",
+   "fieldname": "received_amount",
+   "fieldtype": "Currency",
+   "label": "Received Amount",
+   "options": "Company:company:default_currency",
+   "no_copy": 1,
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
    "fieldname": "column_break_3",
    "fieldtype": "Column Break"
   },
@@ -151,7 +172,7 @@
    "allow_on_submit": 1
   },
   {
-   "description": "Qty ordered minus accepted qty",
+   "description": "Qty ordered minus billed qty",
    "fieldname": "pending_qty",
    "fieldtype": "Float",
    "label": "Pending Qty",
@@ -160,17 +181,29 @@
    "allow_on_submit": 1
   },
   {
-   "fieldname": "warehouse_section",
-   "fieldtype": "Section Break",
-   "label": "Warehouse / Location"
+   "description": "Amount billed via Purchase Invoice (billed_qty × rate)",
+   "fieldname": "billed_amount",
+   "fieldtype": "Currency",
+   "label": "Billed Amount",
+   "options": "Company:company:default_currency",
+   "no_copy": 1,
+   "read_only": 1,
+   "allow_on_submit": 1
   },
   {
-   "depends_on": "eval:doc.is_stock_item",
-   "fieldname": "warehouse",
-   "fieldtype": "Link",
-   "label": "Warehouse",
-   "options": "Warehouse",
-   "fetch_from": "parent.warehouse"
+   "description": "Amount ordered minus billed amount",
+   "fieldname": "pending_amount",
+   "fieldtype": "Currency",
+   "label": "Pending Amount",
+   "options": "Company:company:default_currency",
+   "no_copy": 1,
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "dimensions_section",
+   "fieldtype": "Section Break",
+   "label": "Accounting Dimensions"
   },
   {
    "fieldname": "project",
@@ -187,6 +220,19 @@
    "options": "Cost Center",
    "fetch_from": "parent.cost_center",
    "reqd": 1
+  },
+  {
+   "fieldname": "warehouse_section",
+   "fieldtype": "Section Break",
+   "label": "Warehouse / Location"
+  },
+  {
+   "depends_on": "eval:doc.is_stock_item",
+   "fieldname": "warehouse",
+   "fieldtype": "Link",
+   "label": "Warehouse",
+   "options": "Warehouse",
+   "fetch_from": "parent.warehouse"
   },
   {
    "fieldname": "column_break_4",
@@ -212,7 +258,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2024-01-01 00:00:00.000000",
+ "modified": "2025-06-08 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Treasury",
  "name": "Accountant Custody Item",

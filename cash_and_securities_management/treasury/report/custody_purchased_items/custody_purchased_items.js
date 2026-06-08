@@ -38,6 +38,18 @@ frappe.query_reports["Custody Purchased Items"] = {
 			},
 		},
 		{
+			fieldname: "department",
+			label: __("Department"),
+			fieldtype: "Link",
+			options: "Department",
+		},
+		{
+			fieldname: "supplier",
+			label: __("Supplier"),
+			fieldtype: "Link",
+			options: "Supplier",
+		},
+		{
 			fieldname: "accountant_custody",
 			label: __("Accountant Custody"),
 			fieldtype: "Link",
@@ -69,7 +81,7 @@ frappe.query_reports["Custody Purchased Items"] = {
 		},
 		{
 			fieldname: "status",
-			label: __("Status"),
+			label: __("AC Status"),
 			fieldtype: "Select",
 			options: [
 				"",
@@ -86,21 +98,39 @@ frappe.query_reports["Custody Purchased Items"] = {
 
 	formatter: function (value, row, column, data, default_formatter) {
 		value = default_formatter(value, row, column, data);
+
 		if (column.fieldname === "status" && data) {
 			const colour = {
-				"Fully Billed":     "green",
-				"Partly Billed":    "orange",
-				"Fully Received":   "blue",
-				"Partly Received":  "lightblue",
-				"Pending":          "red",
+				"Fully Billed":    "green",
+				"Partly Billed":   "orange",
+				"Fully Received":  "blue",
+				"Partly Received": "lightblue",
+				"Pending":         "red",
 			}[data.status];
 			if (colour) {
 				value = `<span class="indicator-pill ${colour}">${data.status}</span>`;
 			}
 		}
+
+		if (column.fieldname === "ac_status" && data) {
+			const colour = {
+				"Fully Invoiced":  "green",
+				"Partly Invoiced": "orange",
+				"Fully Received":  "blue",
+				"Partly Received": "lightblue",
+				"Pending":         "yellow",
+				"Draft":           "gray",
+				"Closed":          "gray",
+			}[data.ac_status];
+			if (colour) {
+				value = `<span class="indicator-pill ${colour}">${data.ac_status}</span>`;
+			}
+		}
+
 		if (column.fieldname === "pending_amount" && data && flt(data.pending_amount) > 0) {
 			value = `<span style="color:var(--red-500)">${value}</span>`;
 		}
+
 		return value;
 	},
 };
