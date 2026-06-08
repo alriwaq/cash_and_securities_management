@@ -48,12 +48,14 @@ def get_station_data(station, posting_date=None):
 	"""
 	Return the station's opening balance and any existing Draft/Pending journal
 	for the given date so the page can pre-populate rows.
+	Always returns computed totals from actual child rows so KPI cards are accurate.
 	"""
 	if not posting_date:
 		posting_date = nowdate()
 
 	station_doc = frappe.get_doc("Treasury Station", station)
 
+	# Fetch any existing journal for today (Draft or Pending Review)
 	existing = frappe.db.get_value(
 		"Treasury Cash Journal",
 		{
@@ -70,29 +72,58 @@ def get_station_data(station, posting_date=None):
 	journal_name = None
 	if existing:
 		journal_name = existing.name
-		lines = frappe.get_all(
-			"Treasury Journal Line",
-			filters={"parent": existing.name, "parenttype": "Treasury Cash Journal"},
-			fields=["name", "idx", "direction", "transaction_category", "party_type",
-			        "party", "reference_doctype", "reference_name", "expense_account",
-			        "amount", "narration", "is_posted", "linked_document", "voucher_serial"],
-			order_by="idx asc",
-		)
+		# Fetch ALL fields including cost_center and project
+		lines = frappe.db.sql("""
+			SELECT
+				name, idx, direction, transaction_category,
+				party_type, party,
+				reference_doctype, reference_name,
+				expense_account, amount, narration,
+				is_posted, linked_document, voucher_serial,
+				source_doctype, source_document,
+				cost_center, project
+			FROM `tabTreasury Journal Line`
+			WHERE parent = %(journal)s
+			  AND parenttype = 'Treasury Cash Journal'
+			ORDER BY idx ASC
+		""", {"journal": existing.name}, as_dict=True)
+
 		for l in lines:
 			l["linked_doctype"] = _infer_linked_doctype(l.get("linked_document"))
 
-	# Use the journal's own recorded opening balance when one exists so that
-	# the cockpit KPIs always agree with what the TCJ form shows.
-	# Fall back to the station's current_balance only when no journal exists yet.
+	# ── Compute totals from actual rows (authoritative) ──────────────────────
+	total_inflows = sum(
+		flt(l["amount"]) for l in lines
+		if (l.get("direction") or "").strip().lower() in ("inbound", "وارد")
+	)
+	total_outflows = sum(
+		flt(l["amount"]) for l in lines
+		if (l.get("direction") or "").strip().lower() in ("outbound", "صادر")
+	)
+
+	# Use the journal's own recorded opening balance when one exists
+	# Fall back to the station's current_balance only when no journal exists yet
 	if existing and existing.get("opening_balance") is not None:
 		opening_balance = flt(existing.opening_balance)
 	else:
 		opening_balance = flt(station_doc.current_balance)
 
+	expected_balance = opening_balance + total_inflows - total_outflows
+
+	# Enrich existing dict with live-computed totals so JS KPI cards are always correct
+	if existing:
+		existing["opening_balance"] = opening_balance
+		existing["total_inflows"] = total_inflows
+		existing["total_outflows"] = total_outflows
+		existing["expected_balance"] = expected_balance
+
 	return {
 		"station": station_doc.as_dict(),
 		"journal_name": journal_name,
 		"opening_balance": opening_balance,
+		"total_inflows": total_inflows,
+		"total_outflows": total_outflows,
+		"expected_balance": expected_balance,
 		"existing": existing,
 		"lines": lines,
 		"posting_date": posting_date,
@@ -303,8 +334,8 @@ def _get_or_create_draft_journal(station, posting_date):
 def save_journal_draft(station, posting_date, lines, journal_name=None):
 	"""
 	Save or update a Draft Treasury Cash Journal with the given lines.
-	Creates a new journal if journal_name is None.
-	Blocks creation if a prior-date Draft exists that was not sent for review.
+	Uses _get_or_create_draft_journal to prevent duplicates.
+	Preserves cost_center, project, and all dimension fields.
 	Returns the journal name.
 	"""
 	import json
@@ -315,18 +346,19 @@ def save_journal_draft(station, posting_date, lines, journal_name=None):
 		doc = frappe.get_doc("Treasury Cash Journal", journal_name)
 		if doc.posting_status in ("Posted", "Closed"):
 			frappe.throw(_("Cannot edit a Posted or Closed journal."))
-		doc.journal_lines = []
+		# Clear only non-posted lines; preserve posted lines intact
+		doc.journal_lines = [l for l in doc.journal_lines if l.is_posted]
 	else:
-		# Guard: block if station is closed
-		_assert_station_open(station)
-		# Guard: block new journal if a prior-date Draft was not sent for review
-		_assert_no_unsent_prior_draft(station, posting_date)
-		doc = frappe.new_doc("Treasury Cash Journal")
-		doc.treasury_station = station
-		doc.posting_date = posting_date
-		doc.posting_status = "Draft"
+		# Use central helper — prevents duplicates, runs all guards
+		doc, _is_new = _get_or_create_draft_journal(station, posting_date)
+		if not _is_new:
+			# Existing journal — clear non-posted lines before re-appending
+			doc.journal_lines = [l for l in doc.journal_lines if l.is_posted]
 
 	for line in lines:
+		# Skip lines already marked posted (they were preserved above)
+		if int(line.get("is_posted", 0)):
+			continue
 		doc.append("journal_lines", {
 			"direction":             line.get("direction"),
 			"transaction_category":  line.get("transaction_category"),
@@ -340,15 +372,29 @@ def save_journal_draft(station, posting_date, lines, journal_name=None):
 			"voucher_serial":        line.get("voucher_serial", ""),
 			"source_doctype":        line.get("source_doctype", ""),
 			"source_document":       line.get("source_document", ""),
-			"is_posted":             int(line.get("is_posted", 0)),
+			"is_posted":             0,
 			"linked_document":       line.get("linked_document", ""),
+			"cost_center":           line.get("cost_center", ""),
+			"project":               line.get("project", ""),
 		})
 
 	doc.flags.ignore_permissions = True
-	if journal_name:
-		doc.save()
-	else:
-		doc.insert()
+	try:
+		if doc.is_new():
+			doc.insert()
+		else:
+			doc.save()
+	except frappe.exceptions.DuplicateEntryError:
+		# Race condition: another request already created the journal — reload and save
+		existing_name = frappe.db.get_value(
+			"Treasury Cash Journal",
+			{"treasury_station": station, "posting_date": posting_date,
+			 "posting_status": ["in", ["Draft", "Pending Review"]]},
+			"name"
+		)
+		if existing_name:
+			return existing_name
+		raise
 
 	return doc.name
 

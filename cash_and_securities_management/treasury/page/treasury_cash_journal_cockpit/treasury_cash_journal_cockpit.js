@@ -298,9 +298,8 @@ class TreasuryCashJournal {
 					$("#tcj-station-select").prop("disabled", true);
 					$("#tcj-date-input").prop("disabled", true);
 					$("#tcj-add-txn-btn, #tcj-save-btn, #tcj-post-btn").prop("disabled", true);
-					// Show Arabic access-denied message
-					const $main = $("#tcj-main-area");
-					$main.prepend(`
+					// Show Arabic access-denied message — inject before the KPI row (which exists in the injected markup)
+					$("#tcj-kpi-row").before(`
 						<div class="alert alert-warning text-center" style="font-size:1.1rem;margin-bottom:16px;">
 							<i class="fa fa-lock" style="margin-left:6px;"></i>
 							<strong>لا يوجد لديك صلاحية لأي محطة خزينة مفتوحة.</strong><br>
@@ -426,7 +425,7 @@ class TreasuryCashJournal {
 		const date = $("#tcj-date-input").val();
 		if (!station || !date) return;
 
-		// Check for unsent prior-draft and show a blocking banner if found
+		// ── 1. Check for unsent prior-draft (blocking banner) ────────────────────
 		frappe.call({
 			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.check_prior_draft",
 			args: { station, today: date },
@@ -448,7 +447,6 @@ class TreasuryCashJournal {
 						</div>
 					`);
 					$(".tcj-header").after(banner);
-					// Disable action buttons while prior draft exists
 					$("#tcj-add-txn-btn, #tcj-save-btn, #tcj-post-btn").prop("disabled", true).attr("title", "أرسل اليومية السابقة للمراجعة أولاً");
 				} else {
 					$("#tcj-add-txn-btn, #tcj-save-btn, #tcj-post-btn").prop("disabled", false).removeAttr("title");
@@ -456,22 +454,27 @@ class TreasuryCashJournal {
 			},
 		});
 
+		// ── 2. Load station data + existing journal lines ─────────────────────────
 		frappe.call({
 			method: "cash_and_securities_management.treasury.page.treasury_cash_journal_cockpit.treasury_cash_journal_cockpit_api.get_station_data",
 			args: { station, posting_date: date },
 			callback: (r) => {
-				if (!r.message) return;
+				if (!r.message) {
+					console.error("[TCJ] get_station_data returned empty response");
+					return;
+				}
 				const data = r.message;
 				this.stationData = data.station;
-				// Prefer the journal's own stored opening_balance (returned by the API
-				// when a TCJ already exists for today) so the four KPI cards always
-				// agree with what the TCJ form shows.
-				// Fall back to the station's current_balance when no journal exists yet.
-				this.openingBalance = (data.existing && data.existing.opening_balance != null)
-					? this._parseAmount(data.existing.opening_balance)
-					: this._parseAmount(data.opening_balance);
 
-				// Show station-closed banner if status is not Open
+				// ── Opening balance: use server-computed value (always authoritative) ──
+				this.openingBalance = this._parseAmount(data.opening_balance);
+
+				// ── Server-computed totals (from actual rows, not stored fields) ──────
+				this._serverInflows  = this._parseAmount(data.total_inflows);
+				this._serverOutflows = this._parseAmount(data.total_outflows);
+				this._serverExpected = this._parseAmount(data.expected_balance);
+
+				// ── Station closed banner ─────────────────────────────────────────────
 				$("#tcj-station-closed-banner").remove();
 				if (data.station && data.station.status !== "Open") {
 					const closedBanner = $(`
@@ -479,7 +482,7 @@ class TreasuryCashJournal {
 							<i class="fa fa-lock fa-lg mr-3" style="color:#856404;"></i>
 							<div>
 								<strong>الخزينة مغلقة</strong><br/>
-								حالة المحطة <b>${data.station.name}</b> هي <b>${data.station.status || 'Closed'}</b>.
+								حالة المحطة <b>${this._safeEscape(data.station.name)}</b> هي <b>${this._safeEscape(data.station.status || 'Closed')}</b>.
 								لا يمكن تسجيل أي حركات حتى يتم فتح الخزينة من قِبل المدير.
 							</div>
 						</div>
@@ -487,35 +490,80 @@ class TreasuryCashJournal {
 					$(".tcj-header").after(closedBanner);
 					$("#tcj-add-txn-btn, #tcj-save-btn, #tcj-post-btn").prop("disabled", true).attr("title", "الخزينة مغلقة — لا يمكن تسجيل حركات");
 				} else {
-					// Only re-enable if the prior-draft banner is not also blocking
 					if ($("#tcj-prior-draft-banner").length === 0) {
 						$("#tcj-add-txn-btn, #tcj-save-btn, #tcj-post-btn").prop("disabled", false).removeAttr("title");
 					}
 				}
-				this.journalName = data.journal_name || null;
-				this.journalStatus = (data.existing && data.existing.posting_status) || "Draft";
-				this.posted = this.journalStatus === "Posted" || this.journalStatus === "Closed";
 
+				// ── Journal identity ──────────────────────────────────────────────────
+				this.journalName   = data.journal_name || null;
+				this.journalStatus = (data.existing && data.existing.posting_status) || "Draft";
+				this.posted        = ["Posted", "Closed"].includes(this.journalStatus);
+
+				// ── Journal info bar (shows TCJ name + link when a journal exists) ────
+				$("#tcj-journal-infobar").remove();
+				if (this.journalName) {
+					const statusColors = {
+						"Draft":          "secondary",
+						"Pending Review": "warning",
+						"Posted":         "success",
+						"Closed":         "info",
+					};
+					const statusLabels = {
+						"Draft":          "مسودة",
+						"Pending Review": "قيد المراجعة",
+						"Posted":         "مرحّل",
+						"Closed":         "مغلق",
+					};
+					const sc = statusColors[this.journalStatus] || "secondary";
+					const sl = statusLabels[this.journalStatus] || this.journalStatus;
+					const infoBar = $(`
+						<div id="tcj-journal-infobar" class="alert alert-light d-flex align-items-center py-2 px-3 mb-2" style="border:1px solid #dee2e6; font-size:0.88rem;">
+							<i class="fa fa-file-text-o mr-2 text-muted"></i>
+							<span class="mr-2">يومية اليوم:</span>
+							<a href="/app/treasury-cash-journal/${this.journalName}" target="_blank"
+							   class="font-weight-bold mr-2" style="font-size:0.95rem;">
+								${this._safeEscape(this.journalName)}
+								<i class="fa fa-external-link ml-1" style="font-size:0.75rem;"></i>
+							</a>
+							<span class="badge badge-${sc}">${sl}</span>
+							<span class="ml-auto text-muted small">
+								${(data.lines || []).length} سطر مسجّل
+							</span>
+						</div>
+					`);
+					$("#tcj-kpi-row").before(infoBar);
+				}
+
+				// ── Hydrate rows from server lines ────────────────────────────────────
 				this.rows = (data.lines || []).map((l, i) => ({
 					_id: i,
-					voucher_serial: l.voucher_serial || "",
-					direction: this._normalizeDirection(l.direction || ""),
+					voucher_serial:       l.voucher_serial || "",
+					direction:            this._normalizeDirection(l.direction || ""),
 					transaction_category: l.transaction_category || "",
-					party_type: l.party_type || "",
-					party: l.party || "",
-					reference_doctype: l.reference_doctype || "",
-					reference_name: l.reference_name || "",
-					expense_account: l.expense_account || "",
-					amount: l.amount || 0,
-					narration: l.narration || "",
-					is_posted: l.is_posted || 0,
-					linked_document: l.linked_document || "",
-					linked_doctype: l.linked_doctype || "",
+					party_type:           l.party_type || "",
+					party:                l.party || "",
+					reference_doctype:    l.reference_doctype || "",
+					reference_name:       l.reference_name || "",
+					expense_account:      l.expense_account || "",
+					amount:               this._parseAmount(l.amount),
+					narration:            l.narration || "",
+					is_posted:            l.is_posted || 0,
+					linked_document:      l.linked_document || "",
+					linked_doctype:       l.linked_doctype || "",
+					cost_center:          l.cost_center || "",
+					project:              l.project || "",
+					source_doctype:       l.source_doctype || "",
+					source_document:      l.source_document || "",
 				}));
+
+				console.log(`[TCJ] Loaded ${this.rows.length} rows for journal ${this.journalName || '(none yet)'} | opening=${this.openingBalance} | inflows=${this._serverInflows} | outflows=${this._serverOutflows}`);
+
 				// Restore serial counters from loaded rows
-				this._inboundSerial = this.rows.filter(r => r.direction === "Inbound").length;
+				this._inboundSerial  = this.rows.filter(r => r.direction === "Inbound").length;
 				this._outboundSerial = this.rows.filter(r => r.direction === "Outbound").length;
 
+				// ── Render all sections ───────────────────────────────────────────────
 				this._updateKPIs();
 				this._renderGrid();
 				this._renderExecutedGrid();
@@ -523,6 +571,10 @@ class TreasuryCashJournal {
 				this._updateDenomCard();
 				$("#tcj-opening-balance").val(this.openingBalance);
 				$("#tcj-journal-name").val(this.journalName || "");
+			},
+			error: (err) => {
+				console.error("[TCJ] get_station_data failed:", err);
+				frappe.show_alert({ message: __("فشل تحميل بيانات الخزينة. تحقق من السجلات."), indicator: "red" }, 5);
 			},
 		});
 	}
@@ -547,18 +599,23 @@ class TreasuryCashJournal {
 		const tbody = $("#tcj-tbody");
 		tbody.empty();
 
+		// Show ALL rows in the main table (draft + posted/executed)
+		// The filter tabs narrow by direction only; all rows are always visible by default.
 		const filtered = this.activeFilter === "all"
 			? this.rows
 			: this.rows.filter((r) => this._normalizeDirection(r.direction) === this.activeFilter);
 
 		if (filtered.length === 0) {
+			const emptyMsg = this.journalName
+				? `لا توجد حركات بهذا الفلتر. <a href="/app/treasury-cash-journal/${this.journalName}" target="_blank">فتح اليومية ${this.journalName}</a>`
+				: `لا توجد يومية لهذا اليوم بعد. اضغط على <strong>"تسجيل حركة خزينة"</strong> لبدء تسجيل الحركات.`;
 			tbody.append(`
-			<tr>
-				<td colspan="11" class="text-center text-muted py-4">
-					<i class="fa fa-inbox fa-2x mb-2 d-block"></i>
-					لا توجد سجلات. اضغط على "تسجيل حركة خزينة" للبدء.
-				</td>
-			</tr>
+				<tr>
+					<td colspan="11" class="text-center text-muted py-4">
+						<i class="fa fa-inbox fa-2x mb-2 d-block"></i>
+						${emptyMsg}
+					</td>
+				</tr>
 			`);
 		} else {
 			filtered.forEach((row, idx) => {
@@ -1602,16 +1659,32 @@ class TreasuryCashJournal {
 	}
 
 	_updateKPIs() {
-		const inflows = this._sumInflows();
+		// Always recompute from this.rows so newly-added rows are reflected immediately.
+		// _serverInflows/_serverOutflows are set by _loadJournal from authoritative API data;
+		// after adding a new row locally they are cleared so client-computed values are used.
+		const inflows  = this._sumInflows();
 		const outflows = this._sumOutflows();
-		const expected = this._parseAmount(this.openingBalance) + inflows - outflows;
+		const opening  = this._parseAmount(this.openingBalance);
+		const expected = opening + inflows - outflows;
 
-		const fmt = (v) => frappe.utils.format_number(v, null, 2);
-		$("#kpi-opening").text(fmt(this.openingBalance));
+		const fmt = (v) => {
+			try { return frappe.utils.format_number(v, null, 2); }
+			catch(e) { return (parseFloat(v) || 0).toFixed(2); }
+		};
+
+		// KPI cards
+		$("#kpi-opening").text(fmt(opening));
 		$("#kpi-inflows").text(fmt(inflows));
 		$("#kpi-outflows").text(fmt(outflows));
 		$("#kpi-expected").text(fmt(expected));
 		$("#tcj-denom-expected").text(fmt(expected));
+
+		// Color cues: inflows green, outflows red
+		$("#kpi-inflows").css("color", inflows > 0 ? "#28a745" : "");
+		$("#kpi-outflows").css("color", outflows > 0 ? "#dc3545" : "");
+		$("#kpi-expected").css("color", expected < 0 ? "#dc3545" : expected > 0 ? "#28a745" : "");
+
+		console.log(`[TCJ-KPI] opening=${opening} inflows=${inflows} outflows=${outflows} expected=${expected}`);
 	}
 
 	_updateBadgeCounts() {
