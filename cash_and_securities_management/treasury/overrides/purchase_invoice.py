@@ -31,7 +31,12 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
         if self.get("total_advance") is None:
             self.total_advance = 0
 
-    def _get_custody_payable_account(self):
+    def _get_custody_account(self):
+        """
+        Single-Account Model: return the custodian's single custody_account (Receivable).
+        This account is used as credit_to on the Purchase Invoice — the PI credit
+        self-settles the advance balance without a separate Settlement PE.
+        """
         ac_name = self.get("custom_accountant_custody")
         if not ac_name:
             return None
@@ -39,9 +44,15 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
         if not frappe.db.exists("Accountant Custody", ac_name):
             return None
 
-        ac_doc = frappe.get_doc("Accountant Custody", ac_name)
-        _advance_account, payable_account = ac_doc._get_custodian_accounts()
-        return payable_account
+        custodian = frappe.db.get_value("Accountant Custody", ac_name, "custodian")
+        if not custodian:
+            return None
+
+        return frappe.db.get_value("Custodian", custodian, "custody_account")
+
+    # Keep old name as alias for any external callers during transition
+    def _get_custody_payable_account(self):
+        return self._get_custody_account()
 
     def _apply_custody_item_defaults(self):
         if not self._is_custody_mode() or not self.get("custom_accountant_custody"):
@@ -106,13 +117,14 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
             if self.get("custom_custodian") and not self.get("supplier_name"):
                 self.supplier_name = self.custom_custodian
 
-            payable_account = self._get_custody_payable_account()
-            if payable_account:
-                self.credit_to = payable_account
+            custody_account = self._get_custody_account()
+            if custody_account:
+                self.credit_to = custody_account
                 self.party_type = "Custodian"
                 self.party = self.get("custom_custodian")
-                self.party_account_currency = frappe.db.get_value(
-                    "Account", payable_account, "account_currency"
+                self.party_account_currency = (
+                    frappe.db.get_value("Account", custody_account, "account_currency")
+                    or frappe.db.get_value("Company", self.company, "default_currency")
                 )
 
         return super().before_validate()
@@ -252,9 +264,9 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
                 title=_("Invalid Account"),
             )
 
-        if account.account_type != "Payable":
+        if account.account_type not in ("Receivable", "Payable"):
             frappe.throw(
-                _("Credit To must be a Payable account for custody invoices."),
+                _("Credit To must be a Receivable or Payable account for custody invoices."),
                 title=_("Invalid Account Type"),
             )
 

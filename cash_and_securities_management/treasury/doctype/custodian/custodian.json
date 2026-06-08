@@ -17,7 +17,6 @@
   "custody_account_section",
   "custody_account",
   "custodian_bank_account",
-  "liability_account",
   "custody_limit",
   "column_break_account",
   "status",
@@ -92,11 +91,11 @@
    "label": "Custody Account and Limits"
   },
   {
-   "description": "Auto-created asset sub-ledger account for this custodian. Tracks advance funds disbursed to the custodian.",
+   "description": "Auto-created Receivable sub-ledger account for this custodian. Both advances and invoices post here — the balance self-settles with no manual Settlement Entry needed.",
    "fieldname": "custody_account",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Advance (Asset) Account",
+   "label": "Custody Account (Self-Settling)",
    "no_copy": 1,
    "options": "Account",
    "read_only": 1
@@ -108,14 +107,6 @@
    "label": "Custodian Bank Account",
    "options": "Bank Account",
    "in_list_view": 0
-  },
-  {
-   "fieldname": "liability_account",
-   "fieldtype": "Link",
-   "label": "Liability (Payable) Account",
-   "options": "Account",
-   "read_only": 1,
-   "description": "Auto-created liability sub-ledger account for this custodian. Used to track amounts owed to the custodian after settlement."
   },
   {
    "default": "0",
@@ -185,10 +176,10 @@
    "read_only": 1
   },
   {
-   "description": "Sum of unsettled Accountant Custody totals",
+   "description": "Sum of unsettled Accountant Custody totals (PI submitted but not yet credited to custody account)",
    "fieldname": "pending_settlements",
    "fieldtype": "Currency",
-   "label": "Pending Settlements",
+   "label": "Pending Invoices",
    "no_copy": 1,
    "options": "Company:company:default_currency",
    "read_only": 1

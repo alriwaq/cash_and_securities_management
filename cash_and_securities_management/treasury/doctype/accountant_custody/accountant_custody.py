@@ -1,23 +1,20 @@
 """
-Accountant Custody DocType controller — v3
+Accountant Custody DocType controller — v4  (Single Self-Settling Account)
 Master document for the spending stage of the custody cycle.
 
-Three-step flow:
+Two-step flow:
   Stage 1: Custody Request → Payment Entry (advance disbursement)
+           GL: Debit custody_account / Credit Cash|Bank
   Stage 2: Accountant Custody → Purchase Receipt → Purchase Invoice
-  Stage 3: Accountant Custody → Settlement Payment Entry
-           (Debit Payable / Credit Advance  OR  Debit Payable / Credit Bank)
+           GL: Debit Expense / Credit custody_account  ← self-settles the advance
 
-The Settlement PE references the Purchase Invoice so ERPNext marks the PI
-as "Paid" automatically — identical to the standard Make Payment flow.
-
-Architecture:
-  JS (UI) → api.create_custody_settlement() → doc.create_settlement()
+No separate Settlement step is needed.  When total_billed_amount >= total_amount
+the AC is "Fully Invoiced" and the custodian's balance is zero.
 """
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt, now, nowdate
+from frappe.utils import flt, nowdate
 
 CONSOLIDATED = "Consolidated (Party-Based)"
 INDIVIDUAL = "Individual (Account-Based)"
@@ -44,23 +41,17 @@ class AccountantCustody(Document):
 		self.recalculate_status()
 
 	def on_submit(self):
-		# Explicitly set status to "Pending" on submit.
-		# ERPNext's Document class may set a default "Submitted" status
-		# before on_submit runs — we override it here to ensure the AC
-		# always starts at "Pending" (the first valid post-submit status).
 		self.status = "Pending"
 		self.db_set("status", "Pending")
-		# Then run the full status engine which may advance it further
-		# if PRs/PIs already exist (e.g., amend scenario).
 		self.recalculate_status()
 
 	def on_cancel(self):
-		self._validate_no_settlements()
+		self._validate_no_open_invoices()
 		self.db_set("status", "Cancelled")
 
 	# ── Private helpers ───────────────────────────────────────────────────────
 	def _sync_from_custody_request(self):
-		"""Pull company, custodian, project from the linked Custody Request."""
+		"""Pull company, custodian from the linked Custody Request."""
 		if not self.custody_request:
 			return
 		cr = frappe.db.get_value(
@@ -78,12 +69,7 @@ class AccountantCustody(Document):
 		self.custody_request_balance = flt(cr.paid_amount)
 
 	def _populate_item_flags(self):
-		"""
-		Ensure is_stock_item and is_fixed_asset are populated server-side.
-		These are fetch_from fields that rely on client-side triggers — when
-		documents are created programmatically the values may be 0 in the DB.
-		This method queries the Item master directly to guarantee correctness.
-		"""
+		"""Ensure is_stock_item and is_fixed_asset are populated server-side."""
 		for item in self.custody_items:
 			if not item.item_code:
 				continue
@@ -105,28 +91,13 @@ class AccountantCustody(Document):
 			)
 
 	def _calculate_totals(self, persist=False):
-		"""
-		Recalculate all total fields on the AC.
-
-		  total_amount          — sum(qty × rate) from custody_items (always)
-		  total_accepted_amount — sum of PR grand_totals from submitted PRs
-		                          (only when self.name is set, i.e. doc exists in DB)
-		  total_billed_amount   — sum of PI grand_totals from submitted PIs
-		                          (only when self.name is set)
-
-		When persist=True (called from update_received_quantities /
-		update_billed_quantities on a submitted doc), all three values are
-		written directly to the DB via frappe.db.set_value.
-		"""
-		# ── 1. total_amount from child table ─────────────────────────────────
+		"""Recalculate all total fields on the AC."""
 		total = sum(flt(item.qty) * flt(item.rate) for item in self.custody_items)
 		self.total_amount = total
 
 		if not self.name:
-			# New doc not yet saved — nothing else to query
 			return
 
-		# ── 2. total_accepted_amount from submitted PRs ───────────────────────
 		total_accepted = flt(
 			frappe.db.sql(
 				"""
@@ -139,7 +110,6 @@ class AccountantCustody(Document):
 		)
 		self.total_accepted_amount = total_accepted
 
-		# ── 3. total_billed_amount from submitted PIs ─────────────────────────
 		total_billed = flt(
 			frappe.db.sql(
 				"""
@@ -153,7 +123,6 @@ class AccountantCustody(Document):
 		self.total_billed_amount = total_billed
 
 		if persist:
-			# Write all three totals to DB (safe for submitted docs)
 			frappe.db.set_value(
 				"Accountant Custody",
 				self.name,
@@ -165,32 +134,27 @@ class AccountantCustody(Document):
 				update_modified=False,
 			)
 
-	def _validate_no_settlements(self):
-		"""Block cancellation if any settlement PEs exist."""
-		settlement_pes = frappe.get_all(
-			"Payment Entry",
-			filters={
-				"custom_accountant_custody": self.name,
-				"custom_source_document_type": "Custody Settlement",
-				"docstatus": 1,
-			},
+	def _validate_no_open_invoices(self):
+		"""Block cancellation if any submitted PIs exist."""
+		submitted_pis = frappe.get_all(
+			"Purchase Invoice",
+			filters={"custom_accountant_custody": self.name, "docstatus": 1},
 			fields=["name"],
 		)
-		if settlement_pes:
+		if submitted_pis:
 			frappe.throw(
-				_("Cannot cancel Accountant Custody {0} — it has submitted settlement "
-				  "Payment Entries: {1}. Please cancel those first.").format(
+				_("Cannot cancel Accountant Custody {0} — it has submitted Purchase "
+				  "Invoices: {1}. Please cancel those first.").format(
 					self.name,
-					", ".join(d.name for d in settlement_pes),
+					", ".join(d.name for d in submitted_pis),
 				),
-				title=_("Active Settlements Exist"),
+				title=_("Active Invoices Exist"),
 			)
 
-	def _get_custodian_accounts(self):
+	def _get_custody_account(self):
 		"""
-		Return (advance_account, payable_account) for this custodian.
-		Both accounts are read from the Custodian record — already set correctly
-		for Consolidated (shared group) or Individual (dedicated leaf) mode.
+		Single-Account Model: return the custodian's single custody_account (Receivable).
+		Raises a clear error if not configured.
 		"""
 		if not self.custodian:
 			frappe.throw(
@@ -198,76 +162,42 @@ class AccountantCustody(Document):
 				title=_("Missing Custodian"),
 			)
 
-		advance_account, payable_account = frappe.db.get_value(
-			"Custodian",
-			self.custodian,
-			["custody_account", "liability_account"],
-		) or (None, None)
-
-		if not advance_account:
+		custody_account = frappe.db.get_value("Custodian", self.custodian, "custody_account")
+		if not custody_account:
 			frappe.throw(
-				_("Advance Account is not configured for Custodian {0}. "
-				  "Please submit the Custodian record to auto-create accounts.").format(
+				_("Custody Account is not configured for Custodian {0}. "
+				  "Please submit the Custodian record to auto-create the account.").format(
 					self.custodian
 				),
-				title=_("Missing Advance Account"),
+				title=_("Missing Custody Account"),
 			)
-		if not payable_account:
-			frappe.throw(
-				_("Payable Account is not configured for Custodian {0}. "
-				  "Please submit the Custodian record to auto-create accounts.").format(
-					self.custodian
-				),
-				title=_("Missing Payable Account"),
-			)
-
-		return advance_account, payable_account
+		return custody_account
 
 	# ── Status Engine ─────────────────────────────────────────────────────────
 	def recalculate_status(self):
 		"""
 		Derive status from the state of linked documents.
-		Called on validate, submit, and after any PR/PI/PE event.
 
-		Valid statuses (from DocType Select field):
+		Valid statuses (Single-Account Model):
 		  Draft, Pending, Partly Received, Fully Received,
-		  Partly Invoiced, Fully Invoiced, Partly Settled, Fully Settled,
-		  Closed, Cancelled
-
-		Status progression:
-		  Draft → Pending → Partly Received → Fully Received
-		  → Partly Invoiced → Fully Invoiced → Partly Settled → Fully Settled
-
-		IMPORTANT: This method queries the Item master directly for is_stock_item
-		and is_fixed_asset flags instead of relying on self.custody_items values,
-		which may be stale (0) in the database for records created before the
-		_populate_item_flags() fix was deployed.
-
-		Settlement comparison uses the actual billed amount (sum of PI grand_totals)
-		instead of self.total_amount, which can be stale/zero when called from
-		update_billed_quantities() after _calculate_totals() on a reloaded doc.
+		  Partly Invoiced, Fully Invoiced, Closed, Cancelled
 		"""
 		if self.docstatus == 2:
-			return  # Already cancelled
+			return
 
-		# Use the totals that were freshly written to DB by recalculate_accountant_custody_status
-		# (called before this method on submitted docs). On validate/draft, _calculate_totals
-		# has already populated self.total_billed_amount and self.total_settled_amount.
-		total_settled = flt(self.total_settled_amount or 0)
-		actual_billed_amount = flt(self.total_billed_amount or 0)
+		total_billed = flt(self.total_billed_amount or 0)
 
-		# Count submitted PRs and PIs linked to this AC
 		submitted_prs = frappe.db.count(
 			"Purchase Receipt",
 			{"custom_accountant_custody": self.name, "docstatus": 1},
-		)
+		) if self.name else 0
+
 		submitted_pis = frappe.db.count(
 			"Purchase Invoice",
 			{"custom_accountant_custody": self.name, "docstatus": 1},
-		)
+		) if self.name else 0
 
-		# Query the Item master directly for stock/asset flags — never rely on
-		# self.custody_items.is_stock_item which may be 0 for old records.
+		# Query Item master for stock/asset flags
 		stock_item_data = frappe.db.sql(
 			"""
 			SELECT aci.item_code, aci.qty,
@@ -279,28 +209,20 @@ class AccountantCustody(Document):
 			""",
 			(self.name,),
 			as_dict=True,
-		)
+		) if self.name else []
 
-		stock_items = [
-			d for d in stock_item_data
-			if d.is_stock_item or d.is_fixed_asset
-		]
-		total_stock_items = len(stock_items)
+		stock_items = [d for d in stock_item_data if d.is_stock_item or d.is_fixed_asset]
 		total_stock_qty = sum(flt(d.qty) for d in stock_items)
 		total_all_qty = sum(flt(d.qty) for d in stock_item_data)
 
 		if self.docstatus == 0:
 			new_status = "Draft"
 		elif submitted_prs == 0 and submitted_pis == 0:
-			# No PRs and no PIs yet — awaiting first receipt or invoice
 			new_status = "Pending"
 		elif submitted_pis == 0:
-			# PRs exist but no PI yet
-			if total_stock_items == 0:
-				# No stock items at all — go straight to invoice
+			if not stock_items:
 				new_status = "Fully Received"
 			else:
-				# Count PR items received
 				received_qty = flt(frappe.db.sql(
 					"""
 					SELECT COALESCE(SUM(pri.qty), 0)
@@ -315,8 +237,7 @@ class AccountantCustody(Document):
 				else:
 					new_status = "Partly Received"
 		else:
-			# PIs exist — determine invoice vs settlement status
-			# Check: are all items billed by qty?
+			# PIs exist — invoice status
 			total_billed_qty = flt(frappe.db.sql(
 				"""
 				SELECT COALESCE(SUM(pii.qty), 0)
@@ -328,18 +249,10 @@ class AccountantCustody(Document):
 			)[0][0] or 0)
 			fully_billed = (total_billed_qty >= total_all_qty - 0.001)
 
-			if total_settled <= 0:
-				# No settlement yet — status depends on whether fully billed
-				if fully_billed:
-					new_status = "Fully Invoiced"
-				else:
-					new_status = "Partly Invoiced"
-			elif actual_billed_amount > 0 and total_settled >= actual_billed_amount - 0.01:
-				# Settled amount covers the actual billed amount — fully settled
-				new_status = "Fully Settled"
+			if fully_billed:
+				new_status = "Fully Invoiced"
 			else:
-				# Some settlement exists but not enough — partly settled
-				new_status = "Partly Settled"
+				new_status = "Partly Invoiced"
 
 		old_status = self.status
 		if old_status != new_status:
@@ -348,7 +261,7 @@ class AccountantCustody(Document):
 			else:
 				self.status = new_status
 
-	# ── Stage 2: Purchase Receipt ─────────────────────────────────────────────
+	# ── Stage 2a: Purchase Receipt ────────────────────────────────────────────
 	@frappe.whitelist()
 	def create_purchase_receipt(self):
 		"""
@@ -369,7 +282,7 @@ class AccountantCustody(Document):
 		settings = frappe.db.get_singles_dict("Treasury Settings")
 		series = settings.get("pr_series") or "AC-PR-.YYYY.-.#####"
 		mode = settings.get("accounting_mode") or CONSOLIDATED
-		_advance_account, payable_account = self._get_custodian_accounts()
+		custody_account = self._get_custody_account()
 
 		pr = frappe.new_doc("Purchase Receipt")
 		pr.naming_series = series
@@ -384,8 +297,8 @@ class AccountantCustody(Document):
 		if self.custody_request:
 			pr.custom_custody_request = self.custody_request
 
-		# Override the stock-received-but-not-billed account to the custodian payable
-		pr.stock_received_but_not_billed = payable_account
+		# Single-account: stock_received_but_not_billed → custody_account
+		pr.stock_received_but_not_billed = custody_account
 
 		if mode == CONSOLIDATED:
 			pr.party_type = "Custodian"
@@ -417,24 +330,22 @@ class AccountantCustody(Document):
 		)
 		return pr.name
 
-	# ── Stage 2: Purchase Invoice ─────────────────────────────────────────────
+	# ── Stage 2b: Purchase Invoice ────────────────────────────────────────────
 	@frappe.whitelist()
 	def generate_purchase_invoice(self):
 		"""
 		Stage 2b — Create a Purchase Invoice.
 
-		If submitted PRs exist: uses ERPNext's native make_purchase_invoice mapper
-		to create the PI from those PRs (correct stock valuation).
-		If no PRs: creates a direct PI for service items.
-
-		GL Entry (via CustodyPurchaseInvoice override):
+		Single-Account GL Entry (via CustodyPurchaseInvoice override):
 		  Debit:  Expense / Stock Account
-		  Credit: Custodian Payable Account  ← party_type = Custodian
+		  Credit: custody_account (Receivable, party_type=Custodian)
+
+		This credit self-settles the advance — no separate Settlement PE needed.
 		"""
 		settings = frappe.db.get_singles_dict("Treasury Settings")
 		series = settings.get("pi_series") or "AC-PI-.YYYY.-.#####"
 		mode = settings.get("accounting_mode") or CONSOLIDATED
-		_advance_account, payable_account = self._get_custodian_accounts()
+		custody_account = self._get_custody_account()
 
 		custody_items_in_order = list(self.custody_items)
 		custody_items_by_key = {}
@@ -467,7 +378,6 @@ class AccountantCustody(Document):
 
 				if not custody_item:
 					continue
-
 				if custody_item.get("warehouse"):
 					pi_item.warehouse = custody_item.warehouse
 				if custody_item.get("project"):
@@ -508,7 +418,6 @@ class AccountantCustody(Document):
 				existing_pr_details = {
 					d.get("pr_detail") for d in pi_doc.get("items") if d.get("pr_detail")
 				}
-
 				for linked_pr in linked_prs[1:]:
 					extra_pi = make_pi_from_pr(linked_pr.name)
 					for extra_item in extra_pi.get("items"):
@@ -542,15 +451,15 @@ class AccountantCustody(Document):
 		if self.custody_request:
 			pi_doc.custom_custody_request = self.custody_request
 
-		# Override credit_to with the custodian's payable account
-		pi_doc.credit_to = payable_account
+		# Single-account: credit_to = custody_account (Receivable)
+		pi_doc.credit_to = custody_account
 
-		# In Consolidated mode, set the Custodian as the Party on the PI
 		if mode == CONSOLIDATED:
 			pi_doc.party_type = "Custodian"
 			pi_doc.party = self.custodian
-			pi_doc.party_account_currency = frappe.db.get_value(
-				"Account", payable_account, "account_currency"
+			pi_doc.party_account_currency = (
+				frappe.db.get_value("Account", custody_account, "account_currency")
+				or frappe.db.get_value("Company", self.company, "default_currency")
 			)
 
 		append_service_items(pi_doc)
@@ -573,479 +482,15 @@ class AccountantCustody(Document):
 		)
 		return pi_doc.name
 
-	# ── Stage 3: Settlement ────────────────────────────────────────────────────
-	@frappe.whitelist()
-	def create_settlement(
-		self,
-		advance_amount_allocated=0,
-		direct_payment_amount=0,
-		settlement_notes="",
-	):
-		"""
-		Stage 3 — Settlement via Payment Entry.
-
-		Called exclusively through the API layer:
-		  JS (UI) → api.create_custody_settlement() → doc.create_settlement()
-
-		Two pathways:
-		  1. Advance Deduction  — PE: Internal Transfer
-		                          paid_from = Custodian Advance Account (Asset)
-		                          paid_to   = Custodian Payable Account (Liability)
-		                          GL: Debit Payable / Credit Advance
-
-		  2. Direct Payment     — PE: Pay
-		                          paid_from = Bank/Cash Account
-		                          paid_to   = Custodian Payable Account (Liability)
-		                          GL: Debit Payable / Credit Bank/Cash
-
-		The PE references all submitted PIs linked to this AC so ERPNext marks
-		them as "Paid" automatically (same as the standard Make Payment flow).
-
-		Returns the name of the primary Payment Entry created.
-		"""
-		advance_amount_allocated = flt(advance_amount_allocated)
-		direct_payment_amount = flt(direct_payment_amount)
-		total_settlement = advance_amount_allocated + direct_payment_amount
-
-		def insert_settlement_row(
-			claimed_amount,
-			advance_allocated,
-			direct_paid,
-			total_amount,
-			payment_entry,
-			notes,
-		):
-			idx = (
-				frappe.db.sql(
-					"""
-					select ifnull(max(idx), 0) + 1
-					from `tabCustody Settlement Entry`
-					where parent = %s and parenttype = 'Accountant Custody' and parentfield = 'settlements'
-					""",
-					(self.name,),
-				)[0][0]
-				or 1
-			)
-
-			row_name = frappe.generate_hash(length=10)
-			ts = now()
-			frappe.db.sql(
-				"""
-				insert into `tabCustody Settlement Entry`
-				(
-					name, creation, modified, modified_by, owner, docstatus, idx,
-					parent, parentfield, parenttype,
-					custody_request, custody_request_balance,
-					claimed_amount, advance_amount_allocated, direct_payment_amount,
-					total_settlement_amount, payment_entry, settlement_date, settlement_notes
-				)
-				values (%s, %s, %s, %s, %s, 0, %s, %s, 'settlements', 'Accountant Custody', %s, %s, %s, %s, %s, %s, %s, %s, %s)
-				""",
-				(
-					row_name,
-					ts,
-					ts,
-					frappe.session.user,
-					frappe.session.user,
-					idx,
-					self.name,
-					self.custody_request or "",
-					flt(self.custody_request_balance or 0),
-					flt(claimed_amount),
-					flt(advance_allocated),
-					flt(direct_paid),
-					flt(total_amount),
-					payment_entry,
-					nowdate(),
-					notes or "",
-				),
-			)
-
-		def allocate_open_purchase_invoices(pe_doc, allocation_amount):
-			remaining = flt(allocation_amount)
-			if remaining <= 0:
-				return
-
-			open_pis = frappe.get_all(
-				"Purchase Invoice",
-				filters={
-					"custom_accountant_custody": self.name,
-					"docstatus": 1,
-					"outstanding_amount": [">", 0],
-				},
-				fields=["name", "grand_total", "outstanding_amount", "due_date"],
-				order_by="posting_date asc, name asc",
-			)
-
-			for pi in open_pis:
-				if remaining <= 0:
-					break
-
-				outstanding = flt(pi.outstanding_amount)
-				if outstanding <= 0:
-					continue
-
-				allocated = min(remaining, outstanding)
-				pe_doc.append(
-					"references",
-					{
-						"reference_doctype": "Purchase Invoice",
-						"reference_name": pi.name,
-						"due_date": pi.due_date,
-						"total_amount": flt(pi.grand_total),
-						"outstanding_amount": outstanding,
-						"allocated_amount": allocated,
-					},
-				)
-				remaining = flt(remaining) - flt(allocated)
-
-			if remaining > 0.01:
-				frappe.throw(
-					_("Unable to allocate settlement amount {0}; outstanding Purchase Invoices are lower.").format(
-						remaining
-					),
-					title=_("Allocation Error"),
-				)
-
-		def create_settlement_payment_entry(amount, paid_from_account, remark):
-			pe = frappe.new_doc("Payment Entry")
-			pe.payment_type = "Internal Transfer"
-			pe.posting_date = nowdate()
-			pe.company = self.company
-			pe.party_type = "Custodian"
-			pe.party = self.custodian
-			pe.paid_from = paid_from_account
-			pe.paid_to = payable_account
-			pe.paid_amount = flt(amount)
-			pe.received_amount = flt(amount)
-			pe.reference_no = self.name
-			pe.reference_date = nowdate()
-			pe.remarks = remark
-			pe.custom_source_document_type = "Custody"
-			pe.custom_accountant_custody = self.name
-			pe.custom_custodian = self.custodian
-			pe.custom_custody_request = self.custody_request
-
-			allocate_open_purchase_invoices(pe, amount)
-
-			pe.flags.ignore_permissions = True
-			pe.insert()
-			pe.submit()
-			return pe.name
-
-		if total_settlement <= 0:
-			frappe.throw(
-				_("Settlement amount must be greater than zero."),
-				title=_("Invalid Amount"),
-			)
-
-		settings = frappe.db.get_singles_dict("Treasury Settings")
-		mode = settings.get("accounting_mode") or CONSOLIDATED
-		series = settings.get("pe_series") or "AC-PAY-.YYYY.-.#####"
-		advance_account, payable_account = self._get_custodian_accounts()
-		primary_pe_name = None
-
-		# Resolve account currencies once (used on both PE paths)
-		advance_account_currency = (
-			frappe.get_cached_value("Account", advance_account, "account_currency")
-			or frappe.db.get_value("Company", self.company, "default_currency")
-		)
-		payable_account_currency = (
-			frappe.get_cached_value("Account", payable_account, "account_currency")
-			or frappe.db.get_value("Company", self.company, "default_currency")
-		)
-
-		# Fetch all submitted PIs linked to this AC for the PE references table
-		linked_pis = frappe.get_all(
-			"Purchase Invoice",
-			filters={"custom_accountant_custody": self.name, "docstatus": 1},
-			fields=[
-				"name", "outstanding_amount", "grand_total",
-				"party_account_currency", "credit_to", "due_date",
-				"conversion_rate",
-			],
-		)
-
-		def _build_pe_references(pe_doc, amount_to_allocate):
-			"""
-			Allocate the settlement amount across linked PIs in the PE references table.
-
-			ERPNext's make_advance_gl_entries() reads row.account from each reference
-			row to build the GL entry for reconciliation. If account is empty, it
-			throws 'Account is required'. We must populate it with the PI's credit_to
-			(the custodian payable account).
-			"""
-			remaining = flt(amount_to_allocate)
-			for pi in linked_pis:
-				if remaining <= 0:
-					break
-				outstanding = flt(pi.outstanding_amount)
-				if outstanding <= 0:
-					continue
-				allocated = min(outstanding, remaining)
-				pe_doc.append("references", {
-					"reference_doctype": "Purchase Invoice",
-					"reference_name": pi.name,
-					# account is mandatory for make_advance_gl_entries
-					"account": pi.credit_to or payable_account,
-					"due_date": pi.due_date,
-					"exchange_rate": pi.conversion_rate or 1,
-					"account_type": "Payable",
-					"total_amount": flt(pi.grand_total),
-					"outstanding_amount": outstanding,
-					"allocated_amount": allocated,
-				})
-				remaining -= allocated
-
-		def _insert_settlement_row(pe_name, advance_amt, direct_amt):
-			"""Insert a Custody Settlement Entry row directly (doc is submitted)."""
-			frappe.db.sql(
-				"""INSERT INTO `tabCustody Settlement Entry`
-				   (name, parent, parenttype, parentfield, idx,
-				    custody_request, custody_request_balance,
-				    claimed_amount, advance_amount_allocated, direct_payment_amount,
-				    total_settlement_amount, payment_entry,
-				    settlement_date, settlement_notes,
-				    creation, modified, modified_by, owner, docstatus)
-				   VALUES (%s, %s, 'Accountant Custody', 'settlements',
-				   (SELECT COALESCE(MAX(idx),0)+1 FROM `tabCustody Settlement Entry` t2
-				    WHERE t2.parent = %s),
-				   %s, %s, %s, %s, %s, %s, %s, %s, %s,
-				   NOW(), NOW(), 'Administrator', 'Administrator', 0)""",
-				(
-					frappe.generate_hash(length=10),
-					self.name,
-					self.name,
-					self.custody_request or "",
-					flt(self.custody_request_balance or 0),
-					advance_amt,
-					advance_amt,
-					direct_amt,
-					advance_amt + direct_amt,
-					pe_name,
-					nowdate(),
-					settlement_notes or "",
-				),
-			)
-
-		# ── Path 1: Advance Deduction (Internal Transfer) ─────────────────────
-		if advance_amount_allocated > 0:
-			pe = frappe.new_doc("Payment Entry")
-			pe.naming_series = series
-			pe.payment_type = "Internal Transfer"
-			pe.posting_date = nowdate()
-			pe.company = self.company
-			# Party — always Custodian for custody settlement PEs
-			pe.party_type = "Custodian"
-			pe.party = self.custodian
-			# party_account is used by make_advance_gl_entries for the second GL entry
-			# (the entry against the party account). For advance deduction, this is
-			# the payable account (the account being cleared).
-			pe.party_account = payable_account
-			pe.party_account_currency = payable_account_currency
-			# Accounts
-			pe.paid_from = advance_account          # Asset account (reduces advance)
-			pe.paid_to = payable_account            # Liability account (clears payable)
-			pe.paid_from_account_currency = advance_account_currency
-			pe.paid_to_account_currency = payable_account_currency
-			# Amounts
-			pe.paid_amount = advance_amount_allocated
-			pe.received_amount = advance_amount_allocated
-			pe.base_paid_amount = advance_amount_allocated
-			pe.base_received_amount = advance_amount_allocated
-			# References
-			pe.reference_no = self.name
-			pe.reference_date = nowdate()
-			# Custom fields
-			pe.custom_accountant_custody = self.name
-			pe.custom_custodian = self.custodian
-			pe.custom_source_document_type = "Custody Settlement"
-			if self.custody_request:
-				pe.custom_custody_request = self.custody_request
-			pe.remarks = (
-				f"Advance deduction settlement for Accountant Custody {self.name}. "
-				f"{settlement_notes}"
-			).strip()
-
-			# Reference the linked PIs so ERPNext marks them as Paid
-			_build_pe_references(pe, advance_amount_allocated)
-
-			pe.flags.ignore_permissions = True
-			pe.flags.ignore_mandatory = True
-			pe.insert()
-			pe.submit()
-			primary_pe_name = pe.name
-
-			_insert_settlement_row(pe.name, advance_amount_allocated, 0)
-
-		# ── Path 2: Direct Payment (Bank/Cash → Payable) ─────────────────────
-		if direct_payment_amount > 0:
-			pay_from = (
-				frappe.db.get_value("Company", self.company, "default_bank_account")
-				or frappe.db.get_value("Company", self.company, "default_cash_account")
-			)
-			if not pay_from:
-				frappe.throw(
-					_("Please set a Default Bank Account or Default Cash Account "
-					  "for company {0} in Company settings.").format(self.company),
-					title=_("Missing Account"),
-				)
-
-			pay_from_currency = (
-				frappe.get_cached_value("Account", pay_from, "account_currency")
-				or frappe.db.get_value("Company", self.company, "default_currency")
-			)
-
-			pe = frappe.new_doc("Payment Entry")
-			pe.naming_series = series
-			pe.payment_type = "Pay"
-			pe.posting_date = nowdate()
-			pe.company = self.company
-			# Party — always Custodian for custody settlement PEs
-			pe.party_type = "Custodian"
-			pe.party = self.custodian
-			# Accounts
-			pe.paid_from = pay_from                 # Bank/Cash account
-			pe.paid_to = payable_account            # Liability account (clears payable)
-			pe.paid_from_account_currency = pay_from_currency
-			pe.paid_to_account_currency = payable_account_currency
-			# Amounts
-			pe.paid_amount = direct_payment_amount
-			pe.received_amount = direct_payment_amount
-			# References
-			pe.reference_no = self.name
-			pe.reference_date = nowdate()
-			# Custom fields
-			pe.custom_accountant_custody = self.name
-			pe.custom_custodian = self.custodian
-			pe.custom_source_document_type = "Custody Settlement"
-			if self.custody_request:
-				pe.custom_custody_request = self.custody_request
-			pe.remarks = (
-				f"Direct payment settlement for Accountant Custody {self.name}. "
-				f"{settlement_notes}"
-			).strip()
-
-			# Reference the linked PIs so ERPNext marks them as Paid
-			_build_pe_references(pe, direct_payment_amount)
-
-			pe.flags.ignore_permissions = True
-			pe.flags.ignore_mandatory = True
-			pe.insert()
-			pe.submit()
-			if not primary_pe_name:
-				primary_pe_name = pe.name
-
-			_insert_settlement_row(pe.name, 0, direct_payment_amount)
-
-		# ── Update totals and status (doc is submitted — use db_set) ─────────
-		new_settled = flt(
-			frappe.db.get_value("Accountant Custody", self.name, "total_settled_amount") or 0
-		) + total_settlement
-		frappe.db.set_value("Accountant Custody", self.name, "total_settled_amount", new_settled)
-
-		# Reload and recalculate status from fresh DB state
-		fresh_doc = frappe.get_doc("Accountant Custody", self.name)
-		fresh_doc.recalculate_status()
-
-		# Update Custody Request claimed amounts if advance was used
-		if advance_amount_allocated > 0 and self.custody_request:
-			cr_doc = frappe.get_doc("Custody Request", self.custody_request)
-			cr_doc.update_claimed_amount()
-
-		return primary_pe_name
-
-	def _get_payable_account(self):
-		"""Backward-compatibility wrapper."""
-		_advance, payable = self._get_custodian_accounts()
-		return payable
-
-	# ── PR/PI Callbacks ──────────────────────────────────────────────────────
+	# ── Quantity update helpers ───────────────────────────────────────────────
 	def update_received_quantities(self):
-		"""
-		Called after a linked PR is submitted or cancelled.
-		Updates accepted_qty/rejected_qty on child items using direct DB writes
-		(safe for submitted documents).
-		"""
-		prs = frappe.get_all(
-			"Purchase Receipt",
-			filters={"custom_accountant_custody": self.name, "docstatus": 1},
-			fields=["name"],
-		)
-
-		# Aggregate received/rejected qty per item_code across all submitted PRs
-		received = {}
-		rejected = {}
-		for pr_record in prs:
-			pr_doc = frappe.get_doc("Purchase Receipt", pr_record.name)
-			for pr_item in pr_doc.items:
-				code = pr_item.item_code
-				received[code] = flt(received.get(code, 0)) + flt(pr_item.qty)
-				rejected[code] = flt(rejected.get(code, 0)) + flt(pr_item.rejected_qty)
-
-		# Write directly to child table rows (bypasses docstatus check)
-		for custody_item in self.custody_items:
-			code = custody_item.item_code
-			new_accepted = received.get(code, 0)
-			new_rejected = rejected.get(code, 0)
-			frappe.db.set_value(
-				"Accountant Custody Item",
-				custody_item.name,
-				{"accepted_qty": new_accepted, "rejected_qty": new_rejected},
-				update_modified=False,
-			)
-			# Keep in-memory copy in sync
-			custody_item.accepted_qty = new_accepted
-			custody_item.rejected_qty = new_rejected
-
-		# Recalculate all totals and persist to DB (total_amount, total_accepted_amount,
-		# total_billed_amount) — safe for submitted docs.
+		"""Recalculate total_accepted_amount and status after a PR event."""
 		self._calculate_totals(persist=True)
-		# Always reload from DB before recalculating status so that
-		# the status engine sees the freshly written qty values.
-		from cash_and_securities_management.treasury.balances import (
-			recalculate_accountant_custody_status,
-		)
-		recalculate_accountant_custody_status(self.name)
+		self.reload()
+		self.recalculate_status()
 
 	def update_billed_quantities(self, pi_name=None):
-		"""
-		Called after a linked PI is submitted or cancelled.
-		Updates billed_qty on child items using direct DB writes
-		(safe for submitted documents).
-		"""
-		all_pis = frappe.get_all(
-			"Purchase Invoice",
-			filters={"custom_accountant_custody": self.name, "docstatus": 1},
-			fields=["name"],
-		)
-
-		# Aggregate billed qty per item_code across all submitted PIs
-		billed = {}
-		for pi_record in all_pis:
-			pi = frappe.get_doc("Purchase Invoice", pi_record.name)
-			for pi_item in pi.items:
-				code = pi_item.item_code
-				billed[code] = flt(billed.get(code, 0)) + flt(pi_item.qty)
-
-		# Write directly to child table rows (bypasses docstatus check)
-		for custody_item in self.custody_items:
-			code = custody_item.item_code
-			new_billed = billed.get(code, 0)
-			frappe.db.set_value(
-				"Accountant Custody Item",
-				custody_item.name,
-				{"billed_qty": new_billed},
-				update_modified=False,
-			)
-			custody_item.billed_qty = new_billed
-
-		# Recalculate all totals and persist to DB (total_amount, total_accepted_amount,
-		# total_billed_amount) — safe for submitted docs.
+		"""Recalculate total_billed_amount and status after a PI event."""
 		self._calculate_totals(persist=True)
-		# Always reload from DB before recalculating status so that
-		# the status engine sees the freshly written qty values.
-		from cash_and_securities_management.treasury.balances import (
-			recalculate_accountant_custody_status,
-		)
-		recalculate_accountant_custody_status(self.name)
+		self.reload()
+		self.recalculate_status()

@@ -1,17 +1,18 @@
 """
-Centralized Balance Recalculation Engine — v3
+Centralized Balance Recalculation Engine — v4  (Single Self-Settling Account)
 treasury/balances.py
 
-All financial recalculations for the Treasury module are consolidated here.
-Individual DocType controllers and doc_event hooks call these functions instead
-of performing inline calculations. This ensures a single source of truth and
-prevents synchronization lag between related documents.
+Single-Account Model:
+  Each Custodian has ONE Receivable custody_account.
+  Both advances (PE) and invoices (PI) post to this account:
+    • Advance paid out  → Debit  custody_account  (balance rises  = employee owes)
+    • Invoice submitted → Credit custody_account  (balance falls  = self-settles)
+  When balance reaches zero the custodian is fully settled — no manual Settlement needed.
 
-v3 changes:
-  - Settlement is now a Payment Entry (not a Journal Entry)
-  - validate_cancellation_order_for_pi checks for settlement PEs (not JEs)
-  - recalculate_accountant_custody_status recalculates total_settled_amount
-    from Custody Settlement Entry rows (which now carry payment_entry links)
+Balance derivation:
+  total_disbursed   = SUM(PE.paid_amount)  where custom_source_document_type = 'Custody Advance'
+  total_invoiced    = SUM(PI.grand_total)  where custom_accountant_custody IS NOT NULL
+  total_outstanding = total_disbursed - total_invoiced
 
 Public API:
   update_custodian_dashboard(custodian_id)
@@ -36,14 +37,14 @@ def update_custodian_dashboard(custodian_id):
 
 	Fields updated:
 	  total_disbursed      — sum of submitted advance Payment Entries
-	  total_outstanding    — total_disbursed minus total_settled (advance deductions)
-	  pending_requests     — count of submitted but unpaid Custody Requests
-	  pending_settlements  — sum of total_amount on submitted but unsettled ACs
+	  total_outstanding    — total_disbursed minus total invoiced (self-settling)
+	  pending_requests     — sum of advance_amount on submitted but unpaid Custody Requests
+	  pending_settlements  — sum of total_amount on submitted but not fully invoiced ACs
 	"""
 	if not custodian_id or not frappe.db.exists("Custodian", custodian_id):
 		return
 
-	# Total disbursed: submitted advance PEs (not settlement PEs)
+	# Total disbursed: submitted advance PEs (payment_type = Pay, source = Custody Advance)
 	total_disbursed = flt(
 		frappe.db.sql(
 			"""
@@ -59,28 +60,29 @@ def update_custodian_dashboard(custodian_id):
 		or 0
 	)
 
-	# Total settled: sum of advance_amount_allocated from settlement rows
-	total_settled = flt(
+	# Total invoiced: sum of submitted PI grand_totals linked to this custodian
+	# In the single-account model, PI credits custody_account directly — this IS the settlement.
+	total_invoiced = flt(
 		frappe.db.sql(
 			"""
-			SELECT COALESCE(SUM(cse.advance_amount_allocated), 0)
-			FROM `tabCustody Settlement Entry` cse
-			JOIN `tabAccountant Custody` ac ON ac.name = cse.parent
-			WHERE ac.custodian = %s AND ac.docstatus = 1
+			SELECT COALESCE(SUM(pi.grand_total), 0)
+			FROM `tabPurchase Invoice` pi
+			WHERE pi.custom_custodian = %s
+			  AND pi.docstatus = 1
 			""",
 			(custodian_id,),
 		)[0][0]
 		or 0
 	)
 
-	# Total outstanding = disbursed - settled advance deductions
-	total_outstanding = total_disbursed - total_settled
+	# Total outstanding = disbursed - invoiced (self-settling balance)
+	total_outstanding = total_disbursed - total_invoiced
 
-	# Pending requests: submitted Custody Requests not yet fully paid
+	# Pending requests: sum of advance_amount on submitted CRs not yet fully paid
 	pending_requests = flt(
 		frappe.db.sql(
 			"""
-			SELECT COUNT(*)
+			SELECT COALESCE(SUM(advance_amount), 0)
 			FROM `tabCustody Request`
 			WHERE custodian = %s
 			  AND docstatus = 1
@@ -91,7 +93,7 @@ def update_custodian_dashboard(custodian_id):
 		or 0
 	)
 
-	# Pending settlements: sum of total_amount on submitted but unsettled ACs
+	# Pending invoices: sum of total_amount on submitted ACs not yet fully invoiced
 	pending_settlements = flt(
 		frappe.db.sql(
 			"""
@@ -99,7 +101,7 @@ def update_custodian_dashboard(custodian_id):
 			FROM `tabAccountant Custody`
 			WHERE custodian = %s
 			  AND docstatus = 1
-			  AND status NOT IN ('Fully Settled', 'Closed', 'Cancelled')
+			  AND status NOT IN ('Fully Invoiced', 'Closed', 'Cancelled')
 			""",
 			(custodian_id,),
 		)[0][0]
@@ -110,9 +112,9 @@ def update_custodian_dashboard(custodian_id):
 		"Custodian",
 		custodian_id,
 		{
-			"total_disbursed": total_disbursed,
-			"total_outstanding": total_outstanding,
-			"pending_requests": pending_requests,
+			"total_disbursed":     total_disbursed,
+			"total_outstanding":   total_outstanding,
+			"pending_requests":    pending_requests,
 			"pending_settlements": pending_settlements,
 		},
 		update_modified=False,
@@ -152,8 +154,8 @@ def recalculate_custody_request_status(cr_name):
 	if not cr or cr.docstatus != 1:
 		return
 
-	# Sum all submitted advance PEs for this CR
-	total_paid = flt(
+	# Sum all submitted advance PEs for this CR (exclude settlement PEs)
+	paid_amount = flt(
 		frappe.db.sql(
 			"""
 			SELECT COALESCE(SUM(paid_amount), 0)
@@ -169,11 +171,11 @@ def recalculate_custody_request_status(cr_name):
 	)
 
 	advance_amount = flt(cr.advance_amount)
-	remaining = advance_amount - total_paid
+	remaining_to_pay = max(0, advance_amount - paid_amount)
 
-	if total_paid <= 0:
+	if paid_amount <= 0:
 		new_status = "Approved"
-	elif total_paid < advance_amount:
+	elif paid_amount < advance_amount - 0.01:
 		new_status = "Partly Paid"
 	else:
 		new_status = "Paid"
@@ -182,21 +184,13 @@ def recalculate_custody_request_status(cr_name):
 		"Custody Request",
 		cr_name,
 		{
-			"paid_amount": total_paid,
-			"remaining_to_pay": remaining,
-			"status": new_status,
+			"paid_amount":      paid_amount,
+			"remaining_to_pay": remaining_to_pay,
+			"status":           new_status,
 		},
 		update_modified=False,
 	)
 
-	# Sync the PE child table
-	try:
-		cr_doc = frappe.get_doc("Custody Request", cr_name)
-		cr_doc._sync_payment_entries_table()
-	except Exception as e:
-		frappe.log_error(str(e), f"recalculate_custody_request_status: PE table sync failed for {cr_name}")
-
-	# Cascade to custodian dashboard
 	if cr.custodian:
 		update_custodian_dashboard(cr.custodian)
 
@@ -205,36 +199,24 @@ def recalculate_custody_request_status(cr_name):
 
 def recalculate_accountant_custody_status(ac_name):
 	"""
-	Recalculate total_settled_amount, total_billed_amount, total_accepted_amount,
-	and the granular status of an Accountant Custody based on current receipt,
-	invoice, and settlement PE data.
+	Recalculate total_accepted_amount, total_billed_amount, and the granular
+	status of an Accountant Custody based on current receipt and invoice data.
 
-	Status progression:
+	Single-Account Model — Status progression:
 	  Draft → Pending → Partly Received → Fully Received
-	        → Partly Invoiced → Fully Invoiced → Partly Settled → Fully Settled
+	        → Partly Invoiced → Fully Invoiced → Closed
+
+	Note: 'Partly Settled' and 'Fully Settled' are removed from the new model.
+	      Invoicing IS the settlement in the single-account model.
 
 	Triggered by:
 	  - on_submit / on_cancel of Purchase Receipt (via pr_hooks)
 	  - on_submit / on_cancel of Purchase Invoice (via pr_hooks)
-	  - on_submit / on_cancel of settlement Payment Entry (via pr_hooks)
 	"""
 	if not ac_name or not frappe.db.exists("Accountant Custody", ac_name):
 		return
 
-	# ── 1. Recalculate total_settled_amount from live settlement rows ───────────
-	new_settled = flt(
-		frappe.db.sql(
-			"""
-			SELECT COALESCE(SUM(total_settlement_amount), 0)
-			FROM `tabCustody Settlement Entry`
-			WHERE parent = %s AND parenttype = 'Accountant Custody'
-			""",
-			(ac_name,),
-		)[0][0]
-		or 0
-	)
-
-	# ── 2. Recalculate total_accepted_amount from submitted PRs ────────────────
+	# ── 1. Recalculate total_accepted_amount from submitted PRs ────────────────
 	new_accepted = flt(
 		frappe.db.sql(
 			"""
@@ -247,7 +229,7 @@ def recalculate_accountant_custody_status(ac_name):
 		or 0
 	)
 
-	# ── 3. Recalculate total_billed_amount from submitted PIs ──────────────────
+	# ── 2. Recalculate total_billed_amount from submitted PIs ──────────────────
 	new_billed = flt(
 		frappe.db.sql(
 			"""
@@ -260,24 +242,23 @@ def recalculate_accountant_custody_status(ac_name):
 		or 0
 	)
 
-	# ── 4. Write all three totals to DB in a single call ────────────────────────
+	# ── 3. Write totals to DB ──────────────────────────────────────────────────
 	frappe.db.set_value(
 		"Accountant Custody",
 		ac_name,
 		{
-			"total_settled_amount": new_settled,
 			"total_accepted_amount": new_accepted,
-			"total_billed_amount": new_billed,
+			"total_billed_amount":   new_billed,
 		},
 		update_modified=False,
 	)
 
-	# ── 5. Reload and recalculate status ─────────────────────────────────────
+	# ── 4. Reload and recalculate status ─────────────────────────────────────
 	ac_doc = frappe.get_doc("Accountant Custody", ac_name)
 	if ac_doc.docstatus == 1:
 		ac_doc.recalculate_status()
 
-	# ── 6. Cascade to custodian dashboard ─────────────────────────────────
+	# ── 5. Cascade to custodian dashboard ─────────────────────────────────
 	if ac_doc.custodian:
 		update_custodian_dashboard(ac_doc.custodian)
 
@@ -292,7 +273,7 @@ def validate_advance_cancellation(payment_entry_doc):
 	records have been submitted against the linked Custody Request.
 
 	Hierarchy:
-	  Settlement PE → Purchase Invoice → Purchase Receipt
+	  Purchase Invoice → Purchase Receipt
 	  → Accountant Custody → Custody Request → Advance PE
 	"""
 	custody_request = payment_entry_doc.get("custom_custody_request")
@@ -310,7 +291,7 @@ def validate_advance_cancellation(payment_entry_doc):
 				"Cannot cancel advance Payment Entry {0} — Custody Request {1} "
 				"has submitted Accountant Custody records: {2}. "
 				"Please cancel all Accountant Custody records (and their Purchase "
-				"Invoices, Purchase Receipts, and settlement Payment Entries) first."
+				"Invoices and Purchase Receipts) first."
 			).format(
 				payment_entry_doc.name,
 				custody_request,
@@ -325,11 +306,18 @@ def validate_cancellation_order_for_pr(pr_doc):
 	Prevent cancellation of a Purchase Receipt if a submitted Purchase Invoice
 	already references it.
 	"""
-	linked_pis = frappe.get_all(
-		"Purchase Invoice",
-		filters={"custom_accountant_custody": pr_doc.get("custom_accountant_custody"), "docstatus": 1},
-		fields=["name"],
-	) if pr_doc.get("custom_accountant_custody") else []
+	linked_pis = (
+		frappe.get_all(
+			"Purchase Invoice",
+			filters={
+				"custom_accountant_custody": pr_doc.get("custom_accountant_custody"),
+				"docstatus": 1,
+			},
+			fields=["name"],
+		)
+		if pr_doc.get("custom_accountant_custody")
+		else []
+	)
 
 	# Also check via PR item references
 	if not linked_pis:
@@ -356,12 +344,11 @@ def validate_cancellation_order_for_pr(pr_doc):
 
 def validate_cancellation_order_for_pi(pi_doc):
 	"""
-	Prevent cancellation of a Purchase Invoice if a submitted settlement
-	Payment Entry references it.
+	Prevent cancellation of a Purchase Invoice if it has already been
+	reconciled via a Payment Entry reference.
 
-	v3: Checks Payment Entry References table (not Journal Entry).
+	Single-Account Model: No settlement PEs exist — only check PE References table.
 	"""
-	# Check via Payment Entry References table
 	linked_pes = frappe.db.sql(
 		"""
 		SELECT per.parent
@@ -378,37 +365,11 @@ def validate_cancellation_order_for_pi(pi_doc):
 	if linked_pes:
 		frappe.throw(
 			_(
-				"Cannot cancel Purchase Invoice {0} — it has been settled by "
+				"Cannot cancel Purchase Invoice {0} — it has been reconciled by "
 				"Payment Entry(s): {1}. Please cancel those payment entries first."
 			).format(
 				pi_doc.name,
 				", ".join(d.parent for d in linked_pes),
 			),
-			title=_("Cancel Settlement Payment Entries First"),
+			title=_("Cancel Payment Entries First"),
 		)
-
-	# Also check for any settlement PEs linked via custom_accountant_custody
-	ac_name = pi_doc.get("custom_accountant_custody")
-	if ac_name:
-		linked_settlement_pes = frappe.get_all(
-			"Payment Entry",
-			filters={
-				"custom_accountant_custody": ac_name,
-				"custom_source_document_type": "Custody Settlement",
-				"docstatus": 1,
-			},
-			fields=["name"],
-		)
-		if linked_settlement_pes:
-			frappe.throw(
-				_(
-					"Cannot cancel Purchase Invoice {0} — Accountant Custody {1} "
-					"has submitted settlement Payment Entry(s): {2}. "
-					"Please cancel those first."
-				).format(
-					pi_doc.name,
-					ac_name,
-					", ".join(d.name for d in linked_settlement_pes),
-				),
-				title=_("Cancel Settlement Payment Entries First"),
-			)

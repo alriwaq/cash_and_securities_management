@@ -1,20 +1,27 @@
 """
-Custodian DocType controller — v2.1
+Custodian DocType controller — v3.0  (Single Self-Settling Account Model)
 Manages the lifecycle of an employee custodian:
   Draft → Active → Suspended → Closed
 
-On submit: auto-creates sub-ledger accounts based on accounting_mode in Treasury Settings.
+On submit: auto-creates ONE sub-ledger account per custodian based on
+accounting_mode in Treasury Settings.
 
   Consolidated (Party-Based):
-    - Assigns the shared group accounts from Treasury Settings to custody_account
-      and liability_account. No individual leaf accounts are created.
-    - All GL entries use the group account + Custodian as the Party.
+    - custody_account ← custody_advance_group (shared group account).
+    - No individual leaf accounts are created.
+    - All GL entries use the group account + party_type=Custodian + party=self.name.
 
   Individual (Account-Based):
-    - Creates two dedicated leaf accounts per custodian:
-        E-{ID}-{Name} - Advance   (under custody_advance_group)
-        E-{ID}-{Name} - Payable   (under custodian_payable_group)
-    - These are linked to custody_account and liability_account on the Custodian.
+    - Creates ONE dedicated leaf account per custodian:
+        "{self.name} - Custody"  (Receivable, under custody_advance_group)
+    - custody_account ← the newly created leaf account.
+
+Single-Account Model:
+  Both advances (Custody Request PE) and expenses (Purchase Invoice) post
+  to the SAME custody_account with party_type=Custodian.
+    • Advance paid out  → Debit  custody_account  (positive balance = employee owes)
+    • Invoice submitted → Credit custody_account  (balance reduces automatically)
+    • Zero balance      → fully settled — no manual Settlement Entry needed.
 
 Naming: E-{attendance_device_id}-{employee_name} via autoname() method.
 """
@@ -25,7 +32,7 @@ from frappe.model.document import Document
 from frappe.utils import flt
 
 CONSOLIDATED = "Consolidated (Party-Based)"
-INDIVIDUAL = "Individual (Account-Based)"
+INDIVIDUAL   = "Individual (Account-Based)"
 
 
 class Custodian(Document):
@@ -37,10 +44,9 @@ class Custodian(Document):
 		The name is slugified (spaces → hyphens, special chars stripped) to keep
 		it URL-safe and consistent with Frappe naming conventions.
 		"""
-		employee = self.employee or ""
+		employee      = self.employee or ""
 		employee_name = self.employee_name or ""
 
-		# Try to get attendance_device_id from the linked Employee record
 		attendance_device_id = None
 		if employee:
 			attendance_device_id = frappe.db.get_value(
@@ -52,11 +58,9 @@ class Custodian(Document):
 		else:
 			raw = f"E-{employee}-{employee_name}" if employee_name else f"E-{employee}"
 
-		# Slugify: replace spaces/underscores with hyphens, strip special chars
 		slug = re.sub(r"[\s_]+", "-", raw)
 		slug = re.sub(r"[^A-Za-z0-9\-]", "", slug)
 		slug = re.sub(r"-{2,}", "-", slug).strip("-")
-
 		self.name = slug
 
 	# ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -64,7 +68,7 @@ class Custodian(Document):
 		self._validate_employee()
 
 	def on_submit(self):
-		self._create_custody_accounts()
+		self._create_custody_account()
 		self._set_status("Active")
 
 	def on_cancel(self):
@@ -114,25 +118,26 @@ class Custodian(Document):
 				title=_("Linked Transactions Exist"),
 			)
 
-	def _create_custody_accounts(self):
+	def _create_custody_account(self):
 		"""
-		Create or assign sub-ledger accounts based on accounting_mode in Treasury Settings.
+		Create or assign the single self-settling custody sub-ledger account.
 
 		Consolidated (Party-Based):
-		  - custody_account  ← custody_advance_group (the shared group account)
-		  - liability_account ← custodian_payable_group (the shared group account)
-		  No leaf accounts are created; the Party field isolates transactions.
+		  custody_account ← custody_advance_group (shared group account).
+		  No leaf account is created; the Party field isolates transactions.
 
 		Individual (Account-Based):
-		  - Creates leaf accounts named "{self.name} - Advance" and "{self.name} - Payable"
-		    under the respective group accounts.
-		  - custody_account  ← the newly created advance leaf account
-		  - liability_account ← the newly created payable leaf account
+		  Creates ONE leaf account named "{self.name} - Custody"
+		  under custody_advance_group with account_type = Receivable.
+		  This allows party_type = Custodian on all GL entries.
+
+		Both advances (PE) and invoices (PI) post to this single account:
+		  • Advance  → Debit  custody_account  (employee owes company)
+		  • Invoice  → Credit custody_account  (balance self-settles)
 		"""
-		settings = frappe.db.get_singles_dict("Treasury Settings")
-		mode = settings.get("accounting_mode") or CONSOLIDATED
+		settings     = frappe.db.get_singles_dict("Treasury Settings")
+		mode         = settings.get("accounting_mode") or CONSOLIDATED
 		advance_group = settings.get("custody_advance_group")
-		payable_group = settings.get("custodian_payable_group")
 
 		# Determine company
 		company = self.company
@@ -152,75 +157,40 @@ class Custodian(Document):
 			)
 
 		if mode == CONSOLIDATED:
-			# ── Consolidated: assign group accounts directly ──────────────
+			# ── Consolidated: assign shared group account directly ────────
 			self.custody_account = advance_group
 			self.db_set("custody_account", advance_group, notify=True)
-
-			if payable_group:
-				self.liability_account = payable_group
-				self.db_set("liability_account", payable_group, notify=True)
-			else:
-				frappe.msgprint(
-					_("Custodian Payable Account Group is not configured in Treasury Settings. "
-					  "The liability account was not set on this Custodian."),
-					indicator="orange",
-					alert=True,
-				)
-
 			frappe.logger().info(
-				f"Custodian {self.name} [Consolidated]: "
-				f"advance={advance_group}, payable={payable_group}"
+				f"Custodian {self.name} [Consolidated]: custody_account={advance_group}"
 			)
 
 		else:
-			# ── Individual: create dedicated leaf accounts ─────────────────
-			advance_account = self._get_or_create_leaf_account(
-				account_name=f"{self.name} - Advance",
+			# ── Individual: create ONE dedicated Receivable leaf account ──
+			custody_account = self._get_or_create_leaf_account(
+				account_name=f"{self.name} - Custody",
 				parent_account=advance_group,
 				company=company,
-				account_type="",   # Plain current asset — NOT Receivable
+				account_type="Receivable",   # Allows party_type=Custodian on GL
 				root_type="Asset",
 			)
-			self.custody_account = advance_account
-			self.db_set("custody_account", advance_account, notify=True)
-
-			if payable_group:
-				payable_account = self._get_or_create_leaf_account(
-					account_name=f"{self.name} - Payable",
-					parent_account=payable_group,
-					company=company,
-					account_type="Payable",
-					root_type="Liability",
-				)
-				self.liability_account = payable_account
-				self.db_set("liability_account", payable_account, notify=True)
-			else:
-				frappe.msgprint(
-					_("Custodian Payable Account Group is not configured in Treasury Settings. "
-					  "The liability sub-ledger account was not created. "
-					  "You can configure it and re-run account creation from the Custodian record."),
-					indicator="orange",
-					alert=True,
-				)
-
+			self.custody_account = custody_account
+			self.db_set("custody_account", custody_account, notify=True)
 			frappe.logger().info(
-				f"Custodian {self.name} [Individual]: "
-				f"advance_account={self.custody_account}, "
-				f"liability_account={self.liability_account}"
+				f"Custodian {self.name} [Individual]: custody_account={custody_account}"
 			)
 
 	def _get_or_create_leaf_account(
 		self, account_name, parent_account, company, account_type, root_type
 	):
 		"""
-		Return the full account name (e.g., 'E-1234-John - Advance - Company') of
-		an existing leaf account, or create it if it does not exist.
+		Return the full account name of an existing leaf account,
+		or create it if it does not exist.
 		"""
 		existing = frappe.db.get_value(
 			"Account",
 			{
 				"account_name": account_name,
-				"company": company,
+				"company":      company,
 				"parent_account": parent_account,
 			},
 			"name",
@@ -229,13 +199,13 @@ class Custodian(Document):
 			return existing
 
 		account = frappe.new_doc("Account")
-		account.account_name = account_name
+		account.account_name   = account_name
 		account.parent_account = parent_account
-		account.company = company
-		account.account_type = account_type
-		account.root_type = root_type
-		account.report_type = "Balance Sheet"
-		account.is_group = 0
+		account.company        = company
+		account.account_type   = account_type
+		account.root_type      = root_type
+		account.report_type    = "Balance Sheet"
+		account.is_group       = 0
 		account.flags.ignore_permissions = True
 		account.insert()
 		return account.name
@@ -303,9 +273,9 @@ class Custodian(Document):
 		Useful if Treasury Settings were configured after the Custodian was submitted,
 		or if the accounting_mode was changed.
 		"""
-		self._create_custody_accounts()
+		self._create_custody_account()
 		frappe.msgprint(
-			_("Sub-ledger accounts have been created/verified for Custodian {0}.").format(
+			_("Sub-ledger account has been created/verified for Custodian {0}.").format(
 				self.name
 			),
 			indicator="green",

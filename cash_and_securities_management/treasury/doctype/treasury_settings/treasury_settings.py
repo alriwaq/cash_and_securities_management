@@ -3,14 +3,15 @@ Treasury Settings controller.
 Singleton document — one record per site.
 
 accounting_mode controls how GL accounts are structured:
-  Consolidated (Party-Based) — all custodians share the group accounts;
+  Consolidated (Party-Based) — all custodians share the group account;
                                 transactions are isolated by the Custodian Party.
-  Individual (Account-Based) — each custodian gets dedicated leaf accounts
+  Individual (Account-Based) — each custodian gets a dedicated leaf account
                                 created automatically on Custodian submit.
 
-Account groups (custody_advance_group, custodian_payable_group) are
-auto-created by setup.py on after_install / after_migrate — no manual
-action is required from the user.
+Single-Account Model (v4):
+  Each custodian has ONE Receivable custody_account.
+  custody_advance_group is the parent group under which per-custodian accounts
+  are created.  No separate payable group is needed.
 """
 import frappe
 from frappe import _
@@ -28,35 +29,26 @@ class TreasurySettings(Document):
 
 	def _validate_sub_ledger_groups(self):
 		"""
-		Both account groups are required in Individual mode.
-		In Consolidated mode they are optional but must be group accounts if set.
+		custody_advance_group is required in Individual mode.
+		In Consolidated mode it is optional but must be a group account if set.
 		"""
 		mode = self.accounting_mode or CONSOLIDATED
 
 		if mode == INDIVIDUAL:
-			for fieldname, label in [
-				("custody_advance_group", _("Custody Advance Account Group")),
-				("custodian_payable_group", _("Custodian Payable Account Group")),
-			]:
-				if not self.get(fieldname):
-					frappe.throw(
-						_("{0} is required when Accounting Mode is 'Individual (Account-Based)'.").format(
-							label
-						),
-						title=_("Missing Account Group"),
-					)
+			if not self.get("custody_advance_group"):
+				frappe.throw(
+					_("Custody Account Group is required when Accounting Mode is "
+					  "'Individual (Account-Based)'."),
+					title=_("Missing Account Group"),
+				)
 
-		for fieldname, label in [
-			("custody_advance_group", _("Custody Advance Account Group")),
-			("custodian_payable_group", _("Custodian Payable Account Group")),
-		]:
-			account = self.get(fieldname)
-			if account:
-				is_group = frappe.db.get_value("Account", account, "is_group")
-				if not is_group:
-					frappe.msgprint(
-						_("{0} should be a Group account so that per-custodian "
-						  "sub-accounts can be created under it.").format(label),
-						indicator="orange",
-						alert=True,
-					)
+		account = self.get("custody_advance_group")
+		if account:
+			is_group = frappe.db.get_value("Account", account, "is_group")
+			if not is_group:
+				frappe.msgprint(
+					_("Custody Account Group should be a Group account so that "
+					  "per-custodian sub-accounts can be created under it."),
+					indicator="orange",
+					alert=True,
+				)
