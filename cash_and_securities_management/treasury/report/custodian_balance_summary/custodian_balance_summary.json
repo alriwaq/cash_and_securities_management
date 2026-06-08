@@ -1,0 +1,21 @@
+{
+  "add_total_row": 1,
+  "columns": [],
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Report",
+  "filters": [],
+  "is_standard": "Yes",
+  "letter_head": null,
+  "module": "Treasury",
+  "name": "Custodian Balance Summary",
+  "prepared_report": 0,
+  "ref_doctype": "Custodian",
+  "report_name": "Custodian Balance Summary",
+  "report_type": "Script Report",
+  "roles": [
+    {"role": "Accounts User"},
+    {"role": "Accounts Manager"},
+    {"role": "Treasury Vault User"}
+  ]
+}

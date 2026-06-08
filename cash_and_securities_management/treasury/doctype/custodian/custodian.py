@@ -165,13 +165,16 @@ class Custodian(Document):
 			)
 
 		else:
-			# ── Individual: create ONE dedicated Receivable leaf account ──
+			# ── Individual: create ONE dedicated Custody leaf account ──
+			# account_type = "Payable" satisfies ERPNext's PI credit_to validator
+			# but custom_is_custody_account = 1 flags it for exclusion from
+			# standard AP/AR reports (only appears in Custody module reports).
 			custody_account = self._get_or_create_leaf_account(
 				account_name=f"{self.name} - Custody",
 				parent_account=advance_group,
 				company=company,
-				account_type="Receivable",   # Allows party_type=Custodian on GL
-				root_type="Asset",
+				account_type="Payable",   # Satisfies ERPNext PI validator
+				root_type="Asset",        # Placed under Assets (advance = asset)
 			)
 			self.custody_account = custody_account
 			self.db_set("custody_account", custody_account, notify=True)
@@ -206,6 +209,8 @@ class Custodian(Document):
 		account.root_type      = root_type
 		account.report_type    = "Balance Sheet"
 		account.is_group       = 0
+		# Flag as custody account so it is excluded from standard AP/AR reports
+		account.custom_is_custody_account = 1
 		account.flags.ignore_permissions = True
 		account.insert()
 		return account.name

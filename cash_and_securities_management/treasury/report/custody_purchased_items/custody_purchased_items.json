@@ -1,0 +1,22 @@
+{
+  "add_total_row": 1,
+  "columns": [],
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Report",
+  "filters": [],
+  "is_standard": "Yes",
+  "letter_head": null,
+  "module": "Treasury",
+  "name": "Custody Purchased Items",
+  "prepared_report": 0,
+  "ref_doctype": "Accountant Custody",
+  "report_name": "Custody Purchased Items",
+  "report_type": "Script Report",
+  "roles": [
+    {"role": "Accounts User"},
+    {"role": "Accounts Manager"},
+    {"role": "Purchase User"},
+    {"role": "Treasury Vault User"}
+  ]
+}

@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 from erpnext.accounts.doctype.purchase_invoice.purchase_invoice import PurchaseInvoice
 
@@ -253,21 +253,36 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
             frappe.throw(_("Credit To account is required for custody Purchase Invoice."))
 
         account = frappe.get_cached_value(
-            "Account", self.credit_to, ["account_type", "report_type", "account_currency"], as_dict=True
+            "Account",
+            self.credit_to,
+            ["account_type", "report_type", "account_currency", "root_type",
+             "custom_is_custody_account"],
+            as_dict=True,
         )
 
+        # Must be a Balance Sheet account
         if account.report_type != "Balance Sheet":
             frappe.throw(
-                _(
-                    "Please ensure that the Credit To account is a Balance Sheet account."
-                ),
+                _("Custody Credit To account must be a Balance Sheet account."),
                 title=_("Invalid Account"),
             )
 
-        if account.account_type not in ("Receivable", "Payable"):
+        # Accept either:
+        #   (a) A dedicated custody account flagged with custom_is_custody_account = 1
+        #   (b) Any Payable account under Assets root (consolidated mode)
+        is_custody_flagged   = cint(account.get("custom_is_custody_account"))
+        is_payable_under_assets = (
+            account.account_type == "Payable" and account.root_type == "Asset"
+        )
+
+        if not (is_custody_flagged or is_payable_under_assets):
             frappe.throw(
-                _("Credit To must be a Receivable or Payable account for custody invoices."),
-                title=_("Invalid Account Type"),
+                _(
+                    "The Credit To account for a custody Purchase Invoice must be a "
+                    "dedicated Custody sub-ledger (flagged as Custody Account) "
+                    "or a Payable account placed under the Assets group."
+                ),
+                title=_("Invalid Custody Account"),
             )
 
         self.party_account_currency = account.account_currency

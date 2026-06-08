@@ -137,5 +137,19 @@
     "no_copy": 1,
     "print_hide": 1,
     "description": "Internal field to identify custody-generated payment entries"
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Account-custom_is_custody_account",
+    "dt": "Account",
+    "fieldname": "custom_is_custody_account",
+    "fieldtype": "Check",
+    "label": "Is Custody Account",
+    "insert_after": "account_type",
+    "default": "0",
+    "no_copy": 0,
+    "print_hide": 1,
+    "in_list_view": 0,
+    "description": "Marks this account as a Custody sub-ledger. Custody accounts are excluded from standard AP/AR reports and appear only in Custody module reports."
   }
 ]

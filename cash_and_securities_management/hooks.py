@@ -73,11 +73,30 @@ fixtures = [
             ],
         ],
     },
+    # ── Custom Field on Account: is_custody_account flag ────────────────────────
+    {
+        "doctype": "Custom Field",
+        "filters": [
+            ["dt", "=", "Account"],
+            ["fieldname", "=", "custom_is_custody_account"],
+        ],
+    },
     # ── Party Type: Custodian ─────────────────────────────────────────────────
     {
         "doctype": "Party Type",
         "filters": [
             ["name", "=", "Custodian"]
+        ],
+    },
+    # ── Script Reports: Custody ───────────────────────────────────────────────
+    {
+        "doctype": "Report",
+        "filters": [
+            ["name", "in", [
+                "Custody Ledger",
+                "Custody Purchased Items",
+                "Custodian Balance Summary",
+            ]],
         ],
     },
     # ── V4: workflow_state custom field on Payment Entry (exported from DB after first install)
