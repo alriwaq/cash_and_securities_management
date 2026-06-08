@@ -214,6 +214,23 @@ frappe.pages["treasury-cash-journal-cockpit"].on_page_load = function (wrapper) 
     </div>
   </div>
 
+  <!-- V4: Executed Journal Lines Section (Inbound / Outbound / Bank Transfer) -->
+  <div id="tcj-executed-section" class="card mt-4" style="display:none;">
+    <div class="card-header d-flex justify-content-between align-items-center"
+         style="background:#d4edda; border-bottom:1px solid #28a745; cursor:pointer;"
+         id="tcj-executed-toggle">
+      <span style="font-weight:600;">
+        <i class="fa fa-check-circle mr-2" style="color:#155724;"></i>
+        الحركات المنفّذة &mdash; سجل اليومية
+        <span class="badge badge-success ml-2" id="tcj-executed-badge">0</span>
+      </span>
+      <i class="fa fa-chevron-down" id="tcj-executed-chevron"></i>
+    </div>
+    <div class="card-body p-0" id="tcj-executed-body">
+      <!-- Populated dynamically by _renderExecutedGrid() -->
+    </div>
+  </div>
+
   <!-- Hidden journal name store -->
   <input type="hidden" id="tcj-journal-name" value="" />
   <input type="hidden" id="tcj-opening-balance" value="0" />
@@ -345,6 +362,12 @@ class TreasuryCashJournal {
 		$("#tcj-pending-toggle").on("click", () => {
 			$("#tcj-pending-body").slideToggle(200);
 			$("#tcj-pending-chevron").toggleClass("fa-chevron-down fa-chevron-up");
+		});
+
+		// V4: Executed items panel toggle
+		$(document).on("click", "#tcj-executed-toggle", () => {
+			$("#tcj-executed-body").slideToggle(200);
+			$("#tcj-executed-chevron").toggleClass("fa-chevron-down fa-chevron-up");
 		});
 
 		// V4: Scroll-to-pending button in alert banner (no href routing)
@@ -495,6 +518,7 @@ class TreasuryCashJournal {
 
 				this._updateKPIs();
 				this._renderGrid();
+				this._renderExecutedGrid();
 				this._updateStatusBadge();
 				this._updateDenomCard();
 				$("#tcj-opening-balance").val(this.openingBalance);
@@ -2005,6 +2029,103 @@ class TreasuryCashJournal {
 	_updateDenomCard() {
 		if (this.rows.length > 0) {
 			$("#tcj-denomination-card").show();
+		}
+	}
+
+	// ── V4: Executed Journal Lines Grid ──────────────────────────────────────
+
+	_renderExecutedGrid() {
+		try {
+			const container = $("#tcj-executed-body");
+			// Only show rows that have been executed (is_posted=1 OR have a linked_document)
+			const executedRows = this.rows.filter(r => r.is_posted || r.linked_document);
+			const count = executedRows.length;
+
+			$("#tcj-executed-badge").text(count);
+			if (count === 0) {
+				$("#tcj-executed-section").hide();
+				return;
+			}
+			$("#tcj-executed-section").show();
+
+			// Group by direction
+			const dirConfig = {
+				"Inbound":      { label: "وارد / Inbound",       color: "#155724", bg: "#d4edda", icon: "fa-arrow-down" },
+				"Outbound":     { label: "صادر / Outbound",      color: "#721c24", bg: "#f8d7da", icon: "fa-arrow-up" },
+				"Bank Transfer":{ label: "تحويل بنكي / Bank Transfer", color: "#004085", bg: "#cce5ff", icon: "fa-exchange" },
+			};
+			const groups = {};
+			executedRows.forEach(r => {
+				const dir = this._normalizeDirection(r.direction) || "Outbound";
+				if (!groups[dir]) groups[dir] = [];
+				groups[dir].push(r);
+			});
+
+			let fullHtml = "";
+			["Inbound", "Outbound", "Bank Transfer"].forEach(dir => {
+				const dirItems = groups[dir];
+				if (!dirItems || dirItems.length === 0) return;
+				const cfg = dirConfig[dir];
+
+				let rows = "";
+				dirItems.forEach((row, idx) => {
+					const linkedRoute = row.linked_doctype
+						? row.linked_doctype.toLowerCase().replace(/\s+/g, "-")
+						: "payment-entry";
+					const linkedLink = row.linked_document
+						? `<a href="/app/${linkedRoute}/${row.linked_document}" target="_blank"
+						     class="small ml-1" title="${row.linked_document}">
+						     <i class="fa fa-external-link"></i></a>`
+						: "";
+					const statusBadge = row.is_posted
+						? `<span class="badge badge-success"><i class="fa fa-check"></i> Posted</span>`
+						: `<span class="badge badge-info">Executed</span>`;
+
+					rows += `
+						<tr style="vertical-align:middle;">
+							<td style="width:35px; text-align:center; color:${cfg.color}; font-weight:700;">${idx + 1}</td>
+							<td><code style="font-size:0.78rem;">${row.voucher_serial || "—"}</code></td>
+							<td>${row.transaction_category || "—"}</td>
+							<td>${this._safeEscape(row.party || row.reference_name || "—")}</td>
+							<td style="text-align:right; font-weight:700; font-size:1.05rem; color:${cfg.color};">${this._fmtNum(row.amount)}</td>
+							<td><small>${this._safeEscape(row.narration || "")}</small></td>
+							<td style="text-align:center;">${statusBadge} ${linkedLink}</td>
+						</tr>`;
+				});
+
+				const dirTotal = dirItems.reduce((s, r) => s + this._parseAmount(r.amount), 0);
+				fullHtml += `
+					<div style="margin:12px; border-left:4px solid ${cfg.color}; border-radius:4px; overflow:hidden;">
+						<div class="d-flex align-items-center px-3 py-2" style="background:${cfg.bg};">
+							<i class="fa ${cfg.icon} mr-2" style="color:${cfg.color};"></i>
+							<strong style="color:${cfg.color};">${cfg.label}</strong>
+							<span class="badge ml-2" style="background:${cfg.color}; color:#fff;">${dirItems.length}</span>
+							<span class="ml-auto small" style="color:${cfg.color}; font-weight:700;">
+								${this._fmtNum(dirTotal)}
+							</span>
+						</div>
+						<div class="table-responsive">
+							<table class="table table-sm table-hover mb-0">
+								<thead style="background:${cfg.bg};">
+									<tr>
+										<th style="width:35px;">#</th>
+										<th>الرقم التسلسلي</th>
+										<th>النوع</th>
+										<th>الطرف / المرجع</th>
+										<th style="text-align:right;">المبلغ</th>
+										<th>البيان</th>
+										<th style="text-align:center; width:100px;">الحالة</th>
+									</tr>
+								</thead>
+								<tbody>${rows}</tbody>
+							</table>
+						</div>
+					</div>`;
+			});
+
+			container.html(fullHtml);
+		} catch (err) {
+			console.error("[TCJ-Executed] _renderExecutedGrid ERROR:", err);
 		}
 	}
 
