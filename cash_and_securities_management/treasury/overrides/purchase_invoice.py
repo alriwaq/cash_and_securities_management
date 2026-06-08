@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import cint, flt
+from frappe.utils import flt
 
 from erpnext.accounts.doctype.purchase_invoice.purchase_invoice import PurchaseInvoice
 
@@ -255,8 +255,7 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
         account = frappe.get_cached_value(
             "Account",
             self.credit_to,
-            ["account_type", "report_type", "account_currency", "root_type",
-             "custom_is_custody_account"],
+            ["account_type", "report_type", "account_currency", "root_type"],
             as_dict=True,
         )
 
@@ -267,20 +266,21 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
                 title=_("Invalid Account"),
             )
 
-        # Accept either:
-        #   (a) A dedicated custody account flagged with custom_is_custody_account = 1
-        #   (b) Any Payable account under Assets root (consolidated mode)
-        is_custody_flagged   = cint(account.get("custom_is_custody_account"))
+        # Accept:
+        #   (a) Dedicated Custody account type (Individual mode — preferred)
+        #   (b) Any Payable account under Assets root (Consolidated mode)
+        is_custody_type         = account.account_type == "Custody"
         is_payable_under_assets = (
             account.account_type == "Payable" and account.root_type == "Asset"
         )
 
-        if not (is_custody_flagged or is_payable_under_assets):
+        if not (is_custody_type or is_payable_under_assets):
             frappe.throw(
                 _(
                     "The Credit To account for a custody Purchase Invoice must be a "
-                    "dedicated Custody sub-ledger (flagged as Custody Account) "
-                    "or a Payable account placed under the Assets group."
+                    "dedicated Custody account (account_type = Custody) "
+                    "or a Payable account placed under the Assets group "
+                    "(Consolidated mode)."
                 ),
                 title=_("Invalid Custody Account"),
             )

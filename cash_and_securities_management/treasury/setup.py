@@ -18,7 +18,7 @@ Account groups created (based on the ERPNext standard chart of accounts):
     └── Current Assets
           └── Loans and Advances (Assets)       ← existing ERPNext group
                 └── Employee Custody Advances   ← NEW  [root_type: Asset,
-                                                         account_type: Payable]
+                                                         account_type: Custody]
 
   Source of Funds (Liabilities)
     └── Current Liabilities
@@ -26,9 +26,10 @@ Account groups created (based on the ERPNext standard chart of accounts):
                 └── Custodian Payables          ← NEW  [root_type: Liability,
                                                          account_type: Payable]
 
-The account_type "Payable" on Employee Custody Advances mirrors how ERPNext
-itself classifies "Employee Advances" — it allows the Party sub-ledger to work
-correctly in Consolidated mode so each custodian's balance is tracked individually.
+The account_type "Custody" on Employee Custody Advances is a dedicated type
+that naturally excludes these accounts from standard AP/AR reports (which
+filter on Payable/Receivable only). Individual-mode leaf accounts also use
+account_type = "Custody". Consolidated mode uses the group account directly.
 """
 import os
 import json
@@ -95,9 +96,9 @@ def _ensure_advance_group(company):
 
     This mirrors the placement of ERPNext's own 'Employee Advances' account.
 
-    account_type = "Payable" is intentional: it enables the Party sub-ledger
-    so that in Consolidated mode each custodian's advance balance is tracked
-    individually on the shared group account.
+    account_type = "Custody" is a dedicated type that excludes this group from
+    standard AP/AR reports. In Consolidated mode the Party sub-ledger still
+    works correctly because ERPNext allows any account_type to carry a party.
 
     Parent search order:
       1. 'Loans and Advances (Assets) - {abbr}'   (standard with abbreviation)
@@ -180,7 +181,7 @@ def _ensure_advance_group(company):
         acc.parent_account = parent
         acc.is_group = 1
         acc.root_type = "Asset"
-        acc.account_type = "Payable"   # Enables Party sub-ledger on this group
+        acc.account_type = "Custody"   # Dedicated type — excluded from AP/AR reports
         acc.company = company
         acc.flags.ignore_permissions = True
         acc.flags.ignore_mandatory = True

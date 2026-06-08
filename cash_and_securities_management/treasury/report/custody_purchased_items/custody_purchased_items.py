@@ -176,26 +176,57 @@ def _get_columns():
 # Data
 # ─────────────────────────────────────────────────────────────────────────────
 def _get_data(filters):
-    # ── Step 1: fetch matching Accountant Custody headers ─────────────────────
-    ac_filters = {"company": filters.company, "docstatus": ["!=", 2]}
-    if filters.get("custodian"):
-        ac_filters["custodian"] = filters.custodian
-    if filters.get("accountant_custody"):
-        ac_filters["name"] = filters.accountant_custody
-    if filters.get("status"):
-        ac_filters["status"] = filters.status
-    if filters.get("from_date") and filters.get("to_date"):
-        ac_filters["transaction_date"] = ["between", [filters.from_date, filters.to_date]]
-    elif filters.get("from_date"):
-        ac_filters["transaction_date"] = [">=", filters.from_date]
-    elif filters.get("to_date"):
-        ac_filters["transaction_date"] = ["<=", filters.to_date]
+    """
+    Two-step raw-SQL approach.
 
-    ac_docs = frappe.get_all(
-        "Accountant Custody",
-        filters=ac_filters,
-        fields=["name", "custodian", "transaction_date", "status", "currency"],
-        order_by="transaction_date desc, name desc",
+    The Frappe ORM has a known bug where building a date filter incrementally
+    (first setting ``[">=" from_date]`` then trying to upgrade it to
+    ``["between", [from_date, to_date]]``) generates broken SQL like
+    ``BETWEEN 0.0 order by …``.  Using raw SQL avoids this entirely.
+    """
+    # ── Step 1: Accountant Custody headers via raw SQL ────────────────────────
+    ac_conditions = [
+        "ac.company = %(company)s",
+        "ac.docstatus != 2",
+    ]
+    ac_params = {"company": filters.company}
+
+    if filters.get("custodian"):
+        ac_conditions.append("ac.custodian = %(custodian)s")
+        ac_params["custodian"] = filters.custodian
+
+    if filters.get("accountant_custody"):
+        ac_conditions.append("ac.name = %(accountant_custody)s")
+        ac_params["accountant_custody"] = filters.accountant_custody
+
+    if filters.get("status"):
+        ac_conditions.append("ac.status = %(status)s")
+        ac_params["status"] = filters.status
+
+    if filters.get("from_date") and filters.get("to_date"):
+        ac_conditions.append(
+            "ac.transaction_date BETWEEN %(from_date)s AND %(to_date)s"
+        )
+        ac_params["from_date"] = filters.from_date
+        ac_params["to_date"]   = filters.to_date
+    elif filters.get("from_date"):
+        ac_conditions.append("ac.transaction_date >= %(from_date)s")
+        ac_params["from_date"] = filters.from_date
+    elif filters.get("to_date"):
+        ac_conditions.append("ac.transaction_date <= %(to_date)s")
+        ac_params["to_date"] = filters.to_date
+
+    ac_where = " AND ".join(ac_conditions)
+
+    ac_docs = frappe.db.sql(
+        """
+        SELECT ac.name, ac.custodian, ac.transaction_date, ac.status, ac.currency
+        FROM `tabAccountant Custody` ac
+        WHERE {ac_where}
+        ORDER BY ac.transaction_date DESC, ac.name DESC
+        """.format(ac_where=ac_where),
+        ac_params,
+        as_dict=True,
     )
     if not ac_docs:
         return []

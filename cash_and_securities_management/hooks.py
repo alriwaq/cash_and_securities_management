@@ -73,14 +73,6 @@ fixtures = [
             ],
         ],
     },
-    # ── Custom Field on Account: is_custody_account flag ────────────────────────
-    {
-        "doctype": "Custom Field",
-        "filters": [
-            ["dt", "=", "Account"],
-            ["fieldname", "=", "custom_is_custody_account"],
-        ],
-    },
     # ── Party Type: Custodian ─────────────────────────────────────────────────
     {
         "doctype": "Party Type",

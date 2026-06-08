@@ -1,19 +1,20 @@
 """
 Patch: fix_custody_account_type
 ================================
-Custody accounts were created with account_type = 'Receivable', which
-requires a Customer party on every transaction (Payment Entry, Journal Entry).
-This is incorrect — custody accounts are plain current-asset ledgers similar
-to a petty-cash account.
+v1 (original): Cleared account_type on custody accounts that were incorrectly
+               set to 'Receivable'.
 
-This patch clears the account_type on all existing custody accounts so that
-transactions can be posted without a party.
+v2 (current):  Migrates all custody accounts to the dedicated 'Custody'
+               account_type regardless of their current type (Receivable,
+               Payable, blank).  This ensures:
+                 • Custody accounts are excluded from standard AP/AR reports
+                 • The PI override (validate_credit_to_acc) accepts them cleanly
+                 • No custom checkbox (custom_is_custody_account) is needed
 """
 import frappe
 
 
 def execute():
-    # Find all accounts whose name ends with '- Custody' and are linked to a Custodian
     custodian_accounts = frappe.db.sql(
         """
         SELECT c.custody_account
@@ -32,18 +33,19 @@ def execute():
         if not account_name:
             continue
 
-        # Only fix accounts that are currently set to Receivable
         current_type = frappe.db.get_value("Account", account_name, "account_type")
-        if current_type == "Receivable":
+        # Migrate any non-Custody account to the dedicated Custody type
+        if current_type != "Custody":
             frappe.db.set_value(
                 "Account",
                 account_name,
                 "account_type",
-                "",
+                "Custody",
                 update_modified=False,
             )
             frappe.logger().info(
-                f"Patch fix_custody_account_type: cleared account_type on '{account_name}'"
+                f"Patch fix_custody_account_type: set account_type='Custody' "
+                f"on '{account_name}' (was '{current_type}')"
             )
 
     frappe.db.commit()
