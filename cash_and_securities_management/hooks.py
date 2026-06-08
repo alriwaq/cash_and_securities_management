@@ -104,6 +104,15 @@ fixtures = [
     # imported from fixtures/treasury_vault_user_role.json and
     # fixtures/cash_payment_vault_approval.json respectively.
     # They do NOT need filter-based export entries here.
+    # ── Property Setter: Add "Custody" to Account account_type dropdown ────────
+    {
+        "doctype": "Property Setter",
+        "filters": [
+            ["doc_type", "=", "Account"],
+            ["field_name", "=", "account_type"],
+            ["property", "=", "options"],
+        ],
+    },
 ]
 
 # ─── Client Scripts on Standard Doctypes ────────────────────────────────────

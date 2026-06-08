@@ -1,0 +1,12 @@
+[
+  {
+    "doctype": "Property Setter",
+    "name": "Account-account_type-options",
+    "doc_type": "Account",
+    "doctype_or_field": "DocField",
+    "field_name": "account_type",
+    "property": "options",
+    "property_type": "Text",
+    "value": "\nAccumulated Depreciation\nBank\nCash\nChargeable\nCost of Goods Sold\nCustody\nDepreciation\nEquity\nExpense Account\nExpenses Included In Asset Valuation\nExpenses Included In Valuation\nFixed Asset\nIncome Account\nPayable\nReceivable\nRound Off\nStock\nStock Adjustment\nStock Received But Not Billed\nService Received But Not Billed\nTax\nTemporary"
+  }
+]

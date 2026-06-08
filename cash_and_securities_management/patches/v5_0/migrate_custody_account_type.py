@@ -8,14 +8,18 @@ from whatever type they currently have (blank, Payable, Receivable) to the new
 dedicated "Custody" account_type.
 
 Also migrates the two shared group accounts created by setup.py:
-  • Employee Custody Advances - {abbr}
-  • Custodian Payables - {abbr}   (left as Payable — this is correct for the
+  - Employee Custody Advances - {abbr}
+  - Custodian Payables - {abbr}   (left as Payable — this is correct for the
                                    Liability payable group)
 
 Why "Custody":
-  • Naturally excluded from standard AP/AR reports (those filter Payable/Receivable)
-  • Accepted by our PI override (validate_credit_to_acc checks account_type == "Custody")
-  • Removes the need for the custom_is_custody_account checkbox on Account
+  - Naturally excluded from standard AP/AR reports (those filter Payable/Receivable)
+  - Accepted by our PI override (validate_credit_to_acc checks account_type == "Custody")
+  - Removes the need for the custom_is_custody_account checkbox on Account
+
+Additionally:
+  - Deletes the Custom Field record for custom_is_custody_account
+  - Drops the column from tabAccount
 """
 import frappe
 
@@ -74,11 +78,8 @@ def execute():
             f"[v5 migrate_custody_account_type] Group '{row.name}' → 'Custody'"
         )
 
-    # ── 3. Remove the custom_is_custody_account checkbox from all Accounts ─────
-    # The field is no longer needed — account_type = "Custody" is the signal.
-    # We do NOT delete the Custom Field definition here (bench migrate handles
-    # that via the updated fixture), but we clear the value so it does not
-    # mislead anyone on existing databases.
+    # ── 3. Remove the custom_is_custody_account checkbox completely ────────────
+    # Step 3a: Clear the value on all accounts
     try:
         frappe.db.sql(
             """
@@ -92,6 +93,32 @@ def execute():
         )
     except Exception:
         # Column may already be gone on fresh installs — safe to ignore
+        pass
+
+    # Step 3b: Delete the Custom Field record so the checkbox disappears from the form
+    try:
+        cf_name = frappe.db.get_value(
+            "Custom Field",
+            {"dt": "Account", "fieldname": "custom_is_custody_account"},
+        )
+        if cf_name:
+            frappe.delete_doc("Custom Field", cf_name, force=True)
+            frappe.logger().info(
+                f"[v5 migrate_custody_account_type] Deleted Custom Field '{cf_name}'"
+            )
+    except Exception:
+        pass
+
+    # Step 3c: Drop the column from the database table
+    try:
+        frappe.db.sql_ddl(
+            "ALTER TABLE `tabAccount` DROP COLUMN `custom_is_custody_account`"
+        )
+        frappe.logger().info(
+            "[v5 migrate_custody_account_type] Dropped column custom_is_custody_account from tabAccount."
+        )
+    except Exception:
+        # Column may already be gone — safe to ignore
         pass
 
     frappe.db.commit()
