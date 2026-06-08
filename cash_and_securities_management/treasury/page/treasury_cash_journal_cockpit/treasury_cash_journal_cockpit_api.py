@@ -257,6 +257,48 @@ def _assert_no_unsent_prior_draft(station, today):
 		)
 
 
+def _get_or_create_draft_journal(station, posting_date):
+	"""
+	Central helper: return the existing Draft TCJ for this station+date,
+	or create a new one if none exists.
+
+	Guarantees:
+	  1. Only ONE journal per station per day (before_insert guard on TCJ also enforces this).
+	  2. Blocks creation when a prior-date Draft was not sent for review.
+	  3. Blocks creation when the station is Closed.
+	  4. Sets opening_balance from the station's current_balance at creation time.
+	"""
+	# Look for Draft OR Pending Review (cockpit can still append to Pending Review)
+	existing = frappe.db.get_value(
+		"Treasury Cash Journal",
+		{
+			"treasury_station": station,
+			"posting_date": posting_date,
+			"posting_status": ["in", ["Draft", "Pending Review"]],
+		},
+		"name",
+	)
+	if existing:
+		return frappe.get_doc("Treasury Cash Journal", existing), False  # (doc, is_new)
+
+	# No journal yet for today — run guards before creating
+	_assert_station_open(station)
+	_assert_no_unsent_prior_draft(station, posting_date)
+
+	# Capture opening balance at creation time (station's current balance right now)
+	opening_balance = flt(
+		frappe.db.get_value("Treasury Station", station, "current_balance")
+	)
+
+	jdoc = frappe.new_doc("Treasury Cash Journal")
+	jdoc.treasury_station = station
+	jdoc.posting_date = posting_date
+	jdoc.posting_status = "Draft"
+	jdoc.opening_balance = opening_balance
+	jdoc.flags.ignore_permissions = True
+	return jdoc, True  # (doc, is_new)
+
+
 @frappe.whitelist()
 def save_journal_draft(station, posting_date, lines, journal_name=None):
 	"""
@@ -455,25 +497,7 @@ def execute_pending_item(item_name, actual_amount=None, narration=None):
 	station = item.treasury_station
 	posting_date = frappe.utils.today()
 
-	existing_journal = frappe.db.get_value(
-		"Treasury Cash Journal",
-		{
-			"treasury_station": station,
-			"posting_date": posting_date,
-			"posting_status": ["in", ["Draft"]],
-		},
-		"name",
-	)
-
-	if existing_journal:
-		jdoc = frappe.get_doc("Treasury Cash Journal", existing_journal)
-	else:
-		# Guard: block creation of a new journal if a prior-date Draft was not sent for review
-		_assert_no_unsent_prior_draft(station, posting_date)
-		jdoc = frappe.new_doc("Treasury Cash Journal")
-		jdoc.treasury_station = station
-		jdoc.posting_date = posting_date
-		jdoc.posting_status = "Draft"
+	jdoc, is_new_journal = _get_or_create_draft_journal(station, posting_date)
 
 	# Guard: check negative balance if station does not allow it
 	if item.direction == "Outbound":
@@ -501,10 +525,10 @@ def execute_pending_item(item_name, actual_amount=None, narration=None):
 	})
 
 	jdoc.flags.ignore_permissions = True
-	if existing_journal:
-		jdoc.save()
-	else:
+	if is_new_journal:
 		jdoc.insert()
+	else:
+		jdoc.save()
 
 	# Link the pending item to the journal
 	frappe.db.set_value("Vault Pending Item", item_name, {
@@ -620,24 +644,8 @@ def create_and_execute_immediate(
 	vpi.flags.ignore_permissions = True
 	vpi.insert()
 
-	# Find or create today's Draft journal
-	existing_journal = frappe.db.get_value(
-		"Treasury Cash Journal",
-		{
-			"treasury_station": station,
-			"posting_date": posting_date,
-			"posting_status": "Draft",
-		},
-		"name",
-	)
-
-	if existing_journal:
-		jdoc = frappe.get_doc("Treasury Cash Journal", existing_journal)
-	else:
-		jdoc = frappe.new_doc("Treasury Cash Journal")
-		jdoc.treasury_station = station
-		jdoc.posting_date = posting_date
-		jdoc.posting_status = "Draft"
+	# Find or create today's Draft journal (central helper — prevents duplicates)
+	jdoc, is_new_journal = _get_or_create_draft_journal(station, posting_date)
 
 	# Guard: check negative balance for outbound transactions
 	if direction == "Outbound":
@@ -661,10 +669,10 @@ def create_and_execute_immediate(
 	})
 
 	jdoc.flags.ignore_permissions = True
-	if existing_journal:
-		jdoc.save()
-	else:
+	if is_new_journal:
 		jdoc.insert()
+	else:
+		jdoc.save()
 
 	# Link VPI back to the journal
 	frappe.db.set_value("Vault Pending Item", vpi.name, {
