@@ -605,6 +605,8 @@ class TreasuryCashJournal {
 			? this.rows
 			: this.rows.filter((r) => this._normalizeDirection(r.direction) === this.activeFilter);
 
+		console.log(`[TCJ-Grid] _renderGrid: total rows=${this.rows.length}, filtered=${filtered.length}, filter=${this.activeFilter}`);
+
 		if (filtered.length === 0) {
 			const emptyMsg = this.journalName
 				? `لا توجد حركات بهذا الفلتر. <a href="/app/treasury-cash-journal/${this.journalName}" target="_blank">فتح اليومية ${this.journalName}</a>`
@@ -618,8 +620,22 @@ class TreasuryCashJournal {
 				</tr>
 			`);
 		} else {
+			// Render each row with individual try/catch so one bad row never hides the rest
 			filtered.forEach((row, idx) => {
-				tbody.append(this._renderRow(row, idx + 1));
+				try {
+					tbody.append(this._renderRow(row, idx + 1));
+				} catch (rowErr) {
+					console.error(`[TCJ-Grid] Error rendering row idx=${idx} id=${row._id}:`, rowErr);
+					tbody.append(`
+						<tr class="table-danger">
+							<td>${idx + 1}</td>
+							<td colspan="10" class="text-danger small">
+								<i class="fa fa-exclamation-triangle mr-1"></i>
+								خطأ في عرض السطر: ${rowErr.message || rowErr}
+							</td>
+						</tr>
+					`);
+				}
 			});
 		}
 
@@ -665,7 +681,7 @@ class TreasuryCashJournal {
 				<td><span>${row.party_type || "—"}</span></td>
 				<td><span>${this._escapeHtml(row.party || "—")}</span></td>
 				<td><span>${this._escapeHtml(row.reference_name || "—")}</span></td>
-				<td style="text-align:right;"><strong>${frappe.utils.format_number(row.amount || 0, null, 2)}</strong></td>
+				<td style="text-align:right;"><strong>${this._fmtNum(row.amount || 0)}</strong></td>
 				<td><span>${this._escapeHtml(row.narration || "—")}</span></td>
 				<td class="text-center">${statusCell}</td>
 				<td>${deleteBtn}</td>
