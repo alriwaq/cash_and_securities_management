@@ -382,7 +382,7 @@ class TreasuryCashJournal {
 	}
 
 	_initDenomTable() {
-		const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.25];
+		const denoms = [200, 100, 50, 20, 10, 5];
 		const tbody = $("#tcj-denom-tbody");
 		tbody.empty();
 		denoms.forEach((d) => {
