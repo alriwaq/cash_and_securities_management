@@ -63,13 +63,15 @@
    "read_only": 1
   },
   {
-   "description": "Party name field required by ERPNext Payment Entry get_party_details(). Mirrors employee_name.",
+   "description": "Display name for this custodian. Used by ERPNext Payment Entry as the party name.",
    "fetch_from": "employee.employee_name",
    "fieldname": "custodian_name",
    "fieldtype": "Data",
-   "hidden": 1,
+   "in_list_view": 1,
+   "in_global_search": 1,
    "label": "Custodian Name",
-   "read_only": 1
+   "read_only": 1,
+   "bold": 1
   },
   {
    "fieldname": "column_break_employee",

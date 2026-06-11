@@ -1,9 +1,10 @@
-// Custodian DocType — Client-side controller (v2)
-// Handles action buttons, dashboard indicators, and field visibility.
+// Custodian DocType — Client-side controller (v5)
+// Handles action buttons, dashboard indicators, field filters, and dynamic fetching.
 frappe.ui.form.on("Custodian", {
     // ── Form lifecycle ────────────────────────────────────────────────────
     refresh: function (frm) {
         setup_dashboard_indicators(frm);
+        setup_bank_account_filter(frm);
 
         if (frm.doc.docstatus === 1) {
             setup_action_buttons(frm);
@@ -19,14 +20,47 @@ frappe.ui.form.on("Custodian", {
                 function (r) {
                     if (r) {
                         frm.set_value("employee_name", r.employee_name);
+                        frm.set_value("custodian_name", r.employee_name);
                         if (!frm.doc.department) frm.set_value("department", r.department);
                         if (!frm.doc.company) frm.set_value("company", r.company);
                     }
                 }
             );
+            // Re-apply bank account filter when employee changes
+            setup_bank_account_filter(frm);
+            // Clear bank account if it no longer belongs to the new employee
+            if (frm.doc.custodian_bank_account) {
+                frappe.db.get_value(
+                    "Bank Account",
+                    frm.doc.custodian_bank_account,
+                    ["party_type", "party"],
+                    function (r) {
+                        if (r && (r.party_type !== "Employee" || r.party !== frm.doc.employee)) {
+                            frm.set_value("custodian_bank_account", "");
+                        }
+                    }
+                );
+            }
         }
     },
 });
+
+// ── Bank Account Filter ──────────────────────────────────────────────────────
+// Restrict custodian_bank_account to bank accounts owned by the linked employee
+function setup_bank_account_filter(frm) {
+    frm.set_query("custodian_bank_account", function () {
+        if (frm.doc.employee) {
+            return {
+                filters: {
+                    party_type: "Employee",
+                    party: frm.doc.employee,
+                    disabled: 0
+                }
+            };
+        }
+        return { filters: { disabled: 0 } };
+    });
+}
 
 // ── Action Buttons ────────────────────────────────────────────────────────────
 function setup_action_buttons(frm) {
@@ -92,7 +126,7 @@ function setup_action_buttons(frm) {
     }
 
     // Recreate Accounts — useful if Treasury Settings were configured after submit
-    if (!frm.doc.custody_account || !frm.doc.liability_account) {
+    if (!frm.doc.custody_account) {
         frm.add_custom_button(__("Create Sub-Ledger Accounts"), function () {
             frm.call("recreate_accounts").then(function () { frm.reload_doc(); });
         }, __("Actions"));
@@ -141,10 +175,10 @@ function setup_dashboard_indicators(frm) {
 
     // Sub-ledger account status
     if (frm.doc.docstatus === 1) {
-        if (frm.doc.custody_account && frm.doc.liability_account) {
-            frm.dashboard.add_indicator(__("Sub-Ledgers: Active"), "green");
+        if (frm.doc.custody_account) {
+            frm.dashboard.add_indicator(__("Sub-Ledger: Active"), "green");
         } else {
-            frm.dashboard.add_indicator(__("Sub-Ledgers: Incomplete"), "red");
+            frm.dashboard.add_indicator(__("Sub-Ledger: Incomplete"), "red");
         }
     }
 }
