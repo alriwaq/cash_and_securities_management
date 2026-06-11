@@ -90,6 +90,7 @@ class Custodian(Document):
 		)
 		if emp:
 			self.employee_name = emp.employee_name
+			self.custodian_name = emp.employee_name
 			if not self.department:
 				self.department = emp.department
 			if not self.company:
