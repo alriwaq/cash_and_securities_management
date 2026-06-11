@@ -38,8 +38,12 @@ frappe.ui.form.on("Custody Request", {
                         format_currency(frm.doc.advance_amount)
                     ]),
                     function () {
-                        frm.call("create_payment_entry").then(function () {
-                            frm.reload_doc();
+                        frm.call("create_payment_entry").then(function (r) {
+                            if (r && r.message) {
+                                frappe.set_route("Form", "Payment Entry", r.message);
+                            } else {
+                                frm.reload_doc();
+                            }
                         });
                     }
                 );
