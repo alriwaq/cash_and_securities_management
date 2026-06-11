@@ -302,13 +302,16 @@ class CustodyRequest(Document):
 	def create_payment_entry(self):
 		"""
 		Stage 1 — Funding: Create a DRAFT Payment Entry to disburse the advance
-		via Bank Draft to the custodian's bank account.
+		to the custodian's custody account.
 
 		GL Entry:
-		  Debit:  Custodian Advance Account (Asset)  ← GL account linked to custodian_bank_account
-		  Credit: Company Bank Account
+		  Debit:  Custodian Custody Account (Asset)  ← self.advance_account
+		  Credit: Company Bank/Cash Account           ← paid_from
 
-		The custodian's Bank Account record holds the GL Account (advance account).
+		The custodian's Bank Account (if set) is used ONLY as the recipient
+		bank details (party_bank_account) — similar to a supplier bank account.
+		It does NOT need a linked GL Account.
+
 		payment_type = "Pay" with mode_of_payment = "Bank Draft".
 		Party is always set to Custodian to isolate balances.
 
@@ -324,30 +327,10 @@ class CustodyRequest(Document):
 		settings = frappe.db.get_singles_dict("Treasury Settings")
 		series = settings.get("pe_series") or "AC-PAY-.YYYY.-.#####"
 
-		# Resolve the custodian's bank account and its linked GL account
+		# Resolve the custodian's bank account (optional — used as recipient info only)
 		custodian_bank_account = frappe.db.get_value(
 			"Custodian", self.custodian, "custodian_bank_account"
 		)
-		if not custodian_bank_account:
-			frappe.throw(
-				_("Custodian {0} does not have a Bank Account configured. "
-				  "Please set the Custodian Bank Account on the Custodian record "
-				  "before creating a Payment Entry.").format(self.custodian),
-				title=_("Missing Custodian Bank Account"),
-			)
-
-		# The GL account linked to the custodian's bank account IS the advance account
-		bank_account_gl = frappe.db.get_value(
-			"Bank Account", custodian_bank_account, "account"
-		)
-		if not bank_account_gl:
-			frappe.throw(
-				_("Bank Account {0} does not have a linked GL Account. "
-				  "Please link the Advance (Asset) Account to the Bank Account record.").format(
-					custodian_bank_account
-				),
-				title=_("Missing GL Account on Bank Account"),
-			)
 
 		# Determine the company bank/cash account to pay from
 		pay_from_account = (
@@ -371,24 +354,27 @@ class CustodyRequest(Document):
 		pe.paid_amount = flt(self.advance_amount)
 		pe.received_amount = flt(self.advance_amount)
 		pe.paid_from = pay_from_account
-		pe.paid_to = bank_account_gl          # GL account of custodian's bank account
+		pe.paid_to = self.advance_account     # Custody Account (Asset) — the advance GL account
 		pe.custom_custody_request = self.name
 		pe.custom_custodian = self.custodian
 		pe.custom_source_document_type = "Custody"
 		pe.reference_no = self.name
 		pe.reference_date = nowdate()
-		pe.remarks = f"Bank Draft advance disbursement for Custody Request {self.name}"
+		pe.remarks = f"Advance disbursement for Custody Request {self.name}"
 		# Party is always Custodian — isolates balances in both Consolidated and Individual modes
 		pe.party_type = "Custodian"
 		pe.party = self.custodian
-		pe.party_account = bank_account_gl
+		pe.party_account = self.advance_account
+		# Set the custodian's bank account as recipient info (like supplier bank account)
+		if custodian_bank_account:
+			pe.party_bank_account = custodian_bank_account
 
 		pe.flags.ignore_permissions = True
 		pe.flags.ignore_mandatory = True
 		pe.insert()
 		# Intentionally left as DRAFT — user must review and submit manually
 		frappe.msgprint(
-			_("Payment Entry {0} created as Draft (Bank Draft). Please review and submit it.").format(
+			_("Payment Entry {0} created as Draft. Please review and submit it.").format(
 				frappe.bold(pe.name)
 			),
 			indicator="blue",
