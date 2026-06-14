@@ -533,6 +533,18 @@ def execute_pending_item(item_name, actual_amount=None, narration=None):
 	Marks the item as Executed, assigns serial number, records execution time.
 	Also adds the item as a row in the current day's Draft journal.
 	"""
+	# Role check: only Treasury Vault User (or admin) can execute
+	user_roles = set(frappe.get_roles(frappe.session.user))
+	if (
+		frappe.session.user != "Administrator"
+		and "System Manager" not in user_roles
+		and "Treasury Vault User" not in user_roles
+	):
+		frappe.throw(
+			_("Only Treasury Vault User can execute a vault pending item."),
+			title=_("Unauthorized / غير مصرح"),
+		)
+
 	item = frappe.get_doc("Vault Pending Item", item_name)
 	executed_name = item.execute(actual_amount=actual_amount, narration=narration)
 
@@ -607,8 +619,22 @@ def execute_pending_item(item_name, actual_amount=None, narration=None):
 @frappe.whitelist()
 def cancel_pending_item(item_name, reason=None):
 	"""
-	V4: Cancel a pending vault item (e.g., teller rejects the transaction).
+	V4: Cancel a pending vault item (teller rejects the transaction).
+	Also sets the linked Payment Entry workflow_state to 'Rejected' so
+	the clerk is notified and can correct and resubmit.
 	"""
+	# Role check: only Treasury Vault User (or admin) can reject
+	user_roles = set(frappe.get_roles(frappe.session.user))
+	if (
+		frappe.session.user != "Administrator"
+		and "System Manager" not in user_roles
+		and "Treasury Vault User" not in user_roles
+	):
+		frappe.throw(
+			_("Only Treasury Vault User can cancel (reject) a vault pending item."),
+			title=_("Unauthorized / غير مصرح"),
+		)
+
 	item = frappe.get_doc("Vault Pending Item", item_name)
 	if item.status == "Executed":
 		frappe.throw(_("Cannot cancel an already executed item."))
@@ -617,6 +643,33 @@ def cancel_pending_item(item_name, reason=None):
 		item.narration = (item.narration or "") + f" [Cancelled: {reason}]"
 	item.flags.ignore_permissions = True
 	item.save()
+
+	# Update linked PE workflow_state to 'Rejected' so clerk is notified
+	if item.source_document_type == "Payment Entry" and item.source_document:
+		pe_docstatus = frappe.db.get_value("Payment Entry", item.source_document, "docstatus")
+		if pe_docstatus == 0:  # Still draft
+			frappe.db.set_value(
+				"Payment Entry",
+				item.source_document,
+				"workflow_state",
+				"Rejected",
+			)
+			# Add comment on the PE for audit trail
+			reject_reason = f": {reason}" if reason else ""
+			frappe.get_doc({
+				"doctype": "Comment",
+				"comment_type": "Workflow",
+				"reference_doctype": "Payment Entry",
+				"reference_name": item.source_document,
+				"content": _("رفض مسؤول الخزينة ({0}){1} | Rejected by vault teller ({0}){1}").format(
+					frappe.session.user, reject_reason
+				),
+			}).insert(ignore_permissions=True)
+
+	frappe.logger().info(
+		f"[VaultApproval] VPI {item_name} cancelled/rejected by {frappe.session.user}"
+		+ (f" — reason: {reason}" if reason else "")
+	)
 	return item.name
 
 

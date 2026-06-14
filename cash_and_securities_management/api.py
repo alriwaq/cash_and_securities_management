@@ -323,23 +323,19 @@ def fix_custody_gl_entry(doc, method=None):
 	# Fetch the custodian master to get the configured sub-ledger accounts
 	custodian = frappe.get_doc("Custodian", doc.party)
 
-	# Context 1: Payment Entry
+	# V5 Single-Account Model: all custody GL entries use custody_account
+	# (the single self-settling Receivable account per custodian).
+	# Context 1: Payment Entry (advance disbursement or settlement)
 	if doc.voucher_type == "Payment Entry":
-		pe = frappe.get_cached_doc("Payment Entry", doc.voucher_name)
-		if pe.get("custom_accountant_custody"):
-			# Accountant Custody settlement payment → use the Liability account
-			doc.account = custodian.custodian_payable_account
-		elif pe.get("custom_custody_request"):
-			# Initial Custody Request advance funding → use the Asset account
-			doc.account = custodian.custody_advance_account
+		doc.account = custodian.custody_account
 
-	# Context 2: Purchase Invoice
+	# Context 2: Purchase Invoice (expense settlement — credits custody_account)
 	elif doc.voucher_type == "Purchase Invoice":
-		doc.account = custodian.custodian_payable_account
+		doc.account = custodian.custody_account
 
 	# Context 3: Purchase Receipt
 	elif doc.voucher_type == "Purchase Receipt":
-		doc.account = custodian.custodian_payable_account
+		doc.account = custodian.custody_account
 
 	# Final guard: if account still not resolved, throw a clear error
 	if not doc.account:

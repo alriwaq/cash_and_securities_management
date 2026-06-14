@@ -264,35 +264,95 @@ def _is_cash_payment(doc):
 @frappe.whitelist()
 def send_cash_pe_for_vault_approval(pe_name, allow_resubmit=False):
 	"""
-	Whitelisted API called by the custom JS button on the Payment Entry form.
-	Sets the PE's workflow_state to 'Pending Vault Approval' and creates a
-	Vault Pending Item for the teller cockpit.
+	[Layer 1 Server] Whitelisted API called by the custom JS button.
+	Sets PE workflow_state to 'Pending Vault Approval' and creates a VPI.
 
-	Replaces the Frappe Workflow action so the workflow document itself is
-	deactivated and not visible on the UI.
+	Security guards:
+	  - Caller must hold Accounts User or Accounts Manager role.
+	  - PE must be Draft (docstatus=0).
+	  - PE must be a Cash payment.
+	  - Required fields must be populated (amount > 0, accounts set).
+	  - Writes an audit log entry on success.
 	"""
 	doc = frappe.get_doc("Payment Entry", pe_name)
 	frappe.has_permission("Payment Entry", "write", doc=doc, throw=True)
 
-	if not _is_cash_payment(doc):
-		frappe.throw(_("Only Cash Payment Entries require vault approval."))
-
-	if doc.docstatus != 0:
-		frappe.throw(_("Payment Entry must be in Draft state to send for approval."))
-
-	current_state = (doc.get("workflow_state") or "Draft").strip()
-	allowed_states = {"Draft"} if not allow_resubmit else {"Draft", "Rejected"}
-	if current_state not in allowed_states:
+	# ─ Role check: only Accounts User / Accounts Manager may initiate ──────────
+	user_roles = set(frappe.get_roles(frappe.session.user))
+	is_admin = (
+		frappe.session.user == "Administrator"
+		or "System Manager" in user_roles
+	)
+	if not is_admin and not ({"Accounts User", "Accounts Manager"} & user_roles):
 		frappe.throw(
-			_("Cannot send for approval: current state is '{0}'.").format(current_state)
+			_("Only Accounts User or Accounts Manager can send a Payment Entry for Vault Approval."),
+			title=_("Unauthorized / غير مصرح"),
 		)
 
-	# Move to Pending Vault Approval
+	# ─ Payment type check ─────────────────────────────────────────────────
+	if not _is_cash_payment(doc):
+		frappe.throw(
+			_("Only Cash Payment Entries require vault approval."),
+			title=_("Not a Cash Payment"),
+		)
+
+	# ─ Docstatus check ──────────────────────────────────────────────────
+	if doc.docstatus != 0:
+		frappe.throw(
+			_("Payment Entry must be in Draft state to send for approval."),
+			title=_("Invalid State"),
+		)
+
+	# ─ State transition check ──────────────────────────────────────────
+	current_state = (doc.get("workflow_state") or "Draft").strip()
+	allowed_states = {"Draft"} if not frappe.utils.cint(allow_resubmit) else {"Draft", "Rejected"}
+	if current_state not in allowed_states:
+		frappe.throw(
+			_("Cannot send for approval: current state is '{0}'.").format(current_state),
+			title=_("Invalid State"),
+		)
+
+	# ─ Required field check ─────────────────────────────────────────────
+	errors = []
+	if not flt(doc.paid_amount) > 0:
+		errors.append(_("Paid Amount must be greater than zero."))
+	if not doc.get("mode_of_payment"):
+		errors.append(_("Mode of Payment is required."))
+	if not doc.get("paid_from"):
+		errors.append(_("Paid From account is required."))
+	if not doc.get("paid_to"):
+		errors.append(_("Paid To account is required."))
+	if not doc.get("payment_type"):
+		errors.append(_("Payment Type is required."))
+	if errors:
+		frappe.throw(
+			_("Cannot send for approval. Please fix the following:\n{0}").format(
+				"\n".join(f"• {e}" for e in errors)
+			),
+			title=_("Validation Error / خطأ في التحقق"),
+		)
+
+	# ─ Transition: Draft / Rejected → Pending Vault Approval ───────────────
 	frappe.db.set_value("Payment Entry", pe_name, "workflow_state", "Pending Vault Approval")
 
-	# Create Vault Pending Item (skips silently if one already exists)
+	# ─ Create Vault Pending Item (skips if one already exists) ────────────
 	doc.reload()
 	_create_vpi_from_pe(doc)
+
+	# ─ Audit log ────────────────────────────────────────────────────────
+	frappe.logger().info(
+		f"[VaultApproval] {pe_name} sent for approval by {frappe.session.user} "
+		f"(from state '{current_state}') | IP: {frappe.local.request_ip if hasattr(frappe.local, 'request_ip') else 'N/A'}"
+	)
+	frappe.get_doc({
+		"doctype": "Comment",
+		"comment_type": "Workflow",
+		"reference_doctype": "Payment Entry",
+		"reference_name": pe_name,
+		"content": _("إرسال سند الدفع للموافقة بواسطة {0} | Sent for Vault Approval by {0}").format(
+			frappe.session.user
+		),
+	}).insert(ignore_permissions=True)
 
 	frappe.msgprint(
 		_("تم إرسال سند الدفع للموافقة. سيظهر في كوكبيت الخزينة.<br>"

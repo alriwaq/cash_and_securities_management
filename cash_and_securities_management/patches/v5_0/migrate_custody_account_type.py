@@ -41,17 +41,17 @@ def execute():
         if not account_name:
             continue
         current_type = frappe.db.get_value("Account", account_name, "account_type")
-        if current_type != "Custody":
+        if current_type != "Receivable":
             frappe.db.set_value(
                 "Account",
                 account_name,
                 "account_type",
-                "Custody",
+                "Receivable",
                 update_modified=False,
             )
             frappe.logger().info(
                 f"[v5 migrate_custody_account_type] '{account_name}': "
-                f"'{current_type}' → 'Custody'"
+                f"'{current_type}' → 'Receivable'"
             )
 
     # ── 2. Migrate Employee Custody Advances group accounts ────────────────────
@@ -67,15 +67,10 @@ def execute():
     )
 
     for row in advance_groups:
-        frappe.db.set_value(
-            "Account",
-            row.name,
-            "account_type",
-            "Custody",
-            update_modified=False,
-        )
+        # Leave the group account as-is — posting to a group account is not
+        # allowed in ERPNext. Individual leaf accounts handle all GL entries.
         frappe.logger().info(
-            f"[v5 migrate_custody_account_type] Group '{row.name}' → 'Custody'"
+            f"[v5 migrate_custody_account_type] Skipping group account '{row.name}' (not changed)"
         )
 
     # ── 3. Remove the custom_is_custody_account checkbox completely ────────────

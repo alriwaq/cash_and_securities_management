@@ -77,7 +77,7 @@ class CustodyPaymentEntry(PaymentEntry):
 		validation before calling the standard validate chain.
 		For vault cash PEs, block saving if the station is not Open.
 		"""
-		# V4: Block saving a cash PE if the vault station is Closed
+		# ── Layer 2A: Vault station open guard ────────────────────────────────────
 		if self._is_vault_cash_payment():
 			paid_from_station = self._get_vault_station_for_account(self.get("paid_from"))
 			paid_to_station = self._get_vault_station_for_account(self.get("paid_to"))
@@ -94,6 +94,16 @@ class CustodyPaymentEntry(PaymentEntry):
 						).format(station=station),
 						title=_("الخزينة مغلقة / Station Closed"),
 					)
+
+			# ── Layer 2B: Lock pending PE against edits ───────────────────────
+			# Block saves while the PE is awaiting vault approval.
+			# Allows vault users and admins to still save (e.g. approve/reject).
+			self._assert_not_locked_pending()
+
+			# ── Layer 2C: Enforce role-based state transition rules ───────────
+			# Prevents workflow_state from being tampered with via REST API
+			# or direct form edits by unauthorized users.
+			self._validate_vault_state_transition()
 
 		if self._is_custody_mode():
 			# Ensure party fields are always set for custody PEs
@@ -209,6 +219,120 @@ class CustodyPaymentEntry(PaymentEntry):
 		mode = (self.get("mode_of_payment") or "").strip().lower()
 		return mode == "cash"
 
+	def _is_privileged_user(self):
+		"""Return True for Administrator or System Manager — bypass all vault guards."""
+		if frappe.session.user == "Administrator":
+			return True
+		return "System Manager" in frappe.get_roles(frappe.session.user)
+
+	def _assert_not_locked_pending(self):
+		"""
+		Layer 2B: Prevent a PE in 'Pending Vault Approval' state from being
+		edited by anyone other than Treasury Vault User / System Manager.
+		This stops a clerk from withdrawing or modifying a PE mid-approval.
+		"""
+		if self.is_new():
+			return
+		db_state = frappe.db.get_value("Payment Entry", self.name, "workflow_state") or "Draft"
+		if db_state != "Pending Vault Approval":
+			return
+		# Vault users and admins may still save (to approve/reject)
+		if self._is_privileged_user():
+			return
+		if "Treasury Vault User" in frappe.get_roles(frappe.session.user):
+			return
+		frappe.throw(
+			_(
+				"لا يمكن تعديل سند الدفع لأنه في حالة 'انتظار موافقة الخزينة'.\n"
+				"يرجى انتظار قرار مسؤول الخزينة (موافقة أو رفض).\n\n"
+				"This Payment Entry is locked — it is awaiting Vault Approval.\n"
+				"Wait for the vault teller to approve or reject it before making changes."
+			),
+			title=_("السند مقفل / Entry Locked"),
+		)
+
+	def _validate_vault_state_transition(self):
+		"""
+		Layer 2C: Enforce role-based authorization on every workflow_state change.
+		Fires on every save through validate() — catches form saves AND REST API
+		(frappe.client.set_value triggers validate; only frappe.db.set_value skips it).
+
+		Allowed transitions:
+		  Draft → Pending Vault Approval : Accounts User / Accounts Manager only
+		  Pending → Vault Approved        : Treasury Vault User only
+		  Pending → Rejected              : Treasury Vault User only
+		  Rejected → Pending              : Accounts User / Accounts Manager only
+		  Any state → Any state           : System Manager / Administrator always allowed
+		"""
+		if self.is_new():
+			return  # New docs always start at Draft
+
+		db_state = frappe.db.get_value("Payment Entry", self.name, "workflow_state") or "Draft"
+		new_state = (self.get("workflow_state") or "Draft").strip()
+
+		if db_state == new_state:
+			return  # No transition — nothing to validate
+
+		# Privileged users bypass transition rules
+		if self._is_privileged_user():
+			return
+		# TCJ programmatic submit — allowed
+		if self.flags.get("submitted_by_tcj"):
+			return
+
+		user_roles = set(frappe.get_roles(frappe.session.user))
+		CLERK_ROLES = {"Accounts User", "Accounts Manager"}
+		VAULT_ROLES = {"Treasury Vault User"}
+
+		transition = (db_state, new_state)
+
+		if transition == ("Draft", "Pending Vault Approval"):
+			if not (CLERK_ROLES & user_roles):
+				frappe.throw(
+					_("Only Accounts User / Accounts Manager can send a Cash Payment Entry for Vault Approval."),
+					title=_("Unauthorized / غير مصرح"),
+				)
+
+		elif transition == ("Pending Vault Approval", "Vault Approved"):
+			if not (VAULT_ROLES & user_roles):
+				frappe.throw(
+					_("Only Treasury Vault User can approve a Cash Payment Entry."),
+					title=_("Unauthorized / غير مصرح"),
+				)
+
+		elif transition == ("Pending Vault Approval", "Rejected"):
+			if not (VAULT_ROLES & user_roles):
+				frappe.throw(
+					_("Only Treasury Vault User can reject a Cash Payment Entry."),
+					title=_("Unauthorized / غير مصرح"),
+				)
+
+		elif transition == ("Rejected", "Pending Vault Approval"):
+			if not (CLERK_ROLES & user_roles):
+				frappe.throw(
+					_("Only Accounts User / Accounts Manager can resubmit a rejected Cash Payment Entry."),
+					title=_("Unauthorized / غير مصرح"),
+				)
+
+		elif new_state == "Vault Approved":
+			# Direct jump to Vault Approved skipping Pending — block entirely
+			frappe.throw(
+				_(
+					"لا يمكن تعيين الحالة مباشرة إلى 'تمت الموافقة'. "
+					"يجب أن يمر السند بمرحلة 'انتظار الموافقة' أولاً.\n\n"
+					"Cannot set state directly to 'Vault Approved'. "
+					"The entry must pass through 'Pending Vault Approval' first."
+				),
+				title=_("Invalid Transition / انتقال غير صالح"),
+			)
+
+		else:
+			# Any other unrecognised transition
+			frappe.throw(
+				_("Invalid workflow state transition: '{0}' → '{1}'.").format(db_state, new_state),
+				title=_("Invalid Transition / انتقال غير صالح"),
+			)
+
 	def before_submit(self):
 		"""
 		V4: Block direct GL submission of cash Payment Entries.
@@ -217,30 +341,48 @@ class CustodyPaymentEntry(PaymentEntry):
 		"""
 		if self._is_vault_cash_payment():
 			wf_state = (self.get("workflow_state") or "").strip()
-			# Allow submit only if:
-			# 1. Vault has approved it (workflow_state = 'Vault Approved')
-			# 2. OR it is being submitted programmatically by the TCJ (flag set)
-			# 3. OR the user is System Manager / Administrator
+
+			# ── Fast-path bypasses ──────────────────────────────────────────
 			if self.flags.get("submitted_by_tcj"):
-				return  # TCJ-triggered submit — allow
-			if frappe.session.user == "Administrator":
-				return  # Administrator bypass
-			if "System Manager" in frappe.get_roles(frappe.session.user):
-				return  # System Manager bypass
-			if wf_state == "Vault Approved":
-				return  # Vault has approved — allow
-			# Block all other direct submissions
-			frappe.throw(
-				_(
-					"لا يمكن ترحيل قيد الدفع النقدي مباشرة إلى دفتر الأستاذ. "
-					"يجب أن تتم الموافقة عليه من مسؤول الخزينة أولاً، "
-					"ثم يُرحَّل عبر سجل يومية الخزينة النقدية في نهاية اليوم.\n\n"
-					"Cash Payment Entry cannot be submitted directly to the GL. "
-					"It must first be approved by the Vault Responsible User, "
-					"then posted via the Treasury Cash Journal at end of day."
-				),
-				title=_("Vault Approval Required / مطلوب موافقة الخزينة"),
+				return  # TCJ-triggered submit — always allowed
+			if self._is_privileged_user():
+				return  # Administrator / System Manager bypass
+
+			# ── Layer 2D: Require 'Vault Approved' state ────────────────────
+			if wf_state != "Vault Approved":
+				frappe.throw(
+					_(
+						"لا يمكن ترحيل قيد الدفع النقدي مباشرة إلى دفتر الأستاذ. "
+						"يجب أن تتم الموافقة عليه من مسؤول الخزينة أولاً، "
+						"ثم يُرحَّل عبر سجل يومية الخزينة النقدية في نهاية اليوم.\n\n"
+						"Cash Payment Entry cannot be submitted directly to the GL. "
+						"It must first be approved by the Vault Responsible User, "
+						"then posted via the Treasury Cash Journal at end of day."
+					),
+					title=_("Vault Approval Required / مطلوب موافقة الخزينة"),
+				)
+
+			# ── Layer 2E: Verify teller actually executed the physical cash ──
+			# Prevents someone from bypassing the cockpit by manually setting
+			# workflow_state = 'Vault Approved' via frappe.db.set_value in Python.
+			vpi_executed = frappe.db.exists(
+				"Vault Pending Item",
+				{
+					"source_document_type": "Payment Entry",
+					"source_document": self.name,
+					"status": "Executed",
+				},
 			)
+			if not vpi_executed:
+				frappe.throw(
+					_(
+						"لا يوجد تأكيد من الخزينة على تسليم النقد لهذا السند.\n"
+						"يجب على أمين الخزينة تنفيذ العملية في الكوكبيت أولاً.\n\n"
+						"No executed Vault Pending Item found for this Payment Entry.\n"
+						"The vault teller must confirm the physical cash handover in the cockpit first."
+					),
+					title=_("Vault Confirmation Required / مطلوب تأكيد الخزينة"),
+				)
 
 	def validate_party_accounts(self):
 		"""Skip party-type/account-type matching check for custody PEs."""
