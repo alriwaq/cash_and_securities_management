@@ -257,3 +257,47 @@ def _is_cash_payment(doc):
 	# Fallback: check the mode_of_payment type field directly
 	mop_type = frappe.db.get_value("Mode of Payment", doc.mode_of_payment, "type")
 	return mop_type == "Cash"
+
+
+# ─── Programmatic Vault Approval API ──────────────────────────────────────────
+
+@frappe.whitelist()
+def send_cash_pe_for_vault_approval(pe_name, allow_resubmit=False):
+	"""
+	Whitelisted API called by the custom JS button on the Payment Entry form.
+	Sets the PE's workflow_state to 'Pending Vault Approval' and creates a
+	Vault Pending Item for the teller cockpit.
+
+	Replaces the Frappe Workflow action so the workflow document itself is
+	deactivated and not visible on the UI.
+	"""
+	doc = frappe.get_doc("Payment Entry", pe_name)
+	frappe.has_permission("Payment Entry", "write", doc=doc, throw=True)
+
+	if not _is_cash_payment(doc):
+		frappe.throw(_("Only Cash Payment Entries require vault approval."))
+
+	if doc.docstatus != 0:
+		frappe.throw(_("Payment Entry must be in Draft state to send for approval."))
+
+	current_state = (doc.get("workflow_state") or "Draft").strip()
+	allowed_states = {"Draft"} if not allow_resubmit else {"Draft", "Rejected"}
+	if current_state not in allowed_states:
+		frappe.throw(
+			_("Cannot send for approval: current state is '{0}'.").format(current_state)
+		)
+
+	# Move to Pending Vault Approval
+	frappe.db.set_value("Payment Entry", pe_name, "workflow_state", "Pending Vault Approval")
+
+	# Create Vault Pending Item (skips silently if one already exists)
+	doc.reload()
+	_create_vpi_from_pe(doc)
+
+	frappe.msgprint(
+		_("تم إرسال سند الدفع للموافقة. سيظهر في كوكبيت الخزينة.<br>"
+		  "Payment Entry sent for Vault Approval and is now visible in the cockpit."),
+		indicator="blue",
+		alert=True,
+	)
+	return {"status": "Pending Vault Approval"}

@@ -120,6 +120,7 @@ fixtures = [
 doctype_js = {
     "Purchase Receipt": "public/js/purchase_receipt_custody.js",
     "Purchase Invoice": "public/js/purchase_invoice_custody.js",
+    "Payment Entry": "public/js/payment_entry_vault.js",
 }
 
 # ─── Whitelisted Method Overrides ────────────────────────────────────────────
@@ -164,8 +165,6 @@ doc_events = {
             # V4: cancel linked Vault Pending Item
             "cash_and_securities_management.treasury.doctype.vault_pending_item.vault_pending_hooks.on_payment_entry_cancel",
         ],
-        # V4: workflow action hook — fires when AP clerk sends PE for vault approval
-        "on_workflow_action": "cash_and_securities_management.treasury.doctype.vault_pending_item.vault_pending_hooks.on_payment_entry_workflow_action",
     },
     "Expense Claim": {
         # V4: create Outbound Vault Pending Item for cash expense claims
