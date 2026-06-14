@@ -177,6 +177,12 @@ doc_events = {
         "on_cancel": "cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks.on_journal_cancel",
     },
     "GL Entry": {
+        # Fires BEFORE GLEntry.validate() — clears party_type/party so
+        # ERPNext's validate_account() Receivable/Payable-only check passes.
+        "before_validate": "cash_and_securities_management.api.custody_gl_before_validate",
+        # Fires AFTER GLEntry.validate() — restores party_type/party that
+        # were cleared by custody_gl_before_validate.
+        "validate": "cash_and_securities_management.api.custody_gl_after_validate",
         "before_insert": "cash_and_securities_management.api.fix_custody_gl_entry",
     },
 }

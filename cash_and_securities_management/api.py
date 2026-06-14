@@ -298,6 +298,42 @@ def get_accountant_custody_settlements_dashboard(accountant_custody):
 	return get_settlement_summary(accountant_custody)
 
 
+# ─── GL Entry Validation Bypass for Custodian Party Type ────────────────────
+# ERPNext's GLEntry.validate_account() only allows party_type/party on
+# Receivable/Payable accounts.  The CustodyGLEntry class override handles
+# this when the override is active (requires bench restart after first install).
+# These two hooks provide a belt-and-suspenders fallback that works via
+# the standard doc_events mechanism:
+#   before_validate  → clears party_type/party (stored in flags)
+#   validate         → restores them after validate_account() has run
+
+
+def custody_gl_before_validate(doc, method=None):
+	"""
+	Fires BEFORE GLEntry.validate().
+	For Custodian-party GL entries, temporarily clear party_type/party so
+	ERPNext's validate_account() does not throw
+	'Party Type and Party can only be set for Receivable / Payable account'.
+	The values are stored in doc.flags and restored by custody_gl_after_validate.
+	"""
+	if doc.party_type == "Custodian":
+		doc.flags.custody_party_type = doc.party_type
+		doc.flags.custody_party = doc.party
+		doc.party_type = None
+		doc.party = None
+
+
+def custody_gl_after_validate(doc, method=None):
+	"""
+	Fires AFTER GLEntry.validate() (doc_events 'validate' runs after the
+	doc's own validate() method).
+	Restores party_type/party that were cleared in custody_gl_before_validate.
+	"""
+	if doc.flags.get("custody_party_type"):
+		doc.party_type = doc.flags.custody_party_type
+		doc.party = doc.flags.custody_party
+
+
 # ─── GL Entry Firewall for Custodian Party Type ───────────────────────────────
 
 def fix_custody_gl_entry(doc, method=None):
