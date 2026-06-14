@@ -267,25 +267,26 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
             )
 
         # Accept:
-		#   (a) Receivable account under Assets root (Individual mode — preferred)
-		#       ERPNext allows party_type/party only on Receivable/Payable accounts,
-		#       so Receivable is required for custodian party GL entries.
-		#   (b) Any Payable account under Assets root (Consolidated mode)
-		#   (c) Legacy Custody account type (for sites not yet migrated)
-		is_receivable_under_assets = (
-			account.account_type == "Receivable" and account.root_type == "Asset"
-		)
-		is_payable_under_assets = (
-			account.account_type == "Payable" and account.root_type == "Asset"
-		)
-		is_legacy_custody_type = account.account_type == "Custody"
+        #   (a) Receivable account under Assets root (Individual mode — preferred)
+        #       ERPNext allows party_type/party only on Receivable/Payable accounts,
+        #       so Receivable is required for custodian party GL entries.
+        #   (b) Any Payable account under Assets root (Consolidated mode)
+        #   (c) Legacy Custody account type (for sites not yet migrated)
+        is_receivable_under_assets = (
+            account.account_type == "Receivable" and account.root_type == "Asset"
+        )
+        is_payable_under_assets = (
+            account.account_type == "Payable" and account.root_type == "Asset"
+        )
+        is_legacy_custody_type = account.account_type == "Custody"
 
-		if not (is_receivable_under_assets or is_payable_under_assets or is_legacy_custody_type):
-			frappe.throw(
-				_(
-					"The Credit To account for a custody Purchase Invoice must be a "
-					"Receivable account placed under the Assets group (Individual mode) "
-					"or a Payable account placed under the Assets group (Consolidated mode)."
+        if not (is_receivable_under_assets or is_payable_under_assets or is_legacy_custody_type):
+            frappe.throw(
+                _(
+                    "The Credit To account for a custody Purchase Invoice must be a "
+                    "Receivable account placed under the Assets group (Individual mode) "
+                    "or a Payable account placed under the Assets group (Consolidated mode)."
+                ),
                 title=_("Invalid Custody Account"),
             )
 
