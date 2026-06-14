@@ -45,33 +45,37 @@ if _ERPNextGLEntry:
 
         def validate_account(self):
             """
-            Allow 'Custody' account type to carry party_type/party entries.
-            For all other account types, delegate entirely to ERPNext's original
-            validate_account() so nothing else changes.
-            """
-            if self.party_type and self.account:
-                account_type = frappe.db.get_cached_value(
-                    "Account", self.account, "account_type"
-                )
-                if account_type == "Custody":
-                    # Temporarily remove party so ERPNext's native check
-                    # does not throw "Party Type and Party can only be set
-                    # for Receivable / Payable account".
-                    # All other checks in validate_account() (group account,
-                    # company mismatch, frozen account, etc.) still run normally.
-                    _party_type = self.party_type
-                    _party      = self.party
-                    self.party_type = None
-                    self.party      = None
-                    try:
-                        super().validate_account()
-                    finally:
-                        # Always restore — even if super() throws for another reason
-                        self.party_type = _party_type
-                        self.party      = _party
-                    return  # Custody account validated — no further action needed
+            Allow party_type/party on 'Custody' accounts (or any account
+            carrying a 'Custodian' party).
 
-            # Non-Custody account: run ERPNext's check unchanged
+            ERPNext only permits party on Receivable/Payable accounts.
+            Custody accounts use party_type='Custodian' to isolate custodian
+            balances in a single self-settling account without creating formal
+            AR/AP entries.
+
+            We use party_type == 'Custodian' as the bypass condition (not
+            account_type) so the override works even on sites where the
+            account_type migration has not yet been run.
+            """
+            if self.party_type == "Custodian" and self.account:
+                # Temporarily remove party so ERPNext's native check
+                # does not throw "Party Type and Party can only be set
+                # for Receivable / Payable account".
+                # All other checks in validate_account() (group account,
+                # company mismatch, frozen account, etc.) still run normally.
+                _party_type = self.party_type
+                _party      = self.party
+                self.party_type = None
+                self.party      = None
+                try:
+                    super().validate_account()
+                finally:
+                    # Always restore — even if super() throws for another reason
+                    self.party_type = _party_type
+                    self.party      = _party
+                return  # Custodian party validated — no further action needed
+
+            # Non-Custodian party: run ERPNext's check unchanged
             super().validate_account()
 
 else:

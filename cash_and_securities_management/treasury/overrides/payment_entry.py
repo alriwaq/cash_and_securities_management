@@ -392,12 +392,13 @@ class CustodyPaymentEntry(PaymentEntry):
 
 	def get_gl_dict(self, args, account_currency=None, item=None):
 		"""
-		Inject Custodian party into GL entries for Payable/Receivable accounts.
+		Inject Custodian party into GL entries for Payable/Receivable/Custody accounts.
 
 		For Internal Transfer PEs, ERPNext does not populate party_type/party on
 		the individual GL dicts, causing GL-level validation to raise
 		"Supplier is required against Payable account".  We intercept every GL
-		dict and add the Custodian party when the account is Payable/Receivable.
+		dict and add the Custodian party when the account is Payable, Receivable,
+		or the dedicated Custody type.
 		"""
 		gl_dict = super().get_gl_dict(args, account_currency=account_currency, item=item)
 
@@ -405,7 +406,7 @@ class CustodyPaymentEntry(PaymentEntry):
 			account = gl_dict.get("account")
 			if account and not gl_dict.get("party_type"):
 				account_type = frappe.get_cached_value("Account", account, "account_type")
-				if account_type in ("Payable", "Receivable"):
+				if account_type in ("Payable", "Receivable", "Custody"):
 					gl_dict["party_type"] = "Custodian"
 					gl_dict["party"] = self.get("custom_custodian") or self.party
 
