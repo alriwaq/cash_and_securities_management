@@ -288,6 +288,34 @@ def _assert_no_unsent_prior_draft(station, today):
 		)
 
 
+def _assert_station_responsible_user(station):
+	"""
+	Ensure the current user is the responsible_user of `station`.
+	Administrator and System Manager are always allowed (bypass).
+	Raises frappe.PermissionError with a clear message if not authorised.
+	"""
+	user = frappe.session.user
+	if user == "Administrator":
+		return
+	if "System Manager" in frappe.get_roles(user):
+		return
+
+	responsible_user, station_name = frappe.db.get_value(
+		"Treasury Station", station, ["responsible_user", "station_name"]
+	) or (None, station)
+
+	if responsible_user != user:
+		frappe.throw(
+			_(
+				"ليس لديك صلاحية لتنفيذ هذا الإجراء على الخزينة '{station}'.\n"
+				"هذه الخزينة مخصصة فقط للموظف المسؤول عنها.\n\n"
+				"You are not authorised to perform this action on station '{station}'.\n"
+				"Only the responsible employee assigned to this station may use it."
+			).format(station=station_name or station),
+			frappe.PermissionError,
+		)
+
+
 def _get_or_create_draft_journal(station, posting_date):
 	"""
 	Central helper: return the existing Draft TCJ for this station+date,
@@ -337,7 +365,13 @@ def save_journal_draft(station, posting_date, lines, journal_name=None):
 	Uses _get_or_create_draft_journal to prevent duplicates.
 	Preserves cost_center, project, and all dimension fields.
 	Returns the journal name.
+
+	Security: only the responsible_user of the station may save
+	(System Manager / Administrator bypass).
 	"""
+	# Guard: only the station's responsible user (or admin) may write to it
+	_assert_station_responsible_user(station)
+
 	import json
 	if isinstance(lines, str):
 		lines = json.loads(lines)
@@ -405,8 +439,14 @@ def send_for_review(journal_name):
 	Called by the cockpit 'Post Journal' button.
 	Sets the journal status to 'Pending Review' WITHOUT creating any GL entries.
 	The accountant then reviews the Dr/Cr lines in the TCJ form and submits.
+
+	Security: only the responsible_user of the journal's station may send
+	(System Manager / Administrator bypass).
 	"""
 	doc = frappe.get_doc("Treasury Cash Journal", journal_name)
+
+	# Guard: only the station's responsible user (or admin) may send for review
+	_assert_station_responsible_user(doc.treasury_station)
 
 	if doc.posting_status in ("Posted", "Closed"):
 		frappe.throw(_("Journal {0} is already {1}.").format(journal_name, doc.posting_status))
@@ -532,20 +572,15 @@ def execute_pending_item(item_name, actual_amount=None, narration=None):
 	V4: Called when the vault teller physically executes a pending item.
 	Marks the item as Executed, assigns serial number, records execution time.
 	Also adds the item as a row in the current day's Draft journal.
-	"""
-	# Role check: only Treasury Vault User (or admin) can execute
-	user_roles = set(frappe.get_roles(frappe.session.user))
-	if (
-		frappe.session.user != "Administrator"
-		and "System Manager" not in user_roles
-		and "Treasury Vault User" not in user_roles
-	):
-		frappe.throw(
-			_("Only Treasury Vault User can execute a vault pending item."),
-			title=_("Unauthorized / غير مصرح"),
-		)
 
+	Security: only the responsible_user of the item's station may execute
+	(System Manager / Administrator bypass).
+	"""
 	item = frappe.get_doc("Vault Pending Item", item_name)
+
+	# Guard: only the station's responsible user (or admin) may execute
+	_assert_station_responsible_user(item.treasury_station)
+
 	executed_name = item.execute(actual_amount=actual_amount, narration=narration)
 
 	# Guard: block if station is closed
@@ -622,20 +657,15 @@ def cancel_pending_item(item_name, reason=None):
 	V4: Cancel a pending vault item (teller rejects the transaction).
 	Also sets the linked Payment Entry workflow_state to 'Rejected' so
 	the clerk is notified and can correct and resubmit.
-	"""
-	# Role check: only Treasury Vault User (or admin) can reject
-	user_roles = set(frappe.get_roles(frappe.session.user))
-	if (
-		frappe.session.user != "Administrator"
-		and "System Manager" not in user_roles
-		and "Treasury Vault User" not in user_roles
-	):
-		frappe.throw(
-			_("Only Treasury Vault User can cancel (reject) a vault pending item."),
-			title=_("Unauthorized / غير مصرح"),
-		)
 
+	Security: only the responsible_user of the item's station may cancel
+	(System Manager / Administrator bypass).
+	"""
 	item = frappe.get_doc("Vault Pending Item", item_name)
+
+	# Guard: only the station's responsible user (or admin) may cancel
+	_assert_station_responsible_user(item.treasury_station)
+
 	if item.status == "Executed":
 		frappe.throw(_("Cannot cancel an already executed item."))
 	item.status = "Cancelled"
@@ -685,8 +715,14 @@ def create_and_execute_immediate(
 	assigns the correct serial number, and adds a row to the
 	current day's Draft Treasury Cash Journal.
 	Returns {serial, actual_amount, journal_name}.
+
+	Security: only the responsible_user of the station may create entries
+	(System Manager / Administrator bypass).
 	"""
 	from frappe.utils import now_datetime
+
+	# Guard: only the station's responsible user (or admin) may create entries
+	_assert_station_responsible_user(station)
 
 	if not posting_date:
 		posting_date = nowdate()

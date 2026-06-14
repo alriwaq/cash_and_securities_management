@@ -26,10 +26,12 @@ Account groups created (based on the ERPNext standard chart of accounts):
                 └── Custodian Payables          ← NEW  [root_type: Liability,
                                                          account_type: Payable]
 
-The account_type "Custody" on Employee Custody Advances is a dedicated type
-that naturally excludes these accounts from standard AP/AR reports (which
-filter on Payable/Receivable only). Individual-mode leaf accounts also use
-account_type = "Custody". Consolidated mode uses the group account directly.
+The account_type 'Custody' is a dedicated neutral type.
+ERPNext normally only allows party_type/party on Receivable/Payable accounts,
+but the CustodyGLEntry override (treasury/overrides/gl_entry.py) extends
+validate_account() to also permit party entries on Custody accounts.
+This lets a single account serve as both the advance (asset debit) and the
+invoice settlement (credit), self-clearing without extra Settlement Entries.
 """
 import os
 import json
@@ -48,6 +50,7 @@ def after_install():
     _install_fixtures()
     _initialize_settings()
     _create_custody_account_groups()
+    _fix_custody_account_types()
     frappe.db.commit()
 
 
@@ -60,6 +63,7 @@ def after_migrate():
     _install_fixtures()
     _initialize_settings()
     _create_custody_account_groups()
+    _fix_custody_account_types()
     frappe.db.commit()
 
 
@@ -181,7 +185,7 @@ def _ensure_advance_group(company):
         acc.parent_account = parent
         acc.is_group = 1
         acc.root_type = "Asset"
-        acc.account_type = "Custody"   # Dedicated type — excluded from AP/AR reports
+        acc.account_type = "Custody"   # Dedicated neutral type — see gl_entry.py override
         acc.company = company
         acc.flags.ignore_permissions = True
         acc.flags.ignore_mandatory = True
@@ -299,6 +303,78 @@ def _ensure_payable_group(company):
             f"for company '{company}': {e}"
         )
         return None
+
+
+def _fix_custody_account_types():
+    """
+    Idempotent repair that runs on every migrate.
+    Ensures all accounts used as custody sub-ledgers have account_type = 'Custody'.
+
+    Covers two cases:
+      1. Individual-mode leaf accounts linked via tabCustodian.custody_account
+         that may have 'Receivable', 'Payable', or blank type from earlier versions.
+      2. The shared 'Employee Custody Advances' group account(s) which may have
+         been created with a different type on older installs.
+
+    The CustodyGLEntry override (treasury/overrides/gl_entry.py) handles ERPNext's
+    restriction that party_type/party is normally only allowed on Receivable/Payable
+    accounts, so the 'Custody' type works correctly for all GL entries.
+    """
+    if not frappe.db.exists("DocType", "Account"):
+        return
+
+    fixed = 0
+
+    # ── Fix individual custodian leaf accounts ────────────────────────────────
+    custodian_accounts = frappe.db.sql(
+        """
+        SELECT c.custody_account
+        FROM `tabCustodian` c
+        WHERE c.custody_account IS NOT NULL
+          AND c.custody_account != ''
+        """,
+        as_dict=True,
+    )
+    for row in custodian_accounts:
+        acct = row.get("custody_account")
+        if not acct:
+            continue
+        current_type = frappe.db.get_value("Account", acct, "account_type")
+        if current_type != "Custody":
+            frappe.db.set_value(
+                "Account", acct, "account_type", "Custody", update_modified=False
+            )
+            frappe.logger().info(
+                f"[Treasury Setup] _fix_custody_account_types: '{acct}' "
+                f"'{current_type}' → 'Custody'"
+            )
+            fixed += 1
+
+    # ── Fix Employee Custody Advances group account(s) ────────────────────────
+    advance_groups = frappe.db.get_all(
+        "Account",
+        filters={
+            "account_name": "Employee Custody Advances",
+            "is_group": 1,
+            "root_type": "Asset",
+        },
+        fields=["name", "account_type"],
+    )
+    for row in advance_groups:
+        if row.account_type != "Custody":
+            frappe.db.set_value(
+                "Account", row.name, "account_type", "Custody", update_modified=False
+            )
+            frappe.logger().info(
+                f"[Treasury Setup] _fix_custody_account_types: group '{row.name}' "
+                f"'{row.account_type}' → 'Custody'"
+            )
+            fixed += 1
+
+    if fixed:
+        frappe.logger().info(
+            f"[Treasury Setup] _fix_custody_account_types: fixed {fixed} account(s)."
+        )
 
 
 def _find_account_by_candidates(company, candidates):

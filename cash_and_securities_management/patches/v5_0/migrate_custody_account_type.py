@@ -1,23 +1,22 @@
 """
 Patch: migrate_custody_account_type
 =====================================
-v5 — Approach B: Dedicated "Custody" account_type
+v5 — Ensures all custody accounts have account_type = 'Custody'.
 
-Migrates all existing custody accounts (linked via tabCustodian.custody_account)
-from whatever type they currently have (blank, Payable, Receivable) to the new
-dedicated "Custody" account_type.
+'Custody' is a dedicated neutral type for the v5 single-account model:
+  • One account per custodian is used for BOTH the advance (DR) and the
+    invoice settlement (CR) — the balance self-clears with no extra entries.
+  • The CustodyGLEntry override (treasury/overrides/gl_entry.py) allows
+    party_type/party on Custody accounts by extending ERPNext's
+    validate_account() check (which normally only permits Receivable/Payable).
+  • Invisible to standard AR/AP reports (those filter Customer/Supplier parties).
 
-Also migrates the two shared group accounts created by setup.py:
-  - Employee Custody Advances - {abbr}
-  - Custodian Payables - {abbr}   (left as Payable — this is correct for the
-                                   Liability payable group)
+Migrates:
+  1. Individual leaf accounts linked via tabCustodian.custody_account
+  2. The shared 'Employee Custody Advances' group account(s)
+     (used directly in Consolidated mode)
 
-Why "Custody":
-  - Naturally excluded from standard AP/AR reports (those filter Payable/Receivable)
-  - Accepted by our PI override (validate_credit_to_acc checks account_type == "Custody")
-  - Removes the need for the custom_is_custody_account checkbox on Account
-
-Additionally:
+Also:
   - Deletes the Custom Field record for custom_is_custody_account
   - Drops the column from tabAccount
 """
@@ -41,36 +40,44 @@ def execute():
         if not account_name:
             continue
         current_type = frappe.db.get_value("Account", account_name, "account_type")
-        if current_type != "Receivable":
+        if current_type != "Custody":
             frappe.db.set_value(
                 "Account",
                 account_name,
                 "account_type",
-                "Receivable",
+                "Custody",
                 update_modified=False,
             )
             frappe.logger().info(
                 f"[v5 migrate_custody_account_type] '{account_name}': "
-                f"'{current_type}' → 'Receivable'"
+                f"'{current_type}' → 'Custody'"
             )
 
     # ── 2. Migrate Employee Custody Advances group accounts ────────────────────
+    # In Consolidated mode, custodian.custody_account points to this group
+    # account directly. It must be Receivable so GL entries with
+    # party_type='Custodian' are accepted by ERPNext's GL validation.
     advance_groups = frappe.db.sql(
         """
         SELECT name FROM `tabAccount`
         WHERE account_name = 'Employee Custody Advances'
           AND is_group = 1
           AND root_type = 'Asset'
-          AND account_type != 'Custody'
+          AND account_type != 'Receivable'
         """,
         as_dict=True,
     )
 
     for row in advance_groups:
-        # Leave the group account as-is — posting to a group account is not
-        # allowed in ERPNext. Individual leaf accounts handle all GL entries.
+        frappe.db.set_value(
+            "Account",
+            row.name,
+            "account_type",
+            "Receivable",
+            update_modified=False,
+        )
         frappe.logger().info(
-            f"[v5 migrate_custody_account_type] Skipping group account '{row.name}' (not changed)"
+            f"[v5 migrate_custody_account_type] Group '{row.name}' → 'Receivable'"
         )
 
     # ── 3. Remove the custom_is_custody_account checkbox completely ────────────

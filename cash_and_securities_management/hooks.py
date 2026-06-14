@@ -135,6 +135,8 @@ override_doctype_class = {
     "Purchase Receipt": "cash_and_securities_management.treasury.overrides.purchase_receipt.CustodyPurchaseReceipt",
     "Purchase Invoice": "cash_and_securities_management.treasury.overrides.purchase_invoice.CustodyPurchaseInvoice",
     "Payment Entry": "cash_and_securities_management.treasury.overrides.payment_entry.CustodyPaymentEntry",
+    # Extends validate_account() to allow party_type/party on 'Custody' account type
+    "GL Entry": "cash_and_securities_management.treasury.overrides.gl_entry.CustodyGLEntry",
 }
 
 # ─── Document Events ──────────────────────────────────────────────────────────

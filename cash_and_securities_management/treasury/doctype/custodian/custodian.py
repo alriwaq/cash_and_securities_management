@@ -166,19 +166,21 @@ class Custodian(Document):
 			)
 
 		else:
-			# ── Individual: create ONE dedicated Receivable leaf account ──
-			# account_type = "Receivable" is required so ERPNext's GL Entry
-			# validation allows party_type/party to be set on this account.
-			# The custodian IS a debtor — they owe the advance back — so
-			# Receivable is semantically correct.
-			# Standard AR reports filter by party_type="Customer", so
-			# Custodian entries will NOT appear in customer AR reports.
+			# ── Individual: create ONE dedicated Custody leaf account ──
+			# account_type = "Custody" is a dedicated neutral type:
+			#   • The GL Entry override (treasury/overrides/gl_entry.py) allows
+			#     party_type/party on this account, bypassing ERPNext's default
+			#     Receivable/Payable-only restriction.
+			#   • The same account is debited on advance (DR custody_account)
+			#     and credited on invoice (CR custody_account) — self-settling.
+			#   • Invisible to standard AR/AP aging reports (those filter on
+			#     party_type = Customer/Supplier, not Custodian).
 			custody_account = self._get_or_create_leaf_account(
 				account_name=f"{self.name} - Custody",
 				parent_account=advance_group,
 				company=company,
-				account_type="Receivable",  # Allows party_type/party in GL entries
-				root_type="Asset",          # Placed under Assets (advance = asset owed by custodian)
+				account_type="Custody",   # Dedicated neutral type — see gl_entry.py override
+				root_type="Asset",        # Under Assets (positive balance = employee owes)
 			)
 			self.custody_account = custody_account
 			self.db_set("custody_account", custody_account, notify=True)

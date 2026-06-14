@@ -42,10 +42,14 @@ frappe.ui.form.on("Treasury Station", {
 			frm.set_df_property("vault_account", "read_only", 1);
 			frm.set_df_property("company", "read_only", 1);
 			frm.set_df_property("station_name", "read_only", 1);
+			// responsible_employee locked after submit — use 'نقل المسؤولية' action
+			frm.set_df_property("responsible_employee", "read_only", 1);
+		} else {
+			// Draft: allow setting the responsible employee directly
+			frm.set_df_property("responsible_employee", "read_only", 0);
 		}
 
-		// responsible_employee and status are always read-only (changed via actions only)
-		frm.set_df_property("responsible_employee", "read_only", 1);
+		// responsible_user is always read-only (auto-populated from employee)
 		frm.set_df_property("responsible_user", "read_only", 1);
 		frm.set_df_property("status", "read_only", 1);
 

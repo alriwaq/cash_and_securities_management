@@ -267,25 +267,25 @@ class CustodyPurchaseInvoice(PurchaseInvoice):
             )
 
         # Accept:
-        #   (a) Receivable account under Assets root (Individual mode — preferred)
-        #       ERPNext allows party_type/party only on Receivable/Payable accounts,
-        #       so Receivable is required for custodian party GL entries.
-        #   (b) Any Payable account under Assets root (Consolidated mode)
-        #   (c) Legacy Custody account type (for sites not yet migrated)
+        #   (a) Custody account type — primary v5 type; GL Entry override handles
+        #       ERPNext's Receivable/Payable-only restriction for party entries.
+        #   (b) Receivable under Assets — legacy fallback (pre-v5 installs).
+        #   (c) Payable under Assets — alternative Consolidated mode fallback.
+        is_custody_type = account.account_type == "Custody"
         is_receivable_under_assets = (
             account.account_type == "Receivable" and account.root_type == "Asset"
         )
         is_payable_under_assets = (
             account.account_type == "Payable" and account.root_type == "Asset"
         )
-        is_legacy_custody_type = account.account_type == "Custody"
 
-        if not (is_receivable_under_assets or is_payable_under_assets or is_legacy_custody_type):
+        if not (is_custody_type or is_receivable_under_assets or is_payable_under_assets):
             frappe.throw(
                 _(
                     "The Credit To account for a custody Purchase Invoice must be a "
-                    "Receivable account placed under the Assets group (Individual mode) "
-                    "or a Payable account placed under the Assets group (Consolidated mode)."
+                    "dedicated Custody account (v5 type), "
+                    "a Receivable account under Assets, "
+                    "or a Payable account under Assets."
                 ),
                 title=_("Invalid Custody Account"),
             )
