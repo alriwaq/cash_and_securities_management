@@ -466,6 +466,8 @@ def _auto_reconcile_pe_against_pis(pe_doc):
 		return
 
 	# Find unreconciled custody PIs for this custodian on this custody account (FIFO)
+	# NOTE: tabPurchase Invoice has no party_type/party columns in ERPNext v15.
+	# Custody PIs are identified by custom_custodian + custom_source_document_type.
 	unreconciled_pis = frappe.db.sql(
 		"""
 		SELECT
@@ -474,8 +476,8 @@ def _auto_reconcile_pe_against_pis(pe_doc):
 			pi.outstanding_amount,
 			pi.custom_accountant_custody
 		FROM `tabPurchase Invoice` pi
-		WHERE pi.party_type = 'Custodian'
-		  AND pi.party = %(custodian)s
+		WHERE pi.custom_custodian = %(custodian)s
+		  AND pi.custom_source_document_type = 'Custody'
 		  AND pi.credit_to = %(account)s
 		  AND pi.docstatus = 1
 		  AND pi.outstanding_amount > 0.001
