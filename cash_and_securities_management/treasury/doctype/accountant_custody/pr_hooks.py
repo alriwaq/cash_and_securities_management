@@ -108,38 +108,10 @@ def on_pr_cancel(doc, method):
 
 # ─── Purchase Invoice Hooks ───────────────────────────────────────────────────
 
-def _set_custody_party_on_pi(doc):
-	"""
-	Ensure party_type=Custodian and party=custodian are set on the PI document
-	so it appears in the Custodian's outstanding documents and can be reconciled.
-	Called from both on_pi_validate and on_pi_before_submit.
-	"""
-	if not _is_custody_purchase_doc(doc):
-		return
-
-	custodian = doc.get("custom_custodian")
-	if not custodian:
-		custodian = frappe.db.get_value(
-			"Accountant Custody", doc.custom_accountant_custody, "custodian"
-		)
-	if not custodian:
-		return
-
-	doc.party_type = "Custodian"
-	doc.party = custodian
-
-	# Set party_account_currency if credit_to is already known
-	if doc.get("credit_to"):
-		doc.party_account_currency = (
-			frappe.db.get_value("Account", doc.credit_to, "account_currency")
-			or frappe.db.get_value("Company", doc.company, "default_currency")
-		)
-
-
 def on_pi_validate(doc, method):
 	"""
 	Propagates custom_accountant_custody and custom_custodian from the linked PR.
-	Also sets party_type=Custodian so the PI is visible in reconciliation.
+	Sets custom_source_document_type = 'Custody' and validates AC status.
 	"""
 	if not doc.get("custom_accountant_custody"):
 		for pi_item in doc.items:
@@ -177,9 +149,6 @@ def on_pi_validate(doc, method):
 			)
 		)
 
-	# Set party on the PI document so it appears in reconciliation tool
-	_set_custody_party_on_pi(doc)
-
 
 def on_pi_before_submit(doc, method):
 	"""
@@ -210,12 +179,6 @@ def on_pi_before_submit(doc, method):
 		)
 
 	doc.credit_to = custody_account
-	doc.party_type = "Custodian"
-	doc.party = doc.custom_custodian or custodian
-	doc.party_account_currency = (
-		frappe.db.get_value("Account", custody_account, "account_currency")
-		or frappe.db.get_value("Company", doc.company, "default_currency")
-	)
 
 
 def on_pi_submit(doc, method):
@@ -543,35 +506,30 @@ def _create_payment_reconciliation_entry(
 	company, party_type, party, payment_entry, purchase_invoice, allocated_amount, account
 ):
 	"""
-	Uses ERPNext's standard Payment Reconciliation engine to create the
-	Payment Entry Reference row that links the PE to the PI and reduces
-	the outstanding amounts on both documents.
+	Uses ERPNext's reconcile_against_document utility directly to bypass the
+	Payment Reconciliation doctype validation (which rejects Custody account types).
+	This correctly links the PE and PI and updates outstanding amounts.
 	"""
-	reconcile = frappe.get_doc({
-		"doctype": "Payment Reconciliation",
-		"company": company,
+	from erpnext.accounts.utils import reconcile_against_document
+
+	args = frappe._dict({
+		"voucher_type": "Payment Entry",
+		"voucher_no": payment_entry,
+		"voucher_detail_no": None,
+		"against_voucher_type": "Purchase Invoice",
+		"against_voucher": purchase_invoice,
+		"account": account,
 		"party_type": party_type,
 		"party": party,
-		"receivable_payable_account": account,
+		"dr_or_cr": "credit_in_account_currency",
+		"unadjusted_amount": flt(allocated_amount),
+		"allocated_amount": flt(allocated_amount),
+		"unreconciled_amount": flt(allocated_amount),
+		"exchange_rate": 1.0,
+		"account_currency": frappe.db.get_value("Account", account, "account_currency")
 	})
 
-	# Add the payment
-	reconcile.append("payments", {
-		"reference_name": payment_entry,
-		"reference_type": "Payment Entry",
-		"amount": allocated_amount,
-	})
-
-	# Add the invoice
-	reconcile.append("invoices", {
-		"invoice_type": "Purchase Invoice",
-		"invoice_number": purchase_invoice,
-		"amount": allocated_amount,
-	})
-
-	# Allocate and reconcile
-	reconcile.allocate_entries({"payments": reconcile.payments, "invoices": reconcile.invoices})
-	reconcile.reconcile()
+	reconcile_against_document([args])
 
 
 def _record_reconciliation(
