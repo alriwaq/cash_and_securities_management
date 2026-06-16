@@ -1,0 +1,89 @@
+{
+ "actions": [],
+ "creation": "2026-06-16 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "payment_entry",
+  "purchase_invoice",
+  "reconciliation_date",
+  "allocated_amount",
+  "column_break_1",
+  "pe_outstanding_before",
+  "pe_outstanding_after",
+  "pi_outstanding_before",
+  "pi_outstanding_after"
+ ],
+ "fields": [
+  {
+   "fieldname": "payment_entry",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Payment Entry",
+   "options": "Payment Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "purchase_invoice",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Purchase Invoice",
+   "options": "Purchase Invoice",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reconciliation_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "allocated_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Allocated Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "pe_outstanding_before",
+   "fieldtype": "Currency",
+   "label": "PE Outstanding Before",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pe_outstanding_after",
+   "fieldtype": "Currency",
+   "label": "PE Outstanding After",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pi_outstanding_before",
+   "fieldtype": "Currency",
+   "label": "PI Outstanding Before",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pi_outstanding_after",
+   "fieldtype": "Currency",
+   "label": "PI Outstanding After",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-06-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Treasury",
+ "name": "Accountant Custody Reconciliation",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "ASC"
+}

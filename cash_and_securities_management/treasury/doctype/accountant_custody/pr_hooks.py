@@ -1,19 +1,24 @@
 """
-Document Event Hooks — v4  (Single Self-Settling Account)
+Document Event Hooks — v5  (Single Self-Settling Account + Auto-Reconciliation)
 treasury/doctype/accountant_custody/pr_hooks.py
 
 All doc_event handlers for Purchase Receipt, Purchase Invoice, and Payment Entry.
 
 Single-Account Model:
-  PI.credit_to = custody_account (Receivable, party_type=Custodian)
-  No Settlement Payment Entry is needed — the PI credit self-settles the advance.
+  PI.credit_to  = custody_account (Custody type, party_type=Custodian)
+  PE.paid_to    = custody_account (Custody type, party_type=Custodian)
+  Both documents share the same party → ERPNext reconciliation engine works natively.
+
+Two-way auto-reconciliation:
+  Trigger A — PI submitted  → search for unreconciled PEs (FIFO), allocate, record.
+  Trigger B — PE submitted  → search for unreconciled PIs (FIFO), allocate, record.
 
 Cancellation order enforced (strict hierarchy):
   Purchase Invoice → Purchase Receipt → Accountant Custody → Custody Request → Advance PE
 """
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import flt, nowdate
 
 CONSOLIDATED = "Consolidated (Party-Based)"
 
@@ -45,6 +50,7 @@ def on_pr_before_submit(doc, method):
 	"""
 	Submit-time custody swap for Purchase Receipt.
 	Routes stock_received_but_not_billed to the custodian's custody_account.
+	Also sets party_type=Custodian so the PR is visible in reconciliation.
 	"""
 	if not _is_custody_purchase_doc(doc):
 		return
@@ -64,6 +70,11 @@ def on_pr_before_submit(doc, method):
 	custody_account = frappe.db.get_value("Custodian", ac_doc.custodian, "custody_account")
 	if custody_account and doc.meta.has_field("stock_received_but_not_billed"):
 		doc.stock_received_but_not_billed = custody_account
+
+	# Set party so PR is visible in reconciliation tool
+	if custodian:
+		doc.party_type = "Custodian"
+		doc.party = custodian
 
 
 def on_pr_submit(doc, method):
@@ -97,9 +108,38 @@ def on_pr_cancel(doc, method):
 
 # ─── Purchase Invoice Hooks ───────────────────────────────────────────────────
 
+def _set_custody_party_on_pi(doc):
+	"""
+	Ensure party_type=Custodian and party=custodian are set on the PI document
+	so it appears in the Custodian's outstanding documents and can be reconciled.
+	Called from both on_pi_validate and on_pi_before_submit.
+	"""
+	if not _is_custody_purchase_doc(doc):
+		return
+
+	custodian = doc.get("custom_custodian")
+	if not custodian:
+		custodian = frappe.db.get_value(
+			"Accountant Custody", doc.custom_accountant_custody, "custodian"
+		)
+	if not custodian:
+		return
+
+	doc.party_type = "Custodian"
+	doc.party = custodian
+
+	# Set party_account_currency if credit_to is already known
+	if doc.get("credit_to"):
+		doc.party_account_currency = (
+			frappe.db.get_value("Account", doc.credit_to, "account_currency")
+			or frappe.db.get_value("Company", doc.company, "default_currency")
+		)
+
+
 def on_pi_validate(doc, method):
 	"""
 	Propagates custom_accountant_custody and custom_custodian from the linked PR.
+	Also sets party_type=Custodian so the PI is visible in reconciliation.
 	"""
 	if not doc.get("custom_accountant_custody"):
 		for pi_item in doc.items:
@@ -137,11 +177,14 @@ def on_pi_validate(doc, method):
 			)
 		)
 
+	# Set party on the PI document so it appears in reconciliation tool
+	_set_custody_party_on_pi(doc)
+
 
 def on_pi_before_submit(doc, method):
 	"""
 	Submit-time custody swap for Purchase Invoice.
-	Routes credit_to to the custodian's single custody_account (Receivable).
+	Routes credit_to to the custodian's single custody_account (Custody type).
 	This is the self-settling step: PI credit reduces the advance balance.
 	"""
 	if not _is_custody_purchase_doc(doc):
@@ -155,7 +198,7 @@ def on_pi_before_submit(doc, method):
 	if custodian and not doc.get("custom_custodian"):
 		doc.custom_custodian = custodian
 
-	# Single-account model: credit_to = custody_account (Receivable)
+	# Single-account model: credit_to = custody_account (Custody type)
 	custody_account = frappe.db.get_value("Custodian", ac_doc.custodian, "custody_account")
 	if not custody_account:
 		frappe.throw(
@@ -176,12 +219,19 @@ def on_pi_before_submit(doc, method):
 
 
 def on_pi_submit(doc, method):
-	"""Triggered after a Purchase Invoice is submitted."""
+	"""
+	Triggered after a Purchase Invoice is submitted.
+	Updates billed quantities on the AC, then triggers auto-reconciliation
+	(Trigger A: PI submitted → search for available advance PEs).
+	"""
 	if not doc.get("custom_accountant_custody"):
 		return
 
 	ac_doc = frappe.get_doc("Accountant Custody", doc.custom_accountant_custody)
 	ac_doc.update_billed_quantities(pi_name=doc.name)
+
+	# Trigger A: reconcile this PI against available advance PEs (FIFO)
+	_auto_reconcile_pi_against_pes(doc)
 
 	if doc.get("custom_custodian"):
 		_safe_update_custodian_dashboard(doc.custom_custodian)
@@ -209,8 +259,8 @@ def on_pi_cancel(doc, method):
 def on_payment_before_submit(doc, method):
 	"""
 	Bypass ERPNext's party-account type validation for custody advance PEs.
-	In the single-account model, party_type=Custodian is used with a Receivable
-	account — ERPNext's default check expects Receivable → Debtor, so we must
+	In the single-account model, party_type=Custodian is used with a Custody
+	account — ERPNext's default check expects Payable/Receivable, so we must
 	bypass it for custody PEs.
 	"""
 	if not _is_custody_pe(doc):
@@ -234,6 +284,7 @@ def on_payment_submit(doc, method):
 	"""
 	Triggered after a Payment Entry is submitted.
 	Handles advance disbursement PEs: recalculate CR paid_amount.
+	Trigger B: PE submitted → search for unreconciled PIs (FIFO).
 	"""
 	custody_request = doc.get("custom_custody_request")
 	if custody_request:
@@ -242,6 +293,10 @@ def on_payment_submit(doc, method):
 	custodian = doc.get("custom_custodian")
 	if custodian:
 		_safe_update_custodian_dashboard(custodian)
+
+	# Trigger B: if this is a custody advance PE, reconcile against outstanding PIs
+	if _is_custody_pe(doc) and doc.get("custom_custodian"):
+		_auto_reconcile_pe_against_pis(doc)
 
 
 def on_payment_cancel(doc, method):
@@ -290,6 +345,286 @@ def on_journal_cancel(doc, method):
 		recalculate_accountant_custody_status(ac_name)
 	except Exception as e:
 		frappe.log_error(str(e), f"on_journal_cancel: failed to update AC {ac_name}")
+
+
+# ─── Auto-Reconciliation Engine ───────────────────────────────────────────────
+
+def _auto_reconcile_pi_against_pes(pi_doc):
+	"""
+	Trigger A: Called when a custody PI is submitted.
+	Finds all unreconciled advance PEs for the same custodian + custody account,
+	ordered by posting_date ASC (FIFO), and allocates as much as available
+	against this PI's outstanding amount.
+	Records each allocation in the linked Accountant Custody's reconciliation table.
+	"""
+	custodian = pi_doc.get("custom_custodian") or pi_doc.get("party")
+	ac_name = pi_doc.get("custom_accountant_custody")
+	if not custodian or not ac_name:
+		return
+
+	custody_account = frappe.db.get_value("Custodian", custodian, "custody_account")
+	if not custody_account:
+		return
+
+	# Get current outstanding on this PI
+	pi_outstanding = flt(
+		frappe.db.get_value("Purchase Invoice", pi_doc.name, "outstanding_amount")
+	)
+	if pi_outstanding <= 0:
+		return
+
+	# Find unreconciled advance PEs for this custodian on this custody account (FIFO)
+	unreconciled_pes = frappe.db.sql(
+		"""
+		SELECT
+			pe.name,
+			pe.posting_date,
+			pe.unallocated_amount
+		FROM `tabPayment Entry` pe
+		WHERE pe.party_type = 'Custodian'
+		  AND pe.party = %(custodian)s
+		  AND pe.paid_to = %(account)s
+		  AND pe.docstatus = 1
+		  AND pe.unallocated_amount > 0.001
+		ORDER BY pe.posting_date ASC, pe.creation ASC
+		""",
+		{"custodian": custodian, "account": custody_account},
+		as_dict=True,
+	)
+
+	if not unreconciled_pes:
+		return
+
+	for pe_row in unreconciled_pes:
+		if pi_outstanding <= 0:
+			break
+
+		pe_outstanding_before = flt(pe_row.unallocated_amount)
+		pi_outstanding_before = pi_outstanding
+		allocate = min(pe_outstanding_before, pi_outstanding)
+
+		try:
+			_create_payment_reconciliation_entry(
+				company=pi_doc.company,
+				party_type="Custodian",
+				party=custodian,
+				payment_entry=pe_row.name,
+				purchase_invoice=pi_doc.name,
+				allocated_amount=allocate,
+				account=custody_account,
+			)
+		except Exception as e:
+			frappe.log_error(
+				str(e),
+				f"_auto_reconcile_pi_against_pes: failed PE={pe_row.name} PI={pi_doc.name}",
+			)
+			continue
+
+		pe_outstanding_after = pe_outstanding_before - allocate
+		pi_outstanding -= allocate
+		pi_outstanding_after = pi_outstanding
+
+		# Record in Accountant Custody reconciliation table
+		_record_reconciliation(
+			ac_name=ac_name,
+			payment_entry=pe_row.name,
+			purchase_invoice=pi_doc.name,
+			allocated_amount=allocate,
+			pe_outstanding_before=pe_outstanding_before,
+			pe_outstanding_after=pe_outstanding_after,
+			pi_outstanding_before=pi_outstanding_before,
+			pi_outstanding_after=pi_outstanding_after,
+		)
+
+	# Update Custody Request status after reconciliation
+	cr_name = frappe.db.get_value("Accountant Custody", ac_name, "custody_request")
+	if cr_name:
+		_safe_recalculate_custody_request(cr_name)
+
+
+def _auto_reconcile_pe_against_pis(pe_doc):
+	"""
+	Trigger B: Called when a custody advance PE is submitted.
+	Finds all unreconciled custody PIs for the same custodian + custody account,
+	ordered by posting_date ASC (FIFO), and allocates as much as available
+	from this PE's unallocated amount against outstanding PIs.
+	Records each allocation in the linked Accountant Custody's reconciliation table.
+	"""
+	custodian = pe_doc.get("custom_custodian") or pe_doc.get("party")
+	if not custodian:
+		return
+
+	custody_account = frappe.db.get_value("Custodian", custodian, "custody_account")
+	if not custody_account:
+		return
+
+	# Get current unallocated amount on this PE
+	pe_unallocated = flt(
+		frappe.db.get_value("Payment Entry", pe_doc.name, "unallocated_amount")
+	)
+	if pe_unallocated <= 0:
+		return
+
+	# Find unreconciled custody PIs for this custodian on this custody account (FIFO)
+	unreconciled_pis = frappe.db.sql(
+		"""
+		SELECT
+			pi.name,
+			pi.posting_date,
+			pi.outstanding_amount,
+			pi.custom_accountant_custody
+		FROM `tabPurchase Invoice` pi
+		WHERE pi.party_type = 'Custodian'
+		  AND pi.party = %(custodian)s
+		  AND pi.credit_to = %(account)s
+		  AND pi.docstatus = 1
+		  AND pi.outstanding_amount > 0.001
+		ORDER BY pi.posting_date ASC, pi.creation ASC
+		""",
+		{"custodian": custodian, "account": custody_account},
+		as_dict=True,
+	)
+
+	if not unreconciled_pis:
+		return
+
+	for pi_row in unreconciled_pis:
+		if pe_unallocated <= 0:
+			break
+
+		pi_outstanding_before = flt(pi_row.outstanding_amount)
+		pe_outstanding_before = pe_unallocated
+		allocate = min(pe_unallocated, pi_outstanding_before)
+
+		try:
+			_create_payment_reconciliation_entry(
+				company=pe_doc.company,
+				party_type="Custodian",
+				party=custodian,
+				payment_entry=pe_doc.name,
+				purchase_invoice=pi_row.name,
+				allocated_amount=allocate,
+				account=custody_account,
+			)
+		except Exception as e:
+			frappe.log_error(
+				str(e),
+				f"_auto_reconcile_pe_against_pis: failed PE={pe_doc.name} PI={pi_row.name}",
+			)
+			continue
+
+		pe_unallocated -= allocate
+		pe_outstanding_after = pe_unallocated
+		pi_outstanding_after = pi_outstanding_before - allocate
+
+		# Record in the PI's linked Accountant Custody reconciliation table
+		ac_name = pi_row.get("custom_accountant_custody")
+		if ac_name:
+			_record_reconciliation(
+				ac_name=ac_name,
+				payment_entry=pe_doc.name,
+				purchase_invoice=pi_row.name,
+				allocated_amount=allocate,
+				pe_outstanding_before=pe_outstanding_before,
+				pe_outstanding_after=pe_outstanding_after,
+				pi_outstanding_before=pi_outstanding_before,
+				pi_outstanding_after=pi_outstanding_after,
+			)
+
+			# Update Custody Request status after reconciliation
+			cr_name = frappe.db.get_value("Accountant Custody", ac_name, "custody_request")
+			if cr_name:
+				_safe_recalculate_custody_request(cr_name)
+
+
+def _create_payment_reconciliation_entry(
+	company, party_type, party, payment_entry, purchase_invoice, allocated_amount, account
+):
+	"""
+	Uses ERPNext's standard Payment Reconciliation engine to create the
+	Payment Entry Reference row that links the PE to the PI and reduces
+	the outstanding amounts on both documents.
+	"""
+	reconcile = frappe.get_doc({
+		"doctype": "Payment Reconciliation",
+		"company": company,
+		"party_type": party_type,
+		"party": party,
+		"receivable_payable_account": account,
+	})
+
+	# Add the payment
+	reconcile.append("payments", {
+		"reference_name": payment_entry,
+		"reference_type": "Payment Entry",
+		"amount": allocated_amount,
+	})
+
+	# Add the invoice
+	reconcile.append("invoices", {
+		"invoice_type": "Purchase Invoice",
+		"invoice_number": purchase_invoice,
+		"amount": allocated_amount,
+	})
+
+	# Allocate and reconcile
+	reconcile.allocate_entries({"payments": reconcile.payments, "invoices": reconcile.invoices})
+	reconcile.reconcile()
+
+
+def _record_reconciliation(
+	ac_name,
+	payment_entry,
+	purchase_invoice,
+	allocated_amount,
+	pe_outstanding_before,
+	pe_outstanding_after,
+	pi_outstanding_before,
+	pi_outstanding_after,
+):
+	"""
+	Appends a row to the Accountant Custody's reconciliation child table
+	and updates total_allocated_amount. Uses db_set to avoid triggering
+	the full AC validate cycle.
+	"""
+	try:
+		# Check if this combination is already recorded to avoid duplicates
+		existing = frappe.db.exists(
+			"Accountant Custody Reconciliation",
+			{
+				"parent": ac_name,
+				"payment_entry": payment_entry,
+				"purchase_invoice": purchase_invoice,
+			},
+		)
+		if existing:
+			return
+
+		ac_doc = frappe.get_doc("Accountant Custody", ac_name)
+		ac_doc.append("reconciliations", {
+			"payment_entry": payment_entry,
+			"purchase_invoice": purchase_invoice,
+			"reconciliation_date": nowdate(),
+			"allocated_amount": allocated_amount,
+			"pe_outstanding_before": pe_outstanding_before,
+			"pe_outstanding_after": pe_outstanding_after,
+			"pi_outstanding_before": pi_outstanding_before,
+			"pi_outstanding_after": pi_outstanding_after,
+		})
+
+		# Recalculate total_allocated_amount
+		total_allocated = sum(flt(r.allocated_amount) for r in ac_doc.reconciliations)
+		ac_doc.total_allocated_amount = total_allocated
+
+		ac_doc.flags.ignore_permissions = True
+		ac_doc.flags.ignore_validate = True
+		ac_doc.save()
+
+	except Exception as e:
+		frappe.log_error(
+			str(e),
+			f"_record_reconciliation: failed for AC={ac_name} PE={payment_entry} PI={purchase_invoice}",
+		)
 
 
 # ─── Private helpers ──────────────────────────────────────────────────────────

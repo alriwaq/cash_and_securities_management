@@ -39,7 +39,10 @@
   "total_billed_amount",
   "more_info_tab",
   "column_break_more",
-  "amended_from"
+  "amended_from",
+  "reconciliation_section",
+  "reconciliations",
+  "total_allocated_amount"
  ],
  "fields": [
   {
@@ -268,6 +271,29 @@
    "options": "Company:company:default_currency",
    "read_only": 1,
    "allow_on_submit": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "reconciliation_section",
+   "fieldtype": "Section Break",
+   "label": "Reconciliations"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "reconciliations",
+   "fieldtype": "Table",
+   "label": "Reconciliations",
+   "options": "Accountant Custody Reconciliation",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "total_allocated_amount",
+   "fieldtype": "Currency",
+   "label": "Total Allocated Amount",
+   "no_copy": 1,
+   "options": "Company:company:default_currency",
+   "read_only": 1
   },
   {
    "fieldname": "more_info_tab",
