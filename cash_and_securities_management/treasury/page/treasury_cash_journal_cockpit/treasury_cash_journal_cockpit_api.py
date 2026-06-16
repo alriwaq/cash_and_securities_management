@@ -480,7 +480,7 @@ def post_journal(journal_name, actual_balance=None, variance_narration=None):
 @frappe.whitelist()
 def sync_pending_from_payment_entries(station):
 	"""
-	V4 Recovery: Scan all Cash Payment Entries with workflow_state='Pending Vault Approval'
+	V4 Recovery: Scan all Cash Payment Entries with custom_vault_state='Pending Vault Approval'
 	that have no linked Vault Pending Item yet, and create VPIs for them.
 	Called from the cockpit 'Refresh' button or on page load.
 	Returns the count of new VPIs created.
@@ -489,12 +489,12 @@ def sync_pending_from_payment_entries(station):
 		_create_vpi_from_pe, _already_has_pending
 	)
 
-	# Find all PE with workflow_state = 'Pending Vault Approval' that have no VPI
+	# Find all PE with custom_vault_state = 'Pending Vault Approval' that have no VPI
 	pending_pes = frappe.db.sql("""
 		SELECT pe.name, pe.company, pe.payment_type, pe.paid_from, pe.paid_to,
 			   pe.party_type, pe.party, pe.paid_amount, pe.remarks, pe.mode_of_payment
 		FROM `tabPayment Entry` pe
-		WHERE pe.workflow_state = 'Pending Vault Approval'
+		WHERE pe.custom_vault_state = 'Pending Vault Approval'
 		  AND pe.docstatus = 0
 		  AND NOT EXISTS (
 			SELECT 1 FROM `tabVault Pending Item` vpi
@@ -639,7 +639,7 @@ def execute_pending_item(item_name, actual_amount=None, narration=None):
 				frappe.db.set_value(
 					"Payment Entry",
 					item.source_document,
-					"workflow_state",
+					"custom_vault_state",
 					"Vault Approved",
 				)
 
@@ -655,7 +655,7 @@ def execute_pending_item(item_name, actual_amount=None, narration=None):
 def cancel_pending_item(item_name, reason=None):
 	"""
 	V4: Cancel a pending vault item (teller rejects the transaction).
-	Also sets the linked Payment Entry workflow_state to 'Rejected' so
+	Also sets the linked Payment Entry custom_vault_state to 'Rejected' so
 	the clerk is notified and can correct and resubmit.
 
 	Security: only the responsible_user of the item's station may cancel
@@ -674,14 +674,14 @@ def cancel_pending_item(item_name, reason=None):
 	item.flags.ignore_permissions = True
 	item.save()
 
-	# Update linked PE workflow_state to 'Rejected' so clerk is notified
+	# Update linked PE custom_vault_state to 'Rejected' so clerk is notified
 	if item.source_document_type == "Payment Entry" and item.source_document:
 		pe_docstatus = frappe.db.get_value("Payment Entry", item.source_document, "docstatus")
 		if pe_docstatus == 0:  # Still draft
 			frappe.db.set_value(
 				"Payment Entry",
 				item.source_document,
-				"workflow_state",
+				"custom_vault_state",
 				"Rejected",
 			)
 			# Add comment on the PE for audit trail

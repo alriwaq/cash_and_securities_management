@@ -91,13 +91,13 @@ fixtures = [
             ]],
         ],
     },
-    # ── V4: workflow_state custom field on Payment Entry (exported from DB after first install)
+    # ── V4: custom_vault_state custom field on Payment Entry (exported from DB after first install)
     # The actual field is created via fixtures/pe_workflow_custom_fields.json on first migrate
     {
         "doctype": "Custom Field",
         "filters": [
             ["dt", "=", "Payment Entry"],
-            ["fieldname", "=", "workflow_state"],
+            ["fieldname", "=", "custom_vault_state"],
         ],
     },
     # NOTE: Treasury Vault User role and Cash Payment Vault Approval workflow are

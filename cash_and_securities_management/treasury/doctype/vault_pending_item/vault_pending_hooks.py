@@ -265,7 +265,7 @@ def _is_cash_payment(doc):
 def send_cash_pe_for_vault_approval(pe_name, allow_resubmit=False):
 	"""
 	[Layer 1 Server] Whitelisted API called by the custom JS button.
-	Sets PE workflow_state to 'Pending Vault Approval' and creates a VPI.
+	Sets PE custom_vault_state to 'Pending Vault Approval' and creates a VPI.
 
 	Security guards:
 	  - Caller must hold Accounts User or Accounts Manager role.
@@ -304,7 +304,7 @@ def send_cash_pe_for_vault_approval(pe_name, allow_resubmit=False):
 		)
 
 	# ─ State transition check ──────────────────────────────────────────
-	current_state = (doc.get("workflow_state") or "Draft").strip()
+	current_state = (doc.get("custom_vault_state") or "Draft").strip()
 	allowed_states = {"Draft"} if not frappe.utils.cint(allow_resubmit) else {"Draft", "Rejected"}
 	if current_state not in allowed_states:
 		frappe.throw(
@@ -333,7 +333,7 @@ def send_cash_pe_for_vault_approval(pe_name, allow_resubmit=False):
 		)
 
 	# ─ Transition: Draft / Rejected → Pending Vault Approval ───────────────
-	frappe.db.set_value("Payment Entry", pe_name, "workflow_state", "Pending Vault Approval")
+	frappe.db.set_value("Payment Entry", pe_name, "custom_vault_state", "Pending Vault Approval")
 
 	# ─ Create Vault Pending Item (skips if one already exists) ────────────
 	doc.reload()

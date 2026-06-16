@@ -26,7 +26,7 @@ function apply_vault_ui(frm) {
 	// Only act on Cash payment mode
 	if ((frm.doc.mode_of_payment || "").toLowerCase() !== "cash") return;
 
-	const state = (frm.doc.workflow_state || "Draft").trim();
+	const state = (frm.doc.custom_vault_state || "Draft").trim();
 
 	// ── Hide the native Submit button for cash PEs not yet vault-approved ──
 	// We use a short timeout because Frappe renders toolbar buttons after refresh.

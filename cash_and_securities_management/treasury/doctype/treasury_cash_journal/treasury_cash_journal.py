@@ -404,7 +404,7 @@ class TreasuryCashJournal(Document):
 	def _submit_and_advance_pe(self, pe_name, line):
 		"""
 		Submit an existing draft Payment Entry (from vault workflow) and
-		advance its workflow_state to 'Submitted to GL'.
+		advance its custom_vault_state to 'Submitted to GL'.
 		Idempotent: if already submitted, just advances the workflow state.
 		"""
 		pe = frappe.get_doc("Payment Entry", pe_name)
@@ -433,7 +433,7 @@ class TreasuryCashJournal(Document):
 
 		# Advance workflow state to 'Submitted to GL'
 		try:
-			frappe.db.set_value("Payment Entry", pe_name, "workflow_state", "Submitted to GL")
+			frappe.db.set_value("Payment Entry", pe_name, "custom_vault_state", "Submitted to GL")
 		except Exception as e:
 			# Surface as warning — not silent swallow
 			frappe.msgprint(

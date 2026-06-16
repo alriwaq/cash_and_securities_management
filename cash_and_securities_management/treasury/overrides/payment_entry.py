@@ -101,7 +101,7 @@ class CustodyPaymentEntry(PaymentEntry):
 			self._assert_not_locked_pending()
 
 			# ── Layer 2C: Enforce role-based state transition rules ───────────
-			# Prevents workflow_state from being tampered with via REST API
+			# Prevents custom_vault_state from being tampered with via REST API
 			# or direct form edits by unauthorized users.
 			self._validate_vault_state_transition()
 
@@ -233,7 +233,7 @@ class CustodyPaymentEntry(PaymentEntry):
 		"""
 		if self.is_new():
 			return
-		db_state = frappe.db.get_value("Payment Entry", self.name, "workflow_state") or "Draft"
+		db_state = frappe.db.get_value("Payment Entry", self.name, "custom_vault_state") or "Draft"
 		if db_state != "Pending Vault Approval":
 			return
 		# Vault users and admins may still save (to approve/reject)
@@ -253,7 +253,7 @@ class CustodyPaymentEntry(PaymentEntry):
 
 	def _validate_vault_state_transition(self):
 		"""
-		Layer 2C: Enforce role-based authorization on every workflow_state change.
+		Layer 2C: Enforce role-based authorization on every custom_vault_state change.
 		Fires on every save through validate() — catches form saves AND REST API
 		(frappe.client.set_value triggers validate; only frappe.db.set_value skips it).
 
@@ -267,8 +267,8 @@ class CustodyPaymentEntry(PaymentEntry):
 		if self.is_new():
 			return  # New docs always start at Draft
 
-		db_state = frappe.db.get_value("Payment Entry", self.name, "workflow_state") or "Draft"
-		new_state = (self.get("workflow_state") or "Draft").strip()
+		db_state = frappe.db.get_value("Payment Entry", self.name, "custom_vault_state") or "Draft"
+		new_state = (self.get("custom_vault_state") or "Draft").strip()
 
 		if db_state == new_state:
 			return  # No transition — nothing to validate
@@ -340,7 +340,7 @@ class CustodyPaymentEntry(PaymentEntry):
 		The actual GL submission is triggered by the Treasury Cash Journal submit.
 		"""
 		if self._is_vault_cash_payment():
-			wf_state = (self.get("workflow_state") or "").strip()
+			wf_state = (self.get("custom_vault_state") or "").strip()
 
 			# ── Fast-path bypasses ──────────────────────────────────────────
 			if self.flags.get("submitted_by_tcj"):
@@ -364,7 +364,7 @@ class CustodyPaymentEntry(PaymentEntry):
 
 			# ── Layer 2E: Verify teller actually executed the physical cash ──
 			# Prevents someone from bypassing the cockpit by manually setting
-			# workflow_state = 'Vault Approved' via frappe.db.set_value in Python.
+			# custom_vault_state = 'Vault Approved' via frappe.db.set_value in Python.
 			vpi_executed = frappe.db.exists(
 				"Vault Pending Item",
 				{
