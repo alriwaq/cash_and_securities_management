@@ -550,8 +550,18 @@ def _create_payment_reconciliation_entry(
 	Uses ERPNext's reconcile_against_document utility directly to bypass the
 	Payment Reconciliation doctype validation (which rejects Custody account types).
 	This correctly links the PE and PI and updates outstanding amounts.
+
+	IMPORTANT: check_if_advance_entry_modified() queries:
+	  WHERE pe.unallocated_amount = args.unreconciled_amount
+	So unreconciled_amount MUST be the PE's current unallocated_amount from DB,
+	not the allocation amount. We fetch it fresh here to guarantee an exact match.
 	"""
 	from erpnext.accounts.utils import reconcile_against_document
+
+	# Fetch the current unallocated_amount from DB — must match exactly
+	pe_unallocated = flt(
+		frappe.db.get_value("Payment Entry", payment_entry, "unallocated_amount")
+	)
 
 	args = frappe._dict({
 		"voucher_type": "Payment Entry",
@@ -562,10 +572,10 @@ def _create_payment_reconciliation_entry(
 		"account": account,
 		"party_type": party_type,
 		"party": party,
-		"dr_or_cr": "credit_in_account_currency",
-		"unadjusted_amount": flt(allocated_amount),
+		"dr_or_cr": "debit_in_account_currency",
+		"unadjusted_amount": pe_unallocated,
 		"allocated_amount": flt(allocated_amount),
-		"unreconciled_amount": flt(allocated_amount),
+		"unreconciled_amount": pe_unallocated,
 		"exchange_rate": 1.0,
 		"account_currency": frappe.db.get_value("Account", account, "account_currency")
 	})
