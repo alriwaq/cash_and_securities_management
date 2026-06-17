@@ -582,6 +582,20 @@ def _create_payment_reconciliation_entry(
 
 	reconcile_against_document([args])
 
+	# Create the reconciliation PLE row that links PE → PI.
+	# This is the PLE with against_voucher_no=PI_name on the PE's side.
+	# ERPNext's doc_has_references() queries this PLE to show the Unreconcile button.
+	# Gate: Custodian party only — standard Supplier flows are unaffected.
+	_create_reconciliation_ple(
+		payment_entry=payment_entry,
+		purchase_invoice=purchase_invoice,
+		custodian=party,
+		account=account,
+		company=company,
+		posting_date=frappe.db.get_value("Payment Entry", payment_entry, "posting_date"),
+		allocated_amount=flt(allocated_amount),
+	)
+
 	# update_voucher_outstanding() (called internally by reconcile_against_document)
 	# skips Custody accounts because it filters account_type IN ('Receivable','Payable').
 	# Gate: only for Custodian party — standard Supplier PIs are unaffected.
@@ -589,20 +603,47 @@ def _create_payment_reconciliation_entry(
 	new_pi_outstanding = flt(
 		frappe.db.get_value("Purchase Invoice", purchase_invoice, "outstanding_amount")
 	) - flt(allocated_amount)
+	new_pi_outstanding = max(0.0, new_pi_outstanding)
+
+	# Determine PI status based on new outstanding amount
+	# Gate: Custodian party only — standard Supplier PIs are unaffected
+	pi_grand_total = flt(frappe.db.get_value("Purchase Invoice", purchase_invoice, "grand_total"))
+	if new_pi_outstanding <= 0.001:
+		pi_status = "Paid"
+	elif new_pi_outstanding < pi_grand_total:
+		pi_status = "Partly Paid"
+	else:
+		pi_status = "Unpaid"
+
 	frappe.db.set_value(
 		"Purchase Invoice",
 		purchase_invoice,
-		"outstanding_amount",
-		max(0.0, new_pi_outstanding),
+		{
+			"outstanding_amount": new_pi_outstanding,
+			"status": pi_status,
+		},
 		update_modified=False,
 	)
 
-	new_pe_unallocated = flt(pe_unallocated) - flt(allocated_amount)
+	new_pe_unallocated = max(0.0, flt(pe_unallocated) - flt(allocated_amount))
+
+	# Determine PE status based on new unallocated amount
+	# Gate: Custodian party only — standard PE status is unaffected
+	pe_paid_amount = flt(frappe.db.get_value("Payment Entry", payment_entry, "paid_amount"))
+	if new_pe_unallocated <= 0.001:
+		pe_status = "Reconciled"
+	elif new_pe_unallocated < pe_paid_amount:
+		pe_status = "Partly Reconciled"
+	else:
+		pe_status = "Unreconciled"
+
 	frappe.db.set_value(
 		"Payment Entry",
 		payment_entry,
-		"unallocated_amount",
-		max(0.0, new_pe_unallocated),
+		{
+			"unallocated_amount": new_pe_unallocated,
+			"status": pe_status,
+		},
 		update_modified=False,
 	)
 
@@ -854,4 +895,65 @@ def _delete_custody_ple(voucher_type, voucher_no):
 		frappe.log_error(
 			str(e),
 			f"_delete_custody_ple: failed for {voucher_type} {voucher_no}",
+		)
+
+
+def _create_reconciliation_ple(
+	payment_entry, purchase_invoice, custodian, account, company, posting_date, allocated_amount
+):
+	"""
+	Create the reconciliation Payment Ledger Entry that links PE → PI.
+	This is the PLE row with:
+	  voucher_type = 'Payment Entry', voucher_no = PE_name
+	  against_voucher_type = 'Purchase Invoice', against_voucher_no = PI_name
+	  amount = -allocated_amount (negative = reduces the PE's outstanding)
+
+	ERPNext's doc_has_references() queries:
+	  WHERE voucher_no = PE_name AND against_voucher_no != PE_name AND delinked = 0
+	This PLE is what makes the Unreconcile button appear on the PE.
+
+	Gate: called only for Custodian party — standard Supplier flows are unaffected.
+	"""
+	try:
+		# Avoid duplicate reconciliation PLEs for the same PE-PI pair
+		if frappe.db.exists(
+			"Payment Ledger Entry",
+			{
+				"voucher_type": "Payment Entry",
+				"voucher_no": payment_entry,
+				"against_voucher_type": "Purchase Invoice",
+				"against_voucher_no": purchase_invoice,
+				"delinked": 0,
+			},
+		):
+			return
+
+		account_currency = frappe.db.get_value("Account", account, "account_currency")
+
+		ple = frappe.get_doc({
+			"doctype": "Payment Ledger Entry",
+			"company": company,
+			"posting_date": posting_date,
+			"account_type": "Custody",
+			"account": account,
+			"party_type": "Custodian",
+			"party": custodian,
+			"voucher_type": "Payment Entry",
+			"voucher_no": payment_entry,
+			"against_voucher_type": "Purchase Invoice",
+			"against_voucher_no": purchase_invoice,
+			# Negative amount: the PE's liability is reduced by the allocated amount
+			"amount": -flt(allocated_amount),
+			"amount_in_account_currency": -flt(allocated_amount),
+			"account_currency": account_currency or "SAR",
+			"delinked": 0,
+		})
+		ple.flags.ignore_permissions = True
+		ple.flags.ignore_validate = True
+		ple.insert(ignore_permissions=True)
+
+	except Exception as e:
+		frappe.log_error(
+			str(e),
+			f"_create_reconciliation_ple: failed for PE={payment_entry} PI={purchase_invoice}",
 		)

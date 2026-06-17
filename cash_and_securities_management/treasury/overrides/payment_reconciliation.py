@@ -184,24 +184,73 @@ class CustodyPaymentReconciliation(PaymentReconciliation):
         if entry_list:
             reconcile_against_document(entry_list, skip_ref_details_update_for_pe)
 
+            # Create reconciliation PLEs so the Unreconcile button appears on the PE
+            # and get_unreconciled_entries shows the correct unallocated amount.
+            # Gate: Custodian party only.
+            from cash_and_securities_management.treasury.doctype.accountant_custody.pr_hooks import (
+                _create_reconciliation_ple,
+            )
+            for e in entry_list:
+                _create_reconciliation_ple(
+                    payment_entry=e.voucher_no,
+                    purchase_invoice=e.against_voucher,
+                    custodian=self.party,
+                    account=e.account,
+                    company=self.company,
+                    posting_date=frappe.db.get_value("Payment Entry", e.voucher_no, "posting_date"),
+                    allocated_amount=e.allocated_amount,
+                )
+
     def set_invoice_outstanding(self):
         """
-        Update outstanding_amount on custody PIs after reconciliation.
+        Update outstanding_amount and status on custody PIs after reconciliation.
+        Also update PE unallocated_amount and status.
         Called after reconcile_allocations_for_custody.
+        Gate: Custodian party only.
         """
         for row in self.get("allocation"):
             if not row.invoice_number or not row.allocated_amount:
                 continue
+
+            # --- Update PI outstanding_amount and status ---
             pi = frappe.db.get_value(
                 "Purchase Invoice", row.invoice_number,
                 ["outstanding_amount", "grand_total"], as_dict=True
             )
             if pi:
-                new_outstanding = flt(pi.outstanding_amount) - flt(row.allocated_amount)
+                new_outstanding = max(0.0, flt(pi.outstanding_amount) - flt(row.allocated_amount))
+                if new_outstanding <= 0.001:
+                    pi_status = "Paid"
+                elif new_outstanding < flt(pi.grand_total):
+                    pi_status = "Partly Paid"
+                else:
+                    pi_status = "Unpaid"
                 frappe.db.set_value(
                     "Purchase Invoice", row.invoice_number,
-                    "outstanding_amount", max(0, new_outstanding)
+                    {"outstanding_amount": new_outstanding, "status": pi_status},
+                    update_modified=False,
                 )
+
+            # --- Update PE unallocated_amount and status ---
+            pe_name = row.get("reference_name")
+            if pe_name:
+                pe = frappe.db.get_value(
+                    "Payment Entry", pe_name,
+                    ["unallocated_amount", "paid_amount"], as_dict=True
+                )
+                if pe:
+                    new_unallocated = max(0.0, flt(pe.unallocated_amount) - flt(row.allocated_amount))
+                    if new_unallocated <= 0.001:
+                        pe_status = "Reconciled"
+                    elif new_unallocated < flt(pe.paid_amount):
+                        pe_status = "Partly Reconciled"
+                    else:
+                        pe_status = "Unreconciled"
+                    frappe.db.set_value(
+                        "Payment Entry", pe_name,
+                        {"unallocated_amount": new_unallocated, "status": pe_status},
+                        update_modified=False,
+                    )
 
     def get_invoice_entries(self):
         """
