@@ -96,7 +96,7 @@ class CustodyPaymentReconciliation(PaymentReconciliation):
             row.payment_type = "Payment Entry"
             row.reference_name = pe.name
             row.posting_date = pe.posting_date
-            row.amount = flt(pe.paid_amount)
+            row.amount = flt(pe.unallocated_amount)   # show remaining unallocated, not full paid_amount
             row.currency = pe.currency
             row.unallocated_amount = flt(pe.unallocated_amount)
 
