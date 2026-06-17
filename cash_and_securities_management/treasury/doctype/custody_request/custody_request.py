@@ -325,7 +325,7 @@ class CustodyRequest(Document):
 			)
 
 		settings = frappe.db.get_singles_dict("Treasury Settings")
-		series = settings.get("pe_series") or "AC-PAY-.YYYY.-.#####"
+		series = settings.get("pe_series") or "CST-PAY-.YYYY.-.#####"
 
 		# Resolve the custodian's bank account (optional — used as recipient info only)
 		custodian_bank_account = frappe.db.get_value(

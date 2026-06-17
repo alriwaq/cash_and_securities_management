@@ -316,6 +316,7 @@
    "report_hide": 1
   }
  ],
+ "allow_cancel": 1,
  "is_submittable": 1,
  "links": [
   {

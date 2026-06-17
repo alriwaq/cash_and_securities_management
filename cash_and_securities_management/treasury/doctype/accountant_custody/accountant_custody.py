@@ -289,7 +289,7 @@ class AccountantCustody(Document):
 			)
 
 		settings = frappe.db.get_singles_dict("Treasury Settings")
-		series = settings.get("pr_series") or "AC-PR-.YYYY.-.#####"
+		series = settings.get("pr_series") or "CST-PR-.YYYY.-.#####"
 		mode = settings.get("accounting_mode") or CONSOLIDATED
 		custody_account = self._get_custody_account()
 
@@ -352,7 +352,7 @@ class AccountantCustody(Document):
 		This credit self-settles the advance — no separate Settlement PE needed.
 		"""
 		settings = frappe.db.get_singles_dict("Treasury Settings")
-		series = settings.get("pi_series") or "AC-PI-.YYYY.-.#####"
+		series = settings.get("pi_series") or "CST-PI-.YYYY.-.#####"
 		mode = settings.get("accounting_mode") or CONSOLIDATED
 		custody_account = self._get_custody_account()
 

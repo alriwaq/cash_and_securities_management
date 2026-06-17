@@ -124,8 +124,11 @@ function setup_action_buttons(frm) {
 
     var status = frm.doc.status;
 
-    // ── Create Purchase Receipt ───────────────────────────────────────────
-    if (["Pending", "Partly Received"].indexOf(status) !== -1) {
+    // ── Create Purchase Receipt — only shown when stock/asset items exist ──
+    var has_stock_items = (frm.doc.custody_items || []).some(function (item) {
+        return item.is_stock_item || item.is_fixed_asset;
+    });
+    if (["Pending", "Partly Received"].indexOf(status) !== -1 && has_stock_items) {
         frm.add_custom_button(__("Create Purchase Receipt"), function () {
             frappe.call({
                 method: "cash_and_securities_management.api.create_custody_purchase_receipt",

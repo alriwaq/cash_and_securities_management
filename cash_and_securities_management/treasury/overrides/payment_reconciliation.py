@@ -28,6 +28,7 @@ class CustodyPaymentReconciliation(PaymentReconciliation):
     All non-Custodian paths delegate to super() unchanged.
     """
 
+    @frappe.whitelist()
     def get_unreconciled_entries(self):
         """
         Entry point called by the UI 'Get Unreconciled Entries' button.
