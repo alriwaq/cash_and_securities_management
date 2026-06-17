@@ -582,6 +582,30 @@ def _create_payment_reconciliation_entry(
 
 	reconcile_against_document([args])
 
+	# update_voucher_outstanding() (called internally by reconcile_against_document)
+	# skips Custody accounts because it filters account_type IN ('Receivable','Payable').
+	# Gate: only for Custodian party — standard Supplier PIs are unaffected.
+	# We update PI.outstanding_amount and PE.unallocated_amount directly.
+	new_pi_outstanding = flt(
+		frappe.db.get_value("Purchase Invoice", purchase_invoice, "outstanding_amount")
+	) - flt(allocated_amount)
+	frappe.db.set_value(
+		"Purchase Invoice",
+		purchase_invoice,
+		"outstanding_amount",
+		max(0.0, new_pi_outstanding),
+		update_modified=False,
+	)
+
+	new_pe_unallocated = flt(pe_unallocated) - flt(allocated_amount)
+	frappe.db.set_value(
+		"Payment Entry",
+		payment_entry,
+		"unallocated_amount",
+		max(0.0, new_pe_unallocated),
+		update_modified=False,
+	)
+
 
 def _record_reconciliation(
 	ac_name,

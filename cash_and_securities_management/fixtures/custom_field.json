@@ -54,6 +54,7 @@
     "no_copy": 1,
     "in_list_view": 0,
     "print_hide": 0,
+    "allow_on_cancel": 1,
     "description": "Linked Accountant Custody record that generated this Purchase Invoice"
   },
   {
