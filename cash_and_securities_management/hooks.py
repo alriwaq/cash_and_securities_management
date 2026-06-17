@@ -113,6 +113,19 @@ fixtures = [
             ["property", "=", "options"],
         ],
     },
+    # ── Property Setter: Extend Payment Ledger Entry account_type with "Custody" ──
+    # The PLE schema defines account_type as Literal["Receivable", "Payable"].
+    # We extend it via Property Setter so custody PLEs can be stored with
+    # account_type="Custody" — honest, matches the account, no workaround.
+    # Applied automatically on bench migrate.
+    {
+        "doctype": "Property Setter",
+        "filters": [
+            ["doc_type", "=", "Payment Ledger Entry"],
+            ["field_name", "=", "account_type"],
+            ["property", "=", "options"],
+        ],
+    },
 ]
 
 # ─── Client Scripts on Standard Doctypes ────────────────────────────────────
@@ -137,6 +150,9 @@ override_doctype_class = {
     "Payment Entry": "cash_and_securities_management.treasury.overrides.payment_entry.CustodyPaymentEntry",
     # Extends validate_account() to allow party_type/party on 'Custody' account type
     "GL Entry": "cash_and_securities_management.treasury.overrides.gl_entry.CustodyGLEntry",
+    # Extends get_invoice_entries() and get_nonreconciled_payment_entries() for
+    # Custodian party only — all other party types go through super() unchanged.
+    "Payment Reconciliation": "cash_and_securities_management.treasury.overrides.payment_reconciliation.CustodyPaymentReconciliation",
 }
 
 # ─── Document Events ──────────────────────────────────────────────────────────

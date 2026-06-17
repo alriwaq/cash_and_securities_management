@@ -186,12 +186,28 @@ def on_pi_submit(doc, method):
 	Triggered after a Purchase Invoice is submitted.
 	Updates billed quantities on the AC, then triggers auto-reconciliation
 	(Trigger A: PI submitted → search for available advance PEs).
+	Also creates a Payment Ledger Entry for Custodian-party PIs so the
+	reconciliation engine can find them (Custodian-gated, does not affect
+	standard Supplier invoices).
 	"""
 	if not doc.get("custom_accountant_custody"):
 		return
 
 	ac_doc = frappe.get_doc("Accountant Custody", doc.custom_accountant_custody)
 	ac_doc.update_billed_quantities(pi_name=doc.name)
+
+	# Create PLE for this custody PI so reconciliation engine can find it
+	# Gate: only for Custodian party — standard Supplier PIs are unaffected
+	if doc.get("custom_custodian"):
+		_create_custody_ple(
+			voucher_type="Purchase Invoice",
+			voucher_no=doc.name,
+			custodian=doc.custom_custodian,
+			account=doc.credit_to,
+			company=doc.company,
+			posting_date=doc.posting_date,
+			amount=flt(doc.grand_total),
+		)
 
 	# Trigger A: reconcile this PI against available advance PEs (FIFO)
 	_auto_reconcile_pi_against_pes(doc)
@@ -213,7 +229,10 @@ def on_pi_cancel(doc, method):
 	ac_doc = frappe.get_doc("Accountant Custody", doc.custom_accountant_custody)
 	ac_doc.update_billed_quantities()
 
+	# Remove PLE for this custody PI on cancellation
+	# Gate: only for Custodian party — standard Supplier PIs are unaffected
 	if doc.get("custom_custodian"):
+		_delete_custody_ple(voucher_type="Purchase Invoice", voucher_no=doc.name)
 		_safe_update_custodian_dashboard(doc.custom_custodian)
 
 
@@ -248,6 +267,9 @@ def on_payment_submit(doc, method):
 	Triggered after a Payment Entry is submitted.
 	Handles advance disbursement PEs: recalculate CR paid_amount.
 	Trigger B: PE submitted → search for unreconciled PIs (FIFO).
+	Also creates a Payment Ledger Entry for Custodian-party PEs so the
+	reconciliation engine can find them (Custodian-gated, does not affect
+	standard Payment Entries).
 	"""
 	custody_request = doc.get("custom_custody_request")
 	if custody_request:
@@ -256,6 +278,20 @@ def on_payment_submit(doc, method):
 	custodian = doc.get("custom_custodian")
 	if custodian:
 		_safe_update_custodian_dashboard(custodian)
+
+	# Create PLE for this custody PE so reconciliation engine can find it
+	# Gate: only for Custodian party — standard Payment Entries are unaffected
+	if _is_custody_pe(doc) and doc.get("custom_custodian"):
+		# PE is an advance (asset side): amount is negative in PLE (reduces outstanding)
+		_create_custody_ple(
+			voucher_type="Payment Entry",
+			voucher_no=doc.name,
+			custodian=doc.custom_custodian,
+			account=doc.paid_to,
+			company=doc.company,
+			posting_date=doc.posting_date,
+			amount=-flt(doc.paid_amount),
+		)
 
 	# Trigger B: if this is a custody advance PE, reconcile against outstanding PIs
 	if _is_custody_pe(doc) and doc.get("custom_custodian"):
@@ -274,6 +310,11 @@ def on_payment_cancel(doc, method):
 		)
 		validate_advance_cancellation(doc)
 		_safe_recalculate_custody_request(custody_request)
+
+	# Remove PLE for this custody PE on cancellation
+	# Gate: only for Custodian party — standard Payment Entries are unaffected
+	if _is_custody_pe(doc) and doc.get("custom_custodian"):
+		_delete_custody_ple(voucher_type="Payment Entry", voucher_no=doc.name)
 
 	custodian = doc.get("custom_custodian")
 	if custodian:
@@ -695,3 +736,88 @@ def _safe_recalculate_custody_request(cr_name):
 		recalculate_custody_request_status(cr_name)
 	except Exception as e:
 		frappe.log_error(str(e), f"_safe_recalculate_custody_request: {cr_name}")
+
+
+# ─── Custody Payment Ledger Entry Helpers ─────────────────────────────────────
+# These functions create and delete Payment Ledger Entry rows for custody
+# documents. They are ONLY called for Custodian-party documents — standard
+# Supplier/Customer flows are completely unaffected.
+#
+# Why manual PLE creation is needed:
+#   ERPNext's get_payment_ledger_entries() hard-filters accounts by
+#   account_type IN ('Receivable', 'Payable'). Custody accounts have
+#   account_type='Custody', so no PLE is ever created automatically.
+#   The Property Setter fixture extends the PLE schema to accept 'Custody',
+#   and these helpers create the PLE rows so the reconciliation engine
+#   can find custody documents.
+
+def _create_custody_ple(
+	voucher_type, voucher_no, custodian, account, company, posting_date, amount
+):
+	"""
+	Create a Payment Ledger Entry for a custody PI or PE.
+	Gate: called only when party_type='Custodian' — never for standard docs.
+
+	- voucher_type: 'Purchase Invoice' or 'Payment Entry'
+	- amount: positive for PI (liability), negative for PE (advance reduces liability)
+	"""
+	try:
+		# Avoid duplicate PLEs (e.g., on amend/resubmit)
+		if frappe.db.exists(
+			"Payment Ledger Entry",
+			{"voucher_type": voucher_type, "voucher_no": voucher_no, "delinked": 0},
+		):
+			return
+
+		account_currency = frappe.db.get_value("Account", account, "account_currency")
+
+		ple = frappe.get_doc({
+			"doctype": "Payment Ledger Entry",
+			"company": company,
+			"posting_date": posting_date,
+			"account_type": "Custody",
+			"account": account,
+			"party_type": "Custodian",
+			"party": custodian,
+			"voucher_type": voucher_type,
+			"voucher_no": voucher_no,
+			"against_voucher_type": voucher_type,
+			"against_voucher_no": voucher_no,
+			"amount": flt(amount),
+			"amount_in_account_currency": flt(amount),
+			"account_currency": account_currency or "SAR",
+			"delinked": 0,
+		})
+		ple.flags.ignore_permissions = True
+		ple.flags.ignore_validate = True
+		ple.insert(ignore_permissions=True)
+
+	except Exception as e:
+		frappe.log_error(
+			str(e),
+			f"_create_custody_ple: failed for {voucher_type} {voucher_no}",
+		)
+
+
+def _delete_custody_ple(voucher_type, voucher_no):
+	"""
+	Soft-delete (delink) the Payment Ledger Entry for a cancelled custody doc.
+	Gate: called only when party_type='Custodian' — never for standard docs.
+	Uses delinked=1 (ERPNext standard) to preserve the audit trail.
+	"""
+	try:
+		ple_names = frappe.db.get_all(
+			"Payment Ledger Entry",
+			filters={"voucher_type": voucher_type, "voucher_no": voucher_no, "delinked": 0},
+			pluck="name",
+		)
+		for ple_name in ple_names:
+			frappe.db.set_value(
+				"Payment Ledger Entry", ple_name, "delinked", 1, update_modified=False
+			)
+
+	except Exception as e:
+		frappe.log_error(
+			str(e),
+			f"_delete_custody_ple: failed for {voucher_type} {voucher_no}",
+		)
