@@ -270,6 +270,103 @@ class AccountantCustody(Document):
 			else:
 				self.status = new_status
 
+			# ── Perpetual Custody: auto-generate replenishment request ────────────
+			if new_status == "Fully Invoiced" and self.docstatus == 1:
+				try:
+					self._auto_replenish_perpetual_custody()
+				except Exception as e:
+					frappe.log_error(
+						str(e),
+						f"_auto_replenish_perpetual_custody: failed for AC {self.name}",
+					)
+
+	# ── Perpetual Custody Replenishment ──────────────────────────────────────────
+	def _auto_replenish_perpetual_custody(self):
+		"""
+		Called when an Accountant Custody transitions to 'Fully Invoiced'.
+		If the linked Custodian has is_perpetual_custody=1 and minimum_custody_balance > 0,
+		creates a Draft Custody Request for minimum_custody_balance so the custodian's
+		advance is replenished back to the configured minimum.
+
+		The request is left as DRAFT — the accountant must review and submit it.
+		The purpose field is stamped with an Arabic auto-generated marker.
+		"""
+		if not self.custodian:
+			return
+
+		# Read perpetual-custody settings from the Custodian record
+		cust_data = frappe.db.get_value(
+			"Custodian",
+			self.custodian,
+			["is_perpetual_custody", "minimum_custody_balance", "employee", "company"],
+			as_dict=True,
+		)
+		if not cust_data:
+			return
+
+		if not cust_data.get("is_perpetual_custody"):
+			return
+
+		min_balance = flt(cust_data.get("minimum_custody_balance") or 0)
+		if min_balance <= 0:
+			return
+
+		# Idempotency guard: skip if an open auto-generated CR already exists
+		# for this custodian that has not been cancelled yet
+		auto_marker = "تجديد تلقائي للعهدة المستديمة"
+		existing = frappe.db.exists(
+			"Custody Request",
+			{
+				"custodian": self.custodian,
+				"docstatus": ["!=", 2],
+				"purpose": ["like", f"%{auto_marker}%"],
+			},
+		)
+		if existing:
+			# Already have an open auto-generated request — do not duplicate
+			return
+
+		# Build the auto-generated Custody Request (Draft)
+		purpose_text = (
+			f"{auto_marker} — {self.name} — "
+			f"الحد الأدنى: {frappe.utils.fmt_money(min_balance)}"
+		)
+
+		cr = frappe.new_doc("Custody Request")
+		cr.employee = cust_data.get("employee") or self.employee
+		cr.company = cust_data.get("company") or self.company
+		cr.custodian = self.custodian
+		cr.posting_date = nowdate()
+		cr.advance_amount = min_balance
+		cr.purpose = purpose_text
+
+		cr.flags.ignore_permissions = True
+		cr.flags.ignore_mandatory = False  # keep mandatory validation active
+		cr.insert()
+		# Intentionally left as DRAFT — accountant must review and submit
+
+		# Notify connected users in real-time
+		frappe.publish_realtime(
+			"msgprint",
+			{
+				"message": _(
+					"تم إنشاء طلب عهدة تلقائي {0} للموظف {1} بمبلغ {2} — يرجى المراجعة والاعتماد."
+				).format(
+					frappe.bold(cr.name),
+					frappe.bold(cr.employee),
+					frappe.utils.fmt_money(min_balance),
+				),
+				"title": _("عهدة مستديمة — تجديد تلقائي"),
+				"indicator": "blue",
+			},
+			user=frappe.session.user,
+		)
+
+		frappe.logger().info(
+			f"[Perpetual Custody] Auto-generated Custody Request {cr.name} "
+			f"for Custodian {self.custodian} (AC={self.name}, amount={min_balance})"
+		)
+
 	# ── Stage 2a: Purchase Receipt ────────────────────────────────────────────
 	@frappe.whitelist()
 	def create_purchase_receipt(self):
