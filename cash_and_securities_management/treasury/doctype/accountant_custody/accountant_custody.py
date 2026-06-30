@@ -291,8 +291,16 @@ class AccountantCustody(Document):
 		"""
 		Called when an Accountant Custody transitions to 'Fully Invoiced'.
 		If the linked Custodian has is_perpetual_custody=1 and minimum_custody_balance > 0,
-		creates a Draft Custody Request for minimum_custody_balance so the custodian's
+		creates a Draft Custody Request for the SHORTFALL amount so the custodian's
 		advance is replenished back to the configured minimum.
+
+		Shortfall calculation handles all three balance states:
+		  Positive outstanding  (advance > invoiced): shortfall = min_balance - outstanding
+		  Zero outstanding      (fully consumed)     : shortfall = min_balance
+		  Negative outstanding  (overspent)          : shortfall = min_balance + abs(outstanding)
+		
+		  In all cases: shortfall = min_balance - current_outstanding
+		  (because when outstanding is negative, subtracting it adds the debt back in)
 
 		The request is left as DRAFT — the accountant must review and submit it.
 		The purpose field is stamped with an Arabic auto-generated marker.
@@ -304,7 +312,8 @@ class AccountantCustody(Document):
 		cust_data = frappe.db.get_value(
 			"Custodian",
 			self.custodian,
-			["is_perpetual_custody", "minimum_custody_balance", "employee", "company"],
+			["is_perpetual_custody", "minimum_custody_balance", "employee", "company",
+			 "total_disbursed", "total_outstanding"],
 			as_dict=True,
 		)
 		if not cust_data:
@@ -315,6 +324,29 @@ class AccountantCustody(Document):
 
 		min_balance = flt(cust_data.get("minimum_custody_balance") or 0)
 		if min_balance <= 0:
+			return
+
+		# ── Shortfall calculation ────────────────────────────────────────────────
+		# Refresh outstanding from DB to get the post-invoice figure.
+		# total_outstanding = total_disbursed - total_invoiced (from balances engine).
+		# We re-query live to avoid stale cached values on self.
+		current_outstanding = flt(
+			frappe.db.get_value("Custodian", self.custodian, "total_outstanding") or 0
+		)
+
+		# shortfall = amount needed to bring the custodian back to minimum_custody_balance
+		# Works for all cases:
+		#   outstanding =  2000, min = 5000  → shortfall = 3000  (top-up needed)
+		#   outstanding =  0,    min = 5000  → shortfall = 5000  (fully consumed)
+		#   outstanding = -1000, min = 5000  → shortfall = 6000  (overspent + top-up)
+		shortfall = min_balance - current_outstanding
+
+		if shortfall <= 0:
+			# Outstanding already meets or exceeds the minimum — no replenishment needed
+			frappe.logger().info(
+				f"[Perpetual Custody] No replenishment needed for {self.custodian}: "
+				f"outstanding={current_outstanding} >= min={min_balance} (AC={self.name})"
+			)
 			return
 
 		# Idempotency guard: skip if an open auto-generated CR already exists
@@ -332,18 +364,34 @@ class AccountantCustody(Document):
 			# Already have an open auto-generated request — do not duplicate
 			return
 
-		# Build the auto-generated Custody Request (Draft)
-		purpose_text = (
-			f"{auto_marker} — {self.name} — "
-			f"الحد الأدنى: {frappe.utils.fmt_money(min_balance)}"
-		)
+		# ── Build the auto-generated Custody Request (Draft) ────────────────────
+		# Describe the balance state clearly in the purpose field
+		if current_outstanding < 0:
+			balance_note = (
+				f"رصيد حالي: {frappe.utils.fmt_money(current_outstanding)} "
+				f"(عجز) | حد أدنى: {frappe.utils.fmt_money(min_balance)} | "
+				f"مبلغ التجديد: {frappe.utils.fmt_money(shortfall)}"
+			)
+		elif current_outstanding == 0:
+			balance_note = (
+				f"رصيد حالي: صفر | حد أدنى: {frappe.utils.fmt_money(min_balance)} | "
+				f"مبلغ التجديد: {frappe.utils.fmt_money(shortfall)}"
+			)
+		else:
+			balance_note = (
+				f"رصيد حالي: {frappe.utils.fmt_money(current_outstanding)} | "
+				f"حد أدنى: {frappe.utils.fmt_money(min_balance)} | "
+				f"مبلغ التجديد: {frappe.utils.fmt_money(shortfall)}"
+			)
+
+		purpose_text = f"{auto_marker} — {self.name} — {balance_note}"
 
 		cr = frappe.new_doc("Custody Request")
 		cr.employee = cust_data.get("employee") or self.employee
 		cr.company = cust_data.get("company") or self.company
 		cr.custodian = self.custodian
 		cr.posting_date = nowdate()
-		cr.advance_amount = min_balance
+		cr.advance_amount = shortfall
 		cr.purpose = purpose_text
 
 		cr.flags.ignore_permissions = True
@@ -356,11 +404,11 @@ class AccountantCustody(Document):
 			"msgprint",
 			{
 				"message": _(
-					"تم إنشاء طلب عهدة تلقائي {0} للموظف {1} بمبلغ {2} — يرجى المراجعة والاعتماد."
+					"تم إنشاء طلب عهدة تلقائي {0} للموظف {1} بمبلغ تجديد {2} — يرجى المراجعة والاعتماد."
 				).format(
 					frappe.bold(cr.name),
 					frappe.bold(cr.employee),
-					frappe.utils.fmt_money(min_balance),
+					frappe.utils.fmt_money(shortfall),
 				),
 				"title": _("عهدة مستديمة — تجديد تلقائي"),
 				"indicator": "blue",
@@ -370,7 +418,8 @@ class AccountantCustody(Document):
 
 		frappe.logger().info(
 			f"[Perpetual Custody] Auto-generated Custody Request {cr.name} "
-			f"for Custodian {self.custodian} (AC={self.name}, amount={min_balance})"
+			f"for Custodian {self.custodian} (AC={self.name}, "
+			f"outstanding={current_outstanding}, min={min_balance}, shortfall={shortfall})"
 		)
 
 	# ── Stage 2a: Purchase Receipt ────────────────────────────────────────────

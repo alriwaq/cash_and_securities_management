@@ -627,23 +627,14 @@ def _create_payment_reconciliation_entry(
 
 	new_pe_unallocated = max(0.0, flt(pe_unallocated) - flt(allocated_amount))
 
-	# Determine PE status based on new unallocated amount
-	# Gate: Custodian party only — standard PE status is unaffected
-	pe_paid_amount = flt(frappe.db.get_value("Payment Entry", payment_entry, "paid_amount"))
-	if new_pe_unallocated <= 0.001:
-		pe_status = "Reconciled"
-	elif new_pe_unallocated < pe_paid_amount:
-		pe_status = "Partly Reconciled"
-	else:
-		pe_status = "Unreconciled"
-
+	# Update only unallocated_amount on the PE.
+	# ERPNext v15 Payment Entry status only accepts: "", "Draft", "Submitted", "Cancelled".
+	# Setting any other value raises a validation error, so we do NOT touch PE.status.
+	# The unallocated_amount field is sufficient for the reconciliation engine to work correctly.
 	frappe.db.set_value(
 		"Payment Entry",
 		payment_entry,
-		{
-			"unallocated_amount": new_pe_unallocated,
-			"status": pe_status,
-		},
+		{"unallocated_amount": new_pe_unallocated},
 		update_modified=False,
 	)
 
