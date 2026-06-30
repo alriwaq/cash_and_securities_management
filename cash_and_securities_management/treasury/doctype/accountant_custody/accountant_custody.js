@@ -73,6 +73,19 @@ frappe.ui.form.on("Accountant Custody", {
         }
     },
 
+    // ── Propagate parent dimensions to all existing child rows ────────────
+    project: function (frm) {
+        propagate_to_all_rows(frm, "project", frm.doc.project);
+    },
+
+    cost_center: function (frm) {
+        propagate_to_all_rows(frm, "cost_center", frm.doc.cost_center);
+    },
+
+    warehouse: function (frm) {
+        propagate_to_all_rows(frm, "warehouse", frm.doc.warehouse);
+    },
+
 });
 
 // ── Child table events ────────────────────────────────────────────────────────
@@ -80,7 +93,7 @@ frappe.ui.form.on("Accountant Custody Item", {
     item_code: function (frm, cdt, cdn) {
         var row = locals[cdt][cdn];
         if (row.item_code) {
-            // Default dimensions from parent
+            // Always fill from parent when item is selected (overwrite empty fields)
             if (frm.doc.project && !row.project) {
                 frappe.model.set_value(cdt, cdn, "project", frm.doc.project);
             }
@@ -173,6 +186,21 @@ function setup_action_buttons(frm) {
 }
 
 // ── Helper Functions ──────────────────────────────────────────────────────────
+
+/**
+ * Propagate a parent-level dimension (project / cost_center / warehouse)
+ * to ALL existing child rows that currently have no value for that field.
+ * Called when the parent field changes.
+ */
+function propagate_to_all_rows(frm, fieldname, value) {
+    if (!value) return;
+    (frm.doc.custody_items || []).forEach(function (row) {
+        if (!row[fieldname]) {
+            frappe.model.set_value(row.doctype, row.name, fieldname, value);
+        }
+    });
+}
+
 function calculate_item_amount(frm, cdt, cdn) {
     var row = locals[cdt][cdn];
     var amount = flt(row.qty) * flt(row.rate);

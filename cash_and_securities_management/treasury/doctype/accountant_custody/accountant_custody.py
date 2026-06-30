@@ -51,12 +51,16 @@ class AccountantCustody(Document):
 
 	# ── Private helpers ───────────────────────────────────────────────────────
 	def _sync_from_custody_request(self):
-		"""Pull company, custodian, and purpose from the linked Custody Request."""
-		if not self.custody_request:
+		"""Pull company, custodian, and purpose from the linked Custody Request.
+		The custody_request field is hidden from the UI on v15 but may still be
+		present on older documents or set programmatically — guard with getattr.
+		"""
+		custody_request = getattr(self, "custody_request", None)
+		if not custody_request:
 			return
 		cr = frappe.db.get_value(
 			"Custody Request",
-			self.custody_request,
+			custody_request,
 			["company", "custodian", "advance_amount", "paid_amount", "purpose"],
 			as_dict=True,
 		)
@@ -68,7 +72,9 @@ class AccountantCustody(Document):
 			self.custodian = cr.custodian
 		if not self.purpose and cr.purpose:
 			self.purpose = cr.purpose
-		self.custody_request_balance = flt(cr.paid_amount)
+		# custody_request_balance field is hidden on v15 UI but kept in schema
+		if hasattr(self, "custody_request_balance"):
+			self.custody_request_balance = flt(cr.paid_amount)
 
 	def _populate_item_flags(self):
 		"""Ensure is_stock_item and is_fixed_asset are populated server-side."""
