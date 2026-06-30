@@ -25,9 +25,6 @@
   "cost_center",
   "warehouse_section",
   "warehouse",
-  "supplier_section",
-  "supplier",
-  "supplier_name",
   "notes_section",
   "notes",
   "items_section",
@@ -187,27 +184,6 @@
    "fieldtype": "Link",
    "label": "Warehouse",
    "options": "Warehouse"
-  },
-  {
-   "fieldname": "supplier_section",
-   "fieldtype": "Section Break",
-   "label": "Supplier (Optional)"
-  },
-  {
-   "description": "Actual supplier the custodian purchased from. Optional — used for reporting and audit trail only. Does not affect GL posting.",
-   "fieldname": "supplier",
-   "fieldtype": "Link",
-   "in_list_view": 0,
-   "in_standard_filter": 1,
-   "label": "Supplier",
-   "options": "Supplier"
-  },
-  {
-   "fetch_from": "supplier.supplier_name",
-   "fieldname": "supplier_name",
-   "fieldtype": "Data",
-   "label": "Supplier Name",
-   "read_only": 1
   },
   {
    "fieldname": "notes_section",
@@ -388,14 +364,38 @@
  "sort_field": "creation",
  "sort_order": "DESC",
  "states": [
-  {"color": "Red",    "title": "Draft"},
-  {"color": "Orange", "title": "Pending"},
-  {"color": "Yellow", "title": "Partly Received"},
-  {"color": "Blue",   "title": "Fully Received"},
-  {"color": "Purple", "title": "Partly Invoiced"},
-  {"color": "Green",  "title": "Fully Invoiced"},
-  {"color": "Gray",   "title": "Closed"},
-  {"color": "Red",    "title": "Cancelled"}
+  {
+   "color": "Red",
+   "title": "Draft"
+  },
+  {
+   "color": "Orange",
+   "title": "Pending"
+  },
+  {
+   "color": "Yellow",
+   "title": "Partly Received"
+  },
+  {
+   "color": "Blue",
+   "title": "Fully Received"
+  },
+  {
+   "color": "Purple",
+   "title": "Partly Invoiced"
+  },
+  {
+   "color": "Green",
+   "title": "Fully Invoiced"
+  },
+  {
+   "color": "Gray",
+   "title": "Closed"
+  },
+  {
+   "color": "Red",
+   "title": "Cancelled"
+  }
  ],
  "title_field": "employee_name",
  "track_changes": 1

@@ -62,13 +62,6 @@ frappe.ui.form.on("Accountant Custody", {
         }
     },
 
-    supplier: function (frm) {
-        // supplier_name is auto-fetched via fetch_from in the doctype JSON
-        // but we also trigger a refresh in case the user clears the field
-        if (!frm.doc.supplier) {
-            frm.set_value("supplier_name", "");
-        }
-    },
 });
 
 // ── Child table events ────────────────────────────────────────────────────────

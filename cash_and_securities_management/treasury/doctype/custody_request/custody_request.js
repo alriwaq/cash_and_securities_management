@@ -6,9 +6,12 @@ frappe.ui.form.on("Custody Request", {
     // ─── Form Setup ─────────────────────────────────────────────────────────
 
     setup: function (frm) {
-        // Filter: only Active employees
+        // Filter: only employees who have an active Custodian record
+        // Uses a server-side query method that returns employees linked to a Custodian
         frm.set_query("employee", function () {
-            return { filters: { status: "Active" } };
+            return {
+                query: "cash_and_securities_management.treasury.doctype.custody_request.custody_request.get_employees_with_custodian"
+            };
         });
 
         // Filter: only Active custodians for the selected employee

@@ -380,3 +380,43 @@ class CustodyRequest(Document):
 			indicator="blue",
 		)
 		return pe.name
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def get_employees_with_custodian(doctype, txt, searchfield, start, page_len, filters):
+	"""
+	Server-side search query for the employee field in Custody Request.
+	Returns only employees who have at least one submitted active Custodian record.
+	Gate: always active — this replaces the default employee search.
+	"""
+	employees_with_custodian = frappe.db.sql_list(
+		"""
+		SELECT DISTINCT employee
+		FROM `tabCustodian`
+		WHERE docstatus = 1
+		  AND status = 'Active'
+		  AND employee IS NOT NULL
+		"""
+	)
+
+	if not employees_with_custodian:
+		return []
+
+	return frappe.db.sql(
+		"""
+		SELECT name, employee_name, department
+		FROM `tabEmployee`
+		WHERE status = 'Active'
+		  AND name IN %(employees)s
+		  AND (name LIKE %(txt)s OR employee_name LIKE %(txt)s)
+		ORDER BY employee_name
+		LIMIT %(start)s, %(page_len)s
+		""",
+		{
+			"employees": employees_with_custodian,
+			"txt": f"%{txt}%",
+			"start": start,
+			"page_len": page_len,
+		},
+	)
