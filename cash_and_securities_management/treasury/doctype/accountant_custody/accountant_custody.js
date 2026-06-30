@@ -93,14 +93,15 @@ frappe.ui.form.on("Accountant Custody Item", {
     item_code: function (frm, cdt, cdn) {
         var row = locals[cdt][cdn];
         if (row.item_code) {
-            // Always fill from parent when item is selected (overwrite empty fields)
-            if (frm.doc.project && !row.project) {
+            // project and cost_center: always fill from parent (overwrite)
+            if (frm.doc.project) {
                 frappe.model.set_value(cdt, cdn, "project", frm.doc.project);
             }
-            if (frm.doc.cost_center && !row.cost_center) {
+            if (frm.doc.cost_center) {
                 frappe.model.set_value(cdt, cdn, "cost_center", frm.doc.cost_center);
             }
-            if (frm.doc.warehouse && !row.warehouse) {
+            // warehouse: only for stock items
+            if (frm.doc.warehouse && row.is_stock_item) {
                 frappe.model.set_value(cdt, cdn, "warehouse", frm.doc.warehouse);
             }
         }
@@ -188,14 +189,21 @@ function setup_action_buttons(frm) {
 // ── Helper Functions ──────────────────────────────────────────────────────────
 
 /**
- * Propagate a parent-level dimension (project / cost_center / warehouse)
- * to ALL existing child rows that currently have no value for that field.
+ * Propagate a parent-level dimension to ALL existing child rows.
+ * - project / cost_center: overwrite every row unconditionally.
+ * - warehouse: overwrite only rows where is_stock_item = 1.
  * Called when the parent field changes.
  */
 function propagate_to_all_rows(frm, fieldname, value) {
     if (!value) return;
     (frm.doc.custody_items || []).forEach(function (row) {
-        if (!row[fieldname]) {
+        if (fieldname === "warehouse") {
+            // warehouse applies only to stock items
+            if (row.is_stock_item) {
+                frappe.model.set_value(row.doctype, row.name, fieldname, value);
+            }
+        } else {
+            // project and cost_center: always overwrite
             frappe.model.set_value(row.doctype, row.name, fieldname, value);
         }
     });
