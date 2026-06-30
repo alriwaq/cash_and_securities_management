@@ -327,9 +327,17 @@ class AccountantCustody(Document):
 			return
 
 		# ── Shortfall calculation ────────────────────────────────────────────────
-		# Refresh outstanding from DB to get the post-invoice figure.
-		# total_outstanding = total_disbursed - total_invoiced (from balances engine).
-		# We re-query live to avoid stale cached values on self.
+		# Force a fresh balance recalculation on the Custodian BEFORE reading
+		# total_outstanding. This is necessary because on_pi_submit calls
+		# update_billed_quantities() (which triggers this method) BEFORE calling
+		# _safe_update_custodian_dashboard(), so the Custodian's total_outstanding
+		# field would still hold the pre-invoice value without this explicit refresh.
+		try:
+			from cash_and_securities_management.treasury.balances import update_custodian_dashboard
+			update_custodian_dashboard(self.custodian)
+		except Exception:
+			pass  # If balances refresh fails, fall through to read whatever is in DB
+
 		current_outstanding = flt(
 			frappe.db.get_value("Custodian", self.custodian, "total_outstanding") or 0
 		)

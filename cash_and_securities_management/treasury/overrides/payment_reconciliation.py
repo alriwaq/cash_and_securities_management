@@ -231,24 +231,20 @@ class CustodyPaymentReconciliation(PaymentReconciliation):
                     update_modified=False,
                 )
 
-            # --- Update PE unallocated_amount and status ---
+            # --- Update PE unallocated_amount only ---
+            # ERPNext v15 Payment Entry status only accepts: "", "Draft", "Submitted", "Cancelled".
+            # Setting any other value raises a validation error, so we do NOT touch PE.status.
             pe_name = row.get("reference_name")
             if pe_name:
                 pe = frappe.db.get_value(
                     "Payment Entry", pe_name,
-                    ["unallocated_amount", "paid_amount"], as_dict=True
+                    ["unallocated_amount"], as_dict=True
                 )
                 if pe:
                     new_unallocated = max(0.0, flt(pe.unallocated_amount) - flt(row.allocated_amount))
-                    if new_unallocated <= 0.001:
-                        pe_status = "Reconciled"
-                    elif new_unallocated < flt(pe.paid_amount):
-                        pe_status = "Partly Reconciled"
-                    else:
-                        pe_status = "Unreconciled"
                     frappe.db.set_value(
                         "Payment Entry", pe_name,
-                        {"unallocated_amount": new_unallocated, "status": pe_status},
+                        {"unallocated_amount": new_unallocated},
                         update_modified=False,
                     )
 
