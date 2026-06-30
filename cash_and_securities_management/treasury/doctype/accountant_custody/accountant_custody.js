@@ -1,4 +1,4 @@
-// Accountant Custody DocType — Client-side controller (v5)
+// Accountant Custody DocType — Client-side controller (v15)
 // Architecture: JS (UI) → api.py (service boundary) → DocType method (engine)
 // Single-Account Self-Settling Model: PI credit_to = custody_account clears the advance.
 frappe.ui.form.on("Accountant Custody", {
@@ -8,22 +8,50 @@ frappe.ui.form.on("Accountant Custody", {
         setup_action_buttons(frm);
     },
 
-    custody_request: function (frm) {
-        if (frm.doc.custody_request) {
+    onload: function (frm) {
+        // Filter employee field: only employees who have an active Custodian record
+        frm.set_query("employee", function () {
+            return {
+                query: "cash_and_securities_management.treasury.doctype.accountant_custody.accountant_custody.get_employees_with_custodian"
+            };
+        });
+    },
+
+    employee: function (frm) {
+        if (frm.doc.employee) {
+            // Fetch basic employee info
             frappe.db.get_value(
-                "Custody Request",
-                frm.doc.custody_request,
-                ["custodian", "advance_amount", "paid_amount", "unallocated_amount", "purpose"],
+                "Employee",
+                frm.doc.employee,
+                ["employee_name", "department", "company"],
                 function (r) {
                     if (r) {
-                        if (!frm.doc.custodian) frm.set_value("custodian", r.custodian);
-                        frm.set_value("custody_request_balance", r.unallocated_amount || 0);
-                        if (!frm.doc.purpose && r.purpose) {
-                            frm.set_value("purpose", r.purpose);
-                        }
+                        frm.set_value("employee_name", r.employee_name);
+                        if (!frm.doc.department) frm.set_value("department", r.department);
+                        if (!frm.doc.company) frm.set_value("company", r.company);
                     }
                 }
             );
+
+            // Auto-fill custodian from the active Custodian record for this employee
+            frappe.call({
+                method: "cash_and_securities_management.treasury.doctype.accountant_custody.accountant_custody.get_custodian_for_employee",
+                args: { employee: frm.doc.employee },
+                callback: function (r) {
+                    if (r.message) {
+                        frm.set_value("custodian", r.message);
+                    } else {
+                        frm.set_value("custodian", "");
+                        frappe.msgprint({
+                            title: __("No Active Custodian"),
+                            message: __("No active Custodian record found for the selected employee."),
+                            indicator: "orange"
+                        });
+                    }
+                }
+            });
+        } else {
+            frm.set_value("custodian", "");
         }
     },
 
@@ -39,23 +67,6 @@ frappe.ui.form.on("Accountant Custody", {
                         if (!frm.doc.employee) frm.set_value("employee", r.employee);
                         if (!frm.doc.employee_name) frm.set_value("employee_name", r.employee_name);
                         if (!frm.doc.department) frm.set_value("department", r.department);
-                    }
-                }
-            );
-        }
-    },
-
-    employee: function (frm) {
-        if (frm.doc.employee) {
-            frappe.db.get_value(
-                "Employee",
-                frm.doc.employee,
-                ["employee_name", "department", "company"],
-                function (r) {
-                    if (r) {
-                        frm.set_value("employee_name", r.employee_name);
-                        if (!frm.doc.department) frm.set_value("department", r.department);
-                        if (!frm.doc.company) frm.set_value("company", r.company);
                     }
                 }
             );

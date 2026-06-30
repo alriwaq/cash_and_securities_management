@@ -503,3 +503,59 @@ class AccountantCustody(Document):
 		self._calculate_totals(persist=True)
 		self.reload()
 		self.recalculate_status()
+
+
+# ── Module-level whitelisted queries ─────────────────────────────────────────
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def get_employees_with_custodian(doctype, txt, searchfield, start, page_len, filters):
+	"""
+	Server-side search query for the employee field in Accountant Custody.
+	Returns only employees who have at least one submitted active Custodian record.
+	"""
+	employees_with_custodian = frappe.db.sql_list(
+		"""
+		SELECT DISTINCT employee
+		FROM `tabCustodian`
+		WHERE docstatus = 1
+		  AND status = 'Active'
+		  AND employee IS NOT NULL
+		"""
+	)
+
+	if not employees_with_custodian:
+		return []
+
+	return frappe.db.sql(
+		"""
+		SELECT name, employee_name, department
+		FROM `tabEmployee`
+		WHERE status = 'Active'
+		  AND name IN %(employees)s
+		  AND (name LIKE %(txt)s OR employee_name LIKE %(txt)s)
+		ORDER BY employee_name
+		LIMIT %(start)s, %(page_len)s
+		""",
+		{
+			"employees": employees_with_custodian,
+			"txt": f"%{txt}%",
+			"start": start,
+			"page_len": page_len,
+		},
+	)
+
+
+@frappe.whitelist()
+def get_custodian_for_employee(employee):
+	"""
+	Return the name of the active submitted Custodian record for the given employee.
+	Used by the Accountant Custody form to auto-fill the custodian field.
+	"""
+	if not employee:
+		return None
+	return frappe.db.get_value(
+		"Custodian",
+		{"employee": employee, "docstatus": 1, "status": "Active"},
+		"name",
+	)

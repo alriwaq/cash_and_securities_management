@@ -18,17 +18,17 @@
   "transaction_date",
   "posting_date",
   "status",
-  "custody_request",
   "custody_request_balance",
   "purpose",
+  "accounting_dimensions_section",
   "project",
   "cost_center",
   "warehouse_section",
   "warehouse",
-  "notes_section",
-  "notes",
   "items_section",
   "custody_items",
+  "notes_section",
+  "notes",
   "totals_section",
   "total_amount",
   "column_break_totals",
@@ -98,9 +98,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Active Custodian record for this employee. Auto-set from the linked Custody Request.",
-   "fetch_from": "custody_request.custodian",
-   "fetch_if_empty": 1,
+   "description": "Active Custodian record for this employee.",
    "fieldname": "custodian",
    "fieldtype": "Link",
    "in_standard_filter": 1,
@@ -138,29 +136,28 @@
    "read_only": 1
   },
   {
-   "description": "Link to the Custody Request (advance). Auto-links to the first unpaid request for this employee.",
-   "fieldname": "custody_request",
-   "fieldtype": "Link",
-   "label": "Custody Request",
-   "options": "Custody Request"
-  },
-  {
    "description": "Remaining unallocated balance on the linked Custody Request",
    "fieldname": "custody_request_balance",
    "fieldtype": "Currency",
    "label": "Custody Request Balance",
    "no_copy": 1,
    "options": "Company:company:default_currency",
-   "read_only": 1
+   "read_only": 1,
+   "hidden": 1
   },
   {
-   "description": "Purpose of this custody spending — fetched from the linked Custody Request but can be overridden.",
+   "description": "Purpose of this custody spending.",
    "fetch_from": "custody_request.purpose",
    "fetch_if_empty": 1,
    "fieldname": "purpose",
    "fieldtype": "Small Text",
    "in_list_view": 0,
    "label": "Purpose"
+  },
+  {
+   "fieldname": "accounting_dimensions_section",
+   "fieldtype": "Section Break",
+   "label": "\u0623\u0628\u0639\u0627\u062f \u0627\u0644\u0645\u062d\u0627\u0633\u0628\u0629"
   },
   {
    "fieldname": "project",
@@ -186,17 +183,6 @@
    "options": "Warehouse"
   },
   {
-   "fieldname": "notes_section",
-   "fieldtype": "Section Break",
-   "label": "Notes"
-  },
-  {
-   "description": "Free-text notes or remarks about this custody purchase claim.",
-   "fieldname": "notes",
-   "fieldtype": "Text Editor",
-   "label": "Notes"
-  },
-  {
    "fieldname": "items_section",
    "fieldtype": "Section Break",
    "label": "Custody Items"
@@ -208,6 +194,17 @@
    "options": "Accountant Custody Item",
    "reqd": 1,
    "allow_on_submit": 1
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "description": "Free-text notes or remarks about this custody purchase claim.",
+   "fieldname": "notes",
+   "fieldtype": "Text Editor",
+   "label": "Notes"
   },
   {
    "fieldname": "totals_section",
@@ -311,7 +308,7 @@
    "link_fieldname": "custom_accountant_custody"
   }
  ],
- "modified": "2025-06-08 00:00:00.000000",
+ "modified": "2025-06-30 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Treasury",
  "name": "Accountant Custody",
