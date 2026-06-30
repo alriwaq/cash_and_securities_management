@@ -77,6 +77,19 @@ class CustodyPaymentEntry(PaymentEntry):
 		validation before calling the standard validate chain.
 		For vault cash PEs, block saving if the station is not Open.
 		"""
+		# ── Sanitize PE status ─────────────────────────────────────────────────────
+		# ERPNext v15 only allows: "", "Draft", "Submitted", "Cancelled".
+		# Old module code wrote "Partly Reconciled"/"Reconciled"/"Unreconciled"
+		# to existing PEs. Reset to the correct value based on docstatus so that
+		# doc.save() inside reconcile_against_document does not throw.
+		valid_statuses = ("", "Draft", "Submitted", "Cancelled")
+		if self.status not in valid_statuses:
+			if self.docstatus == 2:
+				self.status = "Cancelled"
+			elif self.docstatus == 1:
+				self.status = "Submitted"
+			else:
+				self.status = "Draft"
 		# ── Layer 2A: Vault station open guard ────────────────────────────────────
 		if self._is_vault_cash_payment():
 			paid_from_station = self._get_vault_station_for_account(self.get("paid_from"))
