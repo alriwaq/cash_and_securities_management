@@ -280,9 +280,9 @@ class AccountantCustody(Document):
 			if new_status == "Fully Invoiced" and self.docstatus == 1:
 				try:
 					self._auto_replenish_perpetual_custody()
-				except Exception as e:
+				except Exception:
 					frappe.log_error(
-						str(e),
+						frappe.get_traceback(),
 						f"_auto_replenish_perpetual_custody: failed for AC {self.name}",
 					)
 
@@ -294,16 +294,12 @@ class AccountantCustody(Document):
 		creates a Draft Custody Request for the SHORTFALL amount so the custodian's
 		advance is replenished back to the configured minimum.
 
-		Shortfall calculation handles all three balance states:
-		  Positive outstanding  (advance > invoiced): shortfall = min_balance - outstanding
-		  Zero outstanding      (fully consumed)     : shortfall = min_balance
-		  Negative outstanding  (overspent)          : shortfall = min_balance + abs(outstanding)
-		
-		  In all cases: shortfall = min_balance - current_outstanding
-		  (because when outstanding is negative, subtracting it adds the debt back in)
+		Shortfall = minimum_custody_balance - current_outstanding.
+		Handles positive, zero, and negative outstanding (overspent) cases.
 
-		The request is left as DRAFT — the accountant must review and submit it.
-		The purpose field is stamped with an Arabic auto-generated marker.
+		All mandatory Custody Request fields are resolved before insert so that
+		validate() passes without ignore_mandatory.
+		Left as DRAFT — accountant must review and submit.
 		"""
 		if not self.custodian:
 			return
@@ -313,7 +309,7 @@ class AccountantCustody(Document):
 			"Custodian",
 			self.custodian,
 			["is_perpetual_custody", "minimum_custody_balance", "employee", "company",
-			 "total_disbursed", "total_outstanding"],
+			 "department", "custody_account"],
 			as_dict=True,
 		)
 		if not cust_data:
@@ -328,29 +324,24 @@ class AccountantCustody(Document):
 
 		# ── Shortfall calculation ────────────────────────────────────────────────
 		# Force a fresh balance recalculation on the Custodian BEFORE reading
-		# total_outstanding. This is necessary because on_pi_submit calls
-		# update_billed_quantities() (which triggers this method) BEFORE calling
-		# _safe_update_custodian_dashboard(), so the Custodian's total_outstanding
-		# field would still hold the pre-invoice value without this explicit refresh.
+		# total_outstanding so we get the post-invoice figure.
 		try:
 			from cash_and_securities_management.treasury.balances import update_custodian_dashboard
 			update_custodian_dashboard(self.custodian)
 		except Exception:
-			pass  # If balances refresh fails, fall through to read whatever is in DB
+			pass  # fall through — read whatever is in DB
 
 		current_outstanding = flt(
 			frappe.db.get_value("Custodian", self.custodian, "total_outstanding") or 0
 		)
 
-		# shortfall = amount needed to bring the custodian back to minimum_custody_balance
-		# Works for all cases:
-		#   outstanding =  2000, min = 5000  → shortfall = 3000  (top-up needed)
-		#   outstanding =  0,    min = 5000  → shortfall = 5000  (fully consumed)
-		#   outstanding = -1000, min = 5000  → shortfall = 6000  (overspent + top-up)
+		# shortfall = amount needed to bring custodian back to minimum_custody_balance
+		#   outstanding =  2000, min = 5000  → shortfall = 3000
+		#   outstanding =  0,    min = 5000  → shortfall = 5000
+		#   outstanding = -1000, min = 5000  → shortfall = 6000  (overspent)
 		shortfall = min_balance - current_outstanding
 
 		if shortfall <= 0:
-			# Outstanding already meets or exceeds the minimum — no replenishment needed
 			frappe.logger().info(
 				f"[Perpetual Custody] No replenishment needed for {self.custodian}: "
 				f"outstanding={current_outstanding} >= min={min_balance} (AC={self.name})"
@@ -358,8 +349,7 @@ class AccountantCustody(Document):
 			return
 
 		# Idempotency guard: skip if an open auto-generated CR already exists
-		# for this custodian that has not been cancelled yet
-		auto_marker = "تجديد تلقائي للعهدة المستديمة"
+		auto_marker = "\u062a\u062c\u062f\u064a\u062f \u062a\u0644\u0642\u0627\u0626\u064a \u0644\u0644\u0639\u0647\u062f\u0629 \u0627\u0644\u0645\u0633\u062a\u062f\u064a\u0645\u0629"
 		existing = frappe.db.exists(
 			"Custody Request",
 			{
@@ -369,41 +359,70 @@ class AccountantCustody(Document):
 			},
 		)
 		if existing:
-			# Already have an open auto-generated request — do not duplicate
 			return
 
-		# ── Build the auto-generated Custody Request (Draft) ────────────────────
-		# Describe the balance state clearly in the purpose field
+		# ── Build purpose text with balance details ──────────────────────────────
 		if current_outstanding < 0:
 			balance_note = (
-				f"رصيد حالي: {frappe.utils.fmt_money(current_outstanding)} "
-				f"(عجز) | حد أدنى: {frappe.utils.fmt_money(min_balance)} | "
-				f"مبلغ التجديد: {frappe.utils.fmt_money(shortfall)}"
+				f"\u0631\u0635\u064a\u062f \u062d\u0627\u0644\u064a: {frappe.utils.fmt_money(current_outstanding)} "
+				f"(\u0639\u062c\u0632) | \u062d\u062f \u0623\u062f\u0646\u0649: {frappe.utils.fmt_money(min_balance)} | "
+				f"\u0645\u0628\u0644\u063a \u0627\u0644\u062a\u062c\u062f\u064a\u062f: {frappe.utils.fmt_money(shortfall)}"
 			)
 		elif current_outstanding == 0:
 			balance_note = (
-				f"رصيد حالي: صفر | حد أدنى: {frappe.utils.fmt_money(min_balance)} | "
-				f"مبلغ التجديد: {frappe.utils.fmt_money(shortfall)}"
+				f"\u0631\u0635\u064a\u062f \u062d\u0627\u0644\u064a: \u0635\u0641\u0631 | \u062d\u062f \u0623\u062f\u0646\u0649: {frappe.utils.fmt_money(min_balance)} | "
+				f"\u0645\u0628\u0644\u063a \u0627\u0644\u062a\u062c\u062f\u064a\u062f: {frappe.utils.fmt_money(shortfall)}"
 			)
 		else:
 			balance_note = (
-				f"رصيد حالي: {frappe.utils.fmt_money(current_outstanding)} | "
-				f"حد أدنى: {frappe.utils.fmt_money(min_balance)} | "
-				f"مبلغ التجديد: {frappe.utils.fmt_money(shortfall)}"
+				f"\u0631\u0635\u064a\u062f \u062d\u0627\u0644\u064a: {frappe.utils.fmt_money(current_outstanding)} | "
+				f"\u062d\u062f \u0623\u062f\u0646\u0649: {frappe.utils.fmt_money(min_balance)} | "
+				f"\u0645\u0628\u0644\u063a \u0627\u0644\u062a\u062c\u062f\u064a\u062f: {frappe.utils.fmt_money(shortfall)}"
 			)
 
-		purpose_text = f"{auto_marker} — {self.name} — {balance_note}"
+		purpose_text = f"{auto_marker} \u2014 {self.name} \u2014 {balance_note}"
+
+		# ── Resolve all mandatory fields before insert ───────────────────────────
+		# Mandatory: naming_series, employee, posting_date, company, custodian,
+		#            purpose, advance_amount
+		ns_field = next(
+			(f for f in frappe.get_meta("Custody Request").fields
+			 if f.fieldname == "naming_series"),
+			None,
+		)
+		cr_naming_series = (
+			ns_field.options.strip().splitlines()[0].strip()
+			if ns_field and ns_field.options
+			else "CR-.YYYY.-.#####"
+		)
+
+		cr_employee = cust_data.get("employee") or self.employee
+		cr_company = cust_data.get("company") or self.company
+		cr_employee_name = (
+			frappe.db.get_value("Employee", cr_employee, "employee_name")
+			if cr_employee else None
+		)
+		cr_department = cust_data.get("department") or (
+			frappe.db.get_value("Employee", cr_employee, "department")
+			if cr_employee else None
+		)
+		cr_advance_account = cust_data.get("custody_account")
 
 		cr = frappe.new_doc("Custody Request")
-		cr.employee = cust_data.get("employee") or self.employee
-		cr.company = cust_data.get("company") or self.company
+		cr.naming_series = cr_naming_series
+		cr.employee = cr_employee
+		cr.employee_name = cr_employee_name
+		cr.department = cr_department
+		cr.company = cr_company
 		cr.custodian = self.custodian
 		cr.posting_date = nowdate()
 		cr.advance_amount = shortfall
 		cr.purpose = purpose_text
+		if cr_advance_account:
+			cr.advance_account = cr_advance_account
 
 		cr.flags.ignore_permissions = True
-		cr.flags.ignore_mandatory = False  # keep mandatory validation active
+		cr.flags.ignore_mandatory = False  # all mandatory fields explicitly set above
 		cr.insert()
 		# Intentionally left as DRAFT — accountant must review and submit
 
@@ -412,13 +431,13 @@ class AccountantCustody(Document):
 			"msgprint",
 			{
 				"message": _(
-					"تم إنشاء طلب عهدة تلقائي {0} للموظف {1} بمبلغ تجديد {2} — يرجى المراجعة والاعتماد."
+					"\u062a\u0645 \u0625\u0646\u0634\u0627\u0621 \u0637\u0644\u0628 \u0639\u0647\u062f\u0629 \u062a\u0644\u0642\u0627\u0626\u064a {0} \u0644\u0644\u0645\u0648\u0638\u0641 {1} \u0628\u0645\u0628\u0644\u063a \u062a\u062c\u062f\u064a\u062f {2} \u2014 \u064a\u0631\u062c\u0649 \u0627\u0644\u0645\u0631\u0627\u062c\u0639\u0629 \u0648\u0627\u0644\u0627\u0639\u062a\u0645\u0627\u062f."
 				).format(
 					frappe.bold(cr.name),
 					frappe.bold(cr.employee),
 					frappe.utils.fmt_money(shortfall),
 				),
-				"title": _("عهدة مستديمة — تجديد تلقائي"),
+				"title": _("\u0639\u0647\u062f\u0629 \u0645\u0633\u062a\u062f\u064a\u0645\u0629 \u2014 \u062a\u062c\u062f\u064a\u062f \u062a\u0644\u0642\u0627\u0626\u064a"),
 				"indicator": "blue",
 			},
 			user=frappe.session.user,
