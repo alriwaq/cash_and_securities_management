@@ -348,13 +348,14 @@ class AccountantCustody(Document):
 			)
 			return
 
-		# Idempotency guard: skip if an open auto-generated CR already exists
+		# Idempotency guard: skip only if a DRAFT auto-generated CR already exists
+		# (submitted CRs from previous cycles must NOT block new replenishment)
 		auto_marker = "\u062a\u062c\u062f\u064a\u062f \u062a\u0644\u0642\u0627\u0626\u064a \u0644\u0644\u0639\u0647\u062f\u0629 \u0627\u0644\u0645\u0633\u062a\u062f\u064a\u0645\u0629"
 		existing = frappe.db.exists(
 			"Custody Request",
 			{
 				"custodian": self.custodian,
-				"docstatus": ["!=", 2],
+				"docstatus": 0,
 				"purpose": ["like", f"%{auto_marker}%"],
 			},
 		)

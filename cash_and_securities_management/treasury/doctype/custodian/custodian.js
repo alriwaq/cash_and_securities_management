@@ -143,6 +143,11 @@ function setup_dashboard_indicators(frm) {
             __("Outstanding: {0}", [format_currency(frm.doc.total_outstanding)]),
             "orange"
         );
+    } else if (frm.doc.total_outstanding < 0) {
+        frm.dashboard.add_indicator(
+            __("Overspent: {0}", [format_currency(Math.abs(frm.doc.total_outstanding))]),
+            "red"
+        );
     } else {
         frm.dashboard.add_indicator(__("No Outstanding Balance"), "green");
     }
